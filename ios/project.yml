@@ -28,9 +28,10 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
-        # App Store Connect rejects a bundle without this key; these are the iPhone defaults the app already had.
+        # App Store Connect (error 90474) wants all four, even for an iPhone-only app, for iPad multitasking.
         UISupportedInterfaceOrientations:
-          [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+          [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown,
+           UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         # Self-hosted servers are often plain http on a LAN or tailnet address, as with Jellyfin.
