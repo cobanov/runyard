@@ -1,0 +1,26 @@
+# docker compose up -d --build        then open http://localhost:8080
+# API key for training scripts:       docker compose exec app /runyard-server key create <name>
+# Phone notifications:                docker compose exec app /runyard-server channel add ...  (see README)
+# Backup: pg_dump of the db service plus the media volume.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://runyard:runyard@db/runyard?sslmode=disable
+      RUNYARD_URL: ${RUNYARD_URL:-}  # public address, used for links in notifications
+    volumes: ["media:/media"]
+    # reads need no key, so by default only this machine (or tailscale serve / a tunnel) reaches it
+    ports: ["${RUNYARD_BIND:-127.0.0.1:8080}:8080"]
+    depends_on:
+      db: { condition: service_healthy }
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment: { POSTGRES_USER: runyard, POSTGRES_PASSWORD: runyard, POSTGRES_DB: runyard }
+    volumes: ["pg:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "runyard"], interval: 2s, timeout: 5s, retries: 30 }
+
+volumes:
+  media:
+  pg:

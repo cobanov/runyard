@@ -16,6 +16,7 @@ import (
 
 const channelUsage = `usage:
   runyard-server channel add [-token T] [-project P] [-events finished,failed,crashed,alert] ntfy|webhook URL
+    (-token defaults to $NTFY_TOKEN, which keeps it out of the process list)
   runyard-server channel ls
   runyard-server channel rm ID
   runyard-server channel test ID`
@@ -28,7 +29,7 @@ func channelCmd(ctx context.Context, db *pgxpool.Pool, args []string) error {
 	switch args[0] {
 	case "add":
 		fs := flag.NewFlagSet("add", flag.ContinueOnError)
-		token := fs.String("token", "", "ntfy access token")
+		token := fs.String("token", os.Getenv("NTFY_TOKEN"), "ntfy access token")
 		project := fs.String("project", "", "only this project (default: every project)")
 		events := fs.String("events", "finished,failed,crashed,alert", "events to send")
 		if err := fs.Parse(args[1:]); err != nil {

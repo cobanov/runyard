@@ -172,24 +172,18 @@ Kimlik: API anahtarı (`Authorization: Bearer`). v0.1 tek kullanıcı.
 
 ## 12. Kurulum
 
-```yaml
-# docker-compose.yml (taslak)
-services:
-  app:
-    image: ghcr.io/cobanov/runyard:latest
-    environment:
-      DATABASE_URL: postgres://tt:tt@db/tt
-      MEDIA_DIR: /media
-    volumes: ["./media:/media"]
-    ports: ["8080:8080"]
-    depends_on: [db]
-  db:
-    image: postgres:17
-    environment: { POSTGRES_USER: tt, POSTGRES_PASSWORD: tt, POSTGRES_DB: tt }
-    volumes: ["./pg:/var/lib/postgresql/data"]
+Repo kökündeki `docker-compose.yml`: `app` (çok aşamalı `Dockerfile`: Node ile web derlenir, Go binary'sine gömülür,
+imaj distroless/static ve nonroot) + `postgres:17`. Medya ve veritabanı adlandırılmış volume'larda (`media`, `pg`).
+Okuma anahtarsız olduğu için port varsayılan olarak yalnız `127.0.0.1:8080`'e açılır (`RUNYARD_BIND` ile değişir);
+dışarıya `tailscale serve` ya da Cloudflare Tunnel ile açılır. `RUNYARD_URL` bildirimlerdeki bağlantılar içindir.
+
+```sh
+docker compose up -d --build
+docker compose exec app /runyard-server key create <ad>
+NTFY_TOKEN=... docker compose exec -e NTFY_TOKEN app /runyard-server channel add ntfy https://ntfy.example/runyard
 ```
 
-Yedek: `pg_dump` + medya klasörü. Erişim: `tailscale serve` veya Cloudflare Tunnel.
+Yedek: `pg_dump` + medya volume'u.
 
 ## 13. Fazlar
 
