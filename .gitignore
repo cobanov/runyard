@@ -22,3 +22,11 @@ build/
 .wrangler/
 # the demo, built into the website by wrangler (web/demo)
 /www/demo/
+# Android (android/): Gradle output and the SDK path; the release key lives in ~/.config/runyard
+/android/build/
+/android/app/build/
+/android/.gradle/
+/android/.kotlin/
+/android/local.properties
+*.keystore
+*.jks

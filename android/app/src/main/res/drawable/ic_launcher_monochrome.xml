@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The runyard mark (web/demo/main.js): two lanes forming an r, ink outside and the running teal inside. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="520" android:viewportHeight="520">
+    <group android:translateX="132" android:translateY="132">
+        <path android:fillColor="#FFFFFF" android:pathData="M36 220 V144 A108 108 0 0 1 144 36 H220 L184 72 H144 A72 72 0 0 0 72 144 V220 Z" />
+        <path android:fillColor="#FFFFFF" android:pathData="M96 220 V144 A48 48 0 0 1 144 96 H220 L184 132 H144 A12 12 0 0 0 132 144 V220 Z" />
+    </group>
+</vector>
