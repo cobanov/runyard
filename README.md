@@ -48,6 +48,27 @@ trainer = SFTTrainer(..., callbacks=[RunyardCallback(project="sft")])
 
 from runyard.integrations.accelerate import RunyardTracker     # Accelerate
 accelerator = Accelerator(log_with=[RunyardTracker(project="unet")])
+
+from runyard.integrations.lightning import RunyardLogger       # Lightning (lightning.pytorch or pytorch_lightning)
+trainer = Trainer(logger=RunyardLogger(project="mnist"))
+
+from runyard.integrations.keras import RunyardCallback         # Keras 3
+model.fit(x, y, validation_split=0.1, callbacks=[RunyardCallback(project="mnist")])
+
+from runyard.integrations.xgboost import RunyardCallback       # XGBoost, also XGBClassifier(callbacks=[...])
+xgb.train(params, dtrain, evals=[(dval, "val")], callbacks=[RunyardCallback(project="tabular")])
+
+from runyard.integrations.lightgbm import runyard_callback     # LightGBM
+lgb.train(params, dtrain, valid_sets=[dval], callbacks=[runyard_callback(project="tabular")])
+
+from runyard.integrations.sklearn import autolog               # scikit-learn: every fit() becomes a run
+autolog(project="tabular")
+```
+
+```yaml
+metric_logger:                                                  # torchtune, in the recipe config
+  _component_: runyard.integrations.torchtune.RunyardLogger
+  project: sft
 ```
 
 Tools that only speak Weights & Biases (ai-toolkit, diffusers examples, `report_to="wandb"`), without changing
