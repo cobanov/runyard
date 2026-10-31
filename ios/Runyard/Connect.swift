@@ -11,7 +11,7 @@ struct ConnectView: View {
         Form {
             Section {
                 VStack(spacing: 8) {
-                    Image(systemName: "chart.xyaxis.line").font(.system(size: 44)).foregroundStyle(.tint)
+                    LogoMark().frame(width: 72, height: 72)
                     Text("runyard").font(.largeTitle.bold())
                     Text("Connect to your training server").foregroundStyle(.secondary)
                 }
@@ -111,5 +111,37 @@ struct LoginView: View {
             do { try await store.login(name: name, password: password) } catch { self.error = error.localizedDescription }
             busy = false
         }
+    }
+}
+
+/// The runyard mark: two running-track lanes forming an r, the inside one in the running teal (the accent).
+struct LogoMark: View {
+    var body: some View {
+        ZStack {
+            Lane(outer: 108, inner: 72).fill(.primary)
+            Lane(outer: 48, inner: 12).fill(.tint)
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .accessibilityHidden(true)
+    }
+}
+
+/// One lane, in the 256-unit box of the logo's SVG: centred on (144, 144), ends at 220, the right end cut at 45°.
+nonisolated private struct Lane: Shape {
+    let outer, inner: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let c: CGFloat = 144, a = c - outer, b = c - inner
+        var p = Path()
+        p.move(to: CGPoint(x: a, y: 220))
+        p.addArc(tangent1End: CGPoint(x: a, y: a), tangent2End: CGPoint(x: c, y: a), radius: outer)
+        p.addLine(to: CGPoint(x: 220, y: a))
+        p.addLine(to: CGPoint(x: 220 - (outer - inner), y: b))
+        p.addLine(to: CGPoint(x: c, y: b))
+        p.addArc(tangent1End: CGPoint(x: b, y: b), tangent2End: CGPoint(x: b, y: c), radius: inner)
+        p.addLine(to: CGPoint(x: b, y: 220))
+        p.closeSubpath()
+        let s = min(rect.width, rect.height) / 256
+        return p.applying(CGAffineTransform(translationX: rect.minX, y: rect.minY).scaledBy(x: s, y: s))
     }
 }
