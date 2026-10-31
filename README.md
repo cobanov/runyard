@@ -4,7 +4,8 @@ A lightweight, self-hosted training tracker. One Go binary plus PostgreSQL, star
 It shows each training run's status, metrics, samples and logs, sends phone notifications, and lets agents
 read everything over MCP and a `--json` CLI. Far fewer features than W&B or MLflow, on purpose.
 
-> Status: v0.1, used for our own training runs. APIs may still change.
+> Status: used for our own training runs; not released yet, APIs may still change.
+> Documentation: [cobanov.github.io/runyard](https://cobanov.github.io/runyard) (also in [`docs/`](docs/)).
 
 ## Run the server
 
@@ -18,6 +19,8 @@ Reading needs no key, so the port is bound to `127.0.0.1` by default. Reach it f
 `tailscale serve --bg --https=443 http://127.0.0.1:8080` or a tunnel, or set `RUNYARD_BIND=0.0.0.0:8080`.
 Set `RUNYARD_URL` (in `.env`) to the public address so notifications link to the run.
 Backup: `docker compose exec db pg_dump -U runyard runyard` plus the `media` volume.
+Media and artifacts can live in an S3-compatible bucket (Cloudflare R2, S3, MinIO) instead: set `S3_BUCKET`,
+`S3_ENDPOINT`, `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` (see `docker-compose.yml`).
 
 ## Log a run
 
@@ -35,6 +38,7 @@ run.image("samples", grid, step=step)       # PIL image, numpy array, torch tens
 run.video("rollout", frames, fps=8)         # frames: an H.264 mp4 with the `video` extra, else a GIF; or a path
 run.text("generations", [{"prompt": p, "output": o}], step=step)
 run.alert("loss is NaN", level="error")     # also notifies the phone
+run.artifact("out/checkpoint-500", kind="checkpoint", step=500)   # records where it is; upload=True sends a copy
 ```
 
 The library never stops training: calls are queued and sent from a background thread, and what could not be
@@ -83,12 +87,22 @@ and run `runyard watch ./logs`. Each directory with event files becomes a run na
 and hparams are sent, new events every 10 seconds until Ctrl-C. `--once` imports finished trainings; a restarted
 watcher continues the same runs.
 
+MLflow: the server speaks enough of MLflow's tracking API for MLflow's own client. Point it at runyard and
+`mlflow.start_run`, `log_param`/`log_metric`/`set_tag`, `log_artifact`, `mlflow.autolog()` (models included),
+`report_to="mlflow"` and Lightning's `MLFlowLogger` write runs here: experiments are projects, params the config.
+
+```sh
+export MLFLOW_TRACKING_URI=https://my-server MLFLOW_TRACKING_TOKEN=ry_...
+```
+
 ## Read runs
 
-- Web UI: runs by project, a run page with charts, samples, logs, config and system, and run comparison. Live.
-- CLI: `runyard runs ls`, `runyard runs show RUN`, `runyard logs RUN -f`, `runyard samples RUN`; `--json` everywhere.
+- Web UI: runs by project, a run page with charts, samples, logs, config, system and artifacts, and run
+  comparison. Live. Installs as an app on the phone; the bell turns on push notifications for that device.
+- CLI: `runyard runs ls`, `runyard runs show RUN`, `runyard logs RUN -f`, `runyard samples RUN`,
+  `runyard artifacts RUN [--get NAME]`; `--json` everywhere.
 - MCP for agents, at `/mcp`: `list_runs`, `get_run`, `get_metrics`, `get_samples` (returns the images),
-  `tail_logs`, `compare_runs`, `list_alerts`, plus `add_note` and `add_tags` with an API key.
+  `tail_logs`, `compare_runs`, `list_alerts`, `list_artifacts`, plus `add_note` and `add_tags` with an API key.
   `claude mcp add --transport http runyard https://my-server/mcp --header "Authorization: Bearer $RUNYARD_API_KEY"`.
   [SKILL.md](SKILL.md) tells an agent how to use it.
 
@@ -97,11 +111,14 @@ watcher continues the same runs.
 ```sh
 NTFY_TOKEN=tk_... docker compose exec -e NTFY_TOKEN app /runyard-server channel add ntfy https://ntfy.sh/my-topic
 docker compose exec app /runyard-server channel add -project sft -events failed,crashed webhook https://example.com/hook
+docker compose exec app /runyard-server channel add slack https://hooks.slack.com/services/...
+TELEGRAM_TOKEN=123:abc docker compose exec -e TELEGRAM_TOKEN app /runyard-server channel add telegram CHAT_ID
 docker compose exec app /runyard-server channel test 1
 ```
 
-Events: `finished`, `failed`, `crashed`, `alert`. ntfy messages carry the last metrics, the latest sample image
-and a link to the run.
+Kinds: `ntfy`, `webhook`, `slack`, `discord`, `telegram`; the web UI's bell adds a web push subscription
+(over HTTPS, or an app installed to the home screen on iOS). Events: `finished`, `failed`, `crashed`, `alert`.
+Messages carry the last metrics, the latest sample image where the channel allows it, and a link to the run.
 
 Checks raise alerts from the data itself, once per run, through the channels listening to `alert`. One comes
 built in: any `*loss*` metric going NaN or ±Inf. Add your own per project:
@@ -114,6 +131,23 @@ docker compose exec app /runyard-server check ls
 ```
 
 `*` in a metric name matches anything. Data older than five minutes (a `runyard sync` of an old run) is not checked.
+
+## Users and teams
+
+By default reads are open and the API key is for writing. For a shared server set `RUNYARD_AUTH=1`: then every
+read needs a login (web UI) or an API key, and teams keep their projects to themselves.
+
+```sh
+docker compose exec app /runyard-server user add -admin mert        # prints a generated password
+docker compose exec app /runyard-server user add ege
+docker compose exec app /runyard-server team add vision
+docker compose exec app /runyard-server team join vision ege
+docker compose exec app /runyard-server project team sft vision     # only vision (and admins) see sft
+docker compose exec app /runyard-server key create -user ege ege-laptop
+```
+
+A project without a team is seen by every user; a user's new project goes to their first team. A key made
+without `-user` acts as the server and sees everything.
 
 ## Layout
 

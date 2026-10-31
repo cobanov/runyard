@@ -10,6 +10,8 @@ A `v*` tag runs [.github/workflows/release.yml](.github/workflows/release.yml):
 
 [.github/workflows/ci.yml](.github/workflows/ci.yml) runs on every push and pull request: the web build,
 `go vet` and `go test` against a Postgres 17 service, then pytest.
+[.github/workflows/docs.yml](.github/workflows/docs.yml) builds `docs/` with MkDocs on every push to `main`
+that touches it and publishes https://cobanov.github.io/runyard.
 
 ## One-time setup
 
@@ -21,6 +23,8 @@ A `v*` tag runs [.github/workflows/release.yml](.github/workflows/release.yml):
   https://pypi.org/manage/account/publishing/ :
   PyPI project name `runyard`, owner `cobanov`, repository `runyard`, workflow `release.yml`,
   environment `pypi`. No API token is stored anywhere; the first successful run creates the project.
+- **Pages**: Settings → Pages → Source: GitHub Actions, for the docs site. Run the `docs` workflow once by hand
+  (Actions → docs → Run workflow) if no docs change has been pushed since.
 - **ghcr package**: after the first release run, `runyard` appears under your GitHub profile → Packages,
   private. Package settings → Change visibility → Public, so `docker pull` needs no login. The image carries
   the `org.opencontainers.image.source` label, so the package is already linked to this repo.

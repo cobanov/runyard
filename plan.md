@@ -226,13 +226,21 @@ yargı yazıldı. Arayüz 390 px genişlikte denendi.
 **v0.2:** Lightning, Keras, XGBoost, LightGBM, sklearn, torchtune adaptörleri; MLflow uyumlu uç; TensorBoard
 izleyicisi; NaN/eşik/sessizlik kuralları; PWA push; video oynatıcı.
 
-**Durum (2026-10-31):** sıra kurallar → TensorBoard izleyicisi → video oynatıcı; gerisi gerçek bir koşu isteyince
-(MLflow ucu, klasik ML ve Keras/Lightning adaptörleri, PWA push: ntfy yetiyor). Kurallar bitti (§10).
+**Durum (2026-10-31): bitti.** Kurallar (§10); Lightning, Keras, XGBoost, LightGBM, sklearn autolog ve
+torchtune adaptörleri, her biri gerçek kütüphaneyle küçük bir eğitimle test edildi; `runyard watch` (TensorBoard
+olay dosyaları: skaler, resim, metin, hparams; yeniden başlayınca aynı koşuya devam eder); video H.264 mp4
+(imageio-ffmpeg yoksa GIF); MLflow uyumlu uç (`/api/2.0/mlflow`, mlflow 3.17 istemcisiyle denendi: start_run/log_*,
+sklearn autolog + `models:/` ile geri yüklenen model, Lightning `MLFlowLogger`); web push (VAPID, RFC 8291
+şifreleme standart kütüphaneyle, RFC'nin örneğiyle bayt bayt doğrulandı; arayüzde zil düğmesi).
 
 **v0.3:** checkpoint/artifact kayıtları; çok kullanıcı ve ekipler; S3/R2 medya; upstream PR'lar
 (transformers `report_to="runyard"`, Accelerate'e hazır tracker); herkese açık sürüm ve doküman sitesi.
 
-**Durum (2026-10-31):** sürüm altyapısı hazır, henüz tetiklenmedi. `.github/workflows/ci.yml` her push'ta
+**Durum (2026-10-31):** artifact kayıtları (SDK `run.artifact`, HF checkpoint'leri, CLI `runyard artifacts`,
+arayüzde sekme, MCP `list_artifacts`); S3/R2 medya (SigV4, SeaweedFS'e karşı test); `RUNYARD_AUTH` ile kullanıcılar
+ve ekipler (giriş, ekip başına proje görünürlüğü REST/SSE/MCP/MLflow/bildirimlerde; `user|team|project` komutları);
+Slack/Discord/Telegram kanalları; doküman sitesi (`docs/`, MkDocs, GitHub Pages iş akışı) bitti. Kalan, elle
+tetiklenecek olanlar: sürüm etiketi, PyPI, Pages ayarı ve upstream PR'lar. Sürüm altyapısı hazır, henüz tetiklenmedi. `.github/workflows/ci.yml` her push'ta
 `make test`'in yaptığını yapar; `release.yml` bir `v*` etiketiyle ghcr'a amd64+arm64 imaj, PyPI'a (trusted
 publishing) paket ve GitHub release çıkarır, sürüm etiketten gelir. Tek seferlik ayarlar ve adımlar
 `RELEASING.md`'de. Upstream PR taslakları `upstream/`'da (yama + PR metni), yerelde gerçek sunucuya karşı
