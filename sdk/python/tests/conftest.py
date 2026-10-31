@@ -31,7 +31,7 @@ def server_bin(tmp_path_factory):
 @pytest.fixture
 def server(server_bin, tmp_path, monkeypatch):
     """Starts the server on an empty database; yields its URL. RUNYARD_* and the cache point at it and tmp_path."""
-    db = "runyard_pytest"
+    db = os.environ.get("RUNYARD_PYTEST_DB", "runyard_pytest")  # separate names let test runs share the container
     psql = ["docker", "exec", PG_CONTAINER, "psql", "-U", "postgres", "-q", "-c"]
     subprocess.run(psql + [f"DROP DATABASE IF EXISTS {db} WITH (FORCE)"], check=True)
     subprocess.run(psql + [f"CREATE DATABASE {db}"], check=True)
