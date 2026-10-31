@@ -1,17 +1,10 @@
 <script>
-  import { get, onEvent, throttle, ago, live } from './lib.svelte.js'
-
-  let projects = $state(null)
-  let error = $state('')
-  const load = throttle(() => get('/projects').then((p) => ((projects = p), (error = ''))).catch((e) => (error = e.message)))
-  load()
-  $effect(() => onEvent((e) => (e.type === 'run' || e.type === 'reconnect') && load()))
+  import { store, ago, live } from './lib.svelte.js'
 </script>
 
-<h1>Projects</h1>
-{#if error}
-  <p class="empty">Could not load projects: {error}</p>
-{:else if projects?.length === 0}
+<div class="page-head"><h1>Projects</h1></div>
+
+{#if store.projects?.length === 0}
   <div class="empty">
     <p>No runs yet. Start one from a training script:</p>
     <pre>pip install runyard
@@ -21,40 +14,34 @@ import runyard as ry
 run = ry.init(project="my-project", config={"{"}"lr": 1e-3{"}"})
 run.log({"{"}"loss": loss{"}"}, step=step)</pre>
   </div>
-{:else if projects}
-  <ul class="row-list">
-    {#each projects as p (p.name)}
-      <li>
-        <a href="#/p/{encodeURIComponent(p.name)}" class="edge" class:status-running={p.running > 0}>
-          <span class="name">{p.name}</span>
-          <span class="muted small">
-            {#if p.running}<span class="state status-running">{p.running} running</span>, {/if}{p.runs} runs{#if p.last_run_at}, last started {ago(p.last_run_at, live.now)}{/if}
-          </span>
-        </a>
-      </li>
-    {/each}
-  </ul>
+{:else if store.projects}
+  <div class="card table">
+    <table>
+      <thead><tr><th>Project</th><th>Runs</th><th>Running</th><th>Last started</th></tr></thead>
+      <tbody>
+        {#each store.projects as p (p.name)}
+          <tr>
+            <td class="name"><a href="#/p/{encodeURIComponent(p.name)}">{p.name}</a></td>
+            <td>{p.runs}</td>
+            <td>{#if p.running}<span class="badge status-running">{p.running}</span>{:else}<span class="muted">–</span>{/if}</td>
+            <td class="muted">{p.last_run_at ? ago(p.last_run_at, live.now) : '–'}</td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
 {/if}
 
 <style>
-  h1 {
-    margin: 8px 0 16px;
+  .name {
+    font-weight: 600;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
-  a {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 4px 16px;
-    padding: 14px 12px;
-    border-bottom: 1px solid var(--rule);
+  .name a {
     text-decoration: none;
   }
-  a:hover {
-    background: var(--panel);
-  }
-  .name {
-    font-weight: 700;
-    font-size: 1.125rem;
+  .name a:hover {
+    text-decoration: underline;
   }
 </style>

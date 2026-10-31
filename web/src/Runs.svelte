@@ -1,52 +1,78 @@
 <script>
-  import { get, onEvent, throttle, ago, runTime, live } from './lib.svelte.js'
+  import { get, onEvent, throttle, ago, runTime, live, fmt } from './lib.svelte.js'
 
   let { project } = $props()
   let runs = $state(null)
+  let details = $state({}) // run id -> run with metric summaries
   let status = $state('')
   let picked = $state([])
 
-  const load = throttle(() =>
-    get(`/runs?project=${encodeURIComponent(project)}&status=${status}`).then((r) => (runs = r)),
-  )
+  // shortcut: the list has no metrics, so the first 60 runs are fetched one by one; add a summary to the list endpoint past that.
+  const load = throttle(async () => {
+    const list = await get(`/runs?project=${encodeURIComponent(project)}&status=${status}`)
+    runs = list
+    const full = await Promise.all(list.slice(0, 60).map((r) => get('/runs/' + r.id)))
+    details = Object.fromEntries(full.map((r) => [r.id, r]))
+  })
   $effect(() => {
     status
     load()
   })
   $effect(() => onEvent((e) => (e.type === 'run' || e.type === 'reconnect') && load()))
 
+  // Metric columns: the three keys logged by most runs, losses first.
+  const cols = $derived.by(() => {
+    const n = {}
+    for (const r of Object.values(details)) for (const k of Object.keys(r.metrics || {})) if (!k.startsWith('sys/')) n[k] = (n[k] || 0) + 1
+    return Object.keys(n)
+      .sort((a, b) => /loss/i.test(b) - /loss/i.test(a) || n[b] - n[a] || a.localeCompare(b))
+      .slice(0, 3)
+  })
   const filters = ['', 'running', 'finished', 'failed', 'crashed']
 </script>
 
-<p class="muted small crumb"><a href="#/">Projects</a> /</p>
-<h1>{project}</h1>
-
-<div class="filters" role="group" aria-label="Show runs by status">
-  {#each filters as f}
-    <button aria-pressed={status === f} onclick={() => (status = f)}>{f || 'all'}</button>
-  {/each}
+<p class="crumb"><a href="#/projects">Projects</a> /</p>
+<div class="page-head">
+  <h1>{project}</h1>
+  <div class="filters" role="group" aria-label="Show runs by status">
+    {#each filters as f}
+      <button aria-pressed={status === f} onclick={() => (status = f)}>{f || 'All'}</button>
+    {/each}
+  </div>
 </div>
 
 {#if runs?.length === 0}
   <p class="empty">No {status} runs in this project.</p>
 {:else if runs}
-  <ul class="row-list">
-    {#each runs as r (r.id)}
-      <li class="status-{r.status}">
-        <div class="edge row">
-          <input type="checkbox" bind:group={picked} value={r.id} aria-label="Compare {r.name}" />
-          <a href="#/r/{r.id}">
-            <span class="name">{r.name}</span>
-            <span class="small">
-              <span class="state">{r.status}</span>
-              <span class="muted">for {runTime(r, live.now)}, started {ago(r.started_at, live.now)}{r.host ? ` on ${r.host}` : ''}</span>
-            </span>
-            {#if r.tags.length}<span class="tags small">{#each r.tags as t}<span>{t}</span>{/each}</span>{/if}
-          </a>
-        </div>
-      </li>
-    {/each}
-  </ul>
+  <div class="card table">
+    <table>
+      <thead>
+        <tr>
+          <th class="pick"><span class="sr">Compare</span></th>
+          <th>Status</th>
+          <th>Run</th>
+          <th>Duration</th>
+          <th>Started</th>
+          <th>Tags</th>
+          {#each cols as c}<th class="num">{c}</th>{/each}
+        </tr>
+      </thead>
+      <tbody>
+        {#each runs as r (r.id)}
+          {@const m = details[r.id]?.metrics}
+          <tr class="status-{r.status}">
+            <td class="pick"><input type="checkbox" bind:group={picked} value={r.id} aria-label="Compare {r.name}" /></td>
+            <td><span class="badge">{r.status}</span></td>
+            <td class="name"><a href="#/r/{r.id}">{r.name}</a>{#if r.host}<span class="muted small host">{r.host}</span>{/if}</td>
+            <td>{runTime(r, live.now)}</td>
+            <td class="muted">{ago(r.started_at, live.now)}</td>
+            <td>{#each r.tags as t}<span class="tag">{t}</span>{/each}</td>
+            {#each cols as c}<td class="num">{m?.[c] ? fmt(m[c].last) : ''}</td>{/each}
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
 {/if}
 
 {#if picked.length >= 2}
@@ -57,55 +83,48 @@
 {/if}
 
 <style>
-  .crumb {
-    margin: 0;
-  }
-  h1 {
-    margin-bottom: 12px;
-  }
   .filters {
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
-    margin-bottom: 14px;
   }
-  .row {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 12px;
-    border-bottom: 1px solid var(--rule);
-  }
-  .row:hover {
-    background: var(--panel);
+  .pick {
+    width: 1px;
+    padding-right: 0;
   }
   input {
-    margin-top: 5px;
-    width: 18px;
-    height: 18px;
+    display: block;
+    width: 16px;
+    height: 16px;
+    margin: 0;
     accent-color: var(--ink);
   }
-  .row a {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    text-decoration: none;
-    flex: 1;
-    min-width: 0;
-  }
   .name {
-    font-weight: 700;
-    overflow-wrap: anywhere;
+    font-weight: 600;
   }
-  .tags {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
+  .host {
+    display: block;
+    font-weight: 400;
   }
-  .tags span {
-    border: 1px solid var(--rule);
-    border-radius: 999px;
-    padding: 0 8px;
+  .name a {
+    text-decoration: none;
+  }
+  .name a:hover {
+    text-decoration: underline;
+  }
+  .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .tag + .tag {
+    margin-left: 4px;
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
   }
   .compare {
     position: sticky;
@@ -118,9 +137,10 @@
   .go {
     background: var(--ink);
     color: var(--paper);
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 8px 16px;
     text-decoration: none;
-    font-weight: 700;
+    font-weight: 600;
+    font-size: 0.875rem;
   }
 </style>

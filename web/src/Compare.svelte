@@ -24,14 +24,15 @@
   })
 </script>
 
-<p class="muted small crumb"><a href="#/">Projects</a> /{#if runs[0]}&nbsp;<a href="#/p/{encodeURIComponent(runs[0].project)}">{runs[0].project}</a> /{/if}</p>
-<h1>Comparing {ids.length} runs</h1>
-
-<ul class="legend">
-  {#each runs as r, i (r.id)}
-    <li class="status-{r.status}"><span class="swatch" style="background: var({color(i)})"></span><a href="#/r/{r.id}">{r.name}</a> <span class="state small">{r.status}</span></li>
-  {/each}
-</ul>
+<p class="crumb"><a href="#/projects">Projects</a> /{#if runs[0]}&nbsp;<a href="#/p/{encodeURIComponent(runs[0].project)}">{runs[0].project}</a> /{/if}</p>
+<div class="page-head">
+  <h1>Comparing {ids.length} runs</h1>
+  <ul class="legend">
+    {#each runs as r, i (r.id)}
+      <li class="status-{r.status}"><span class="swatch" style="background: var({color(i)})"></span><a href="#/r/{r.id}">{r.name}</a> <span class="state small">{r.status}</span></li>
+    {/each}
+  </ul>
+</div>
 
 <div class="grid">
   {#each keys as k (k)}
@@ -43,7 +44,7 @@
 {#if runs.length && !diff.length}
   <p class="empty">These runs have the same config.</p>
 {:else if diff.length}
-  <div class="table">
+  <div class="card table">
     <table>
       <thead><tr><th></th>{#each runs as r, i}<th><span class="swatch" style="background: var({color(i)})"></span>{r.name}</th>{/each}</tr></thead>
       <tbody>
@@ -56,16 +57,18 @@
 {/if}
 
 <style>
-  .crumb {
-    margin: 0 0 6px;
-  }
   .legend {
     list-style: none;
     padding: 0;
-    margin: 12px 0 16px;
+    margin: 0;
     display: flex;
     flex-wrap: wrap;
     gap: 6px 18px;
+    font-size: 0.875rem;
+  }
+  .legend a {
+    text-decoration: none;
+    font-weight: 600;
   }
   .swatch {
     display: inline-block;
@@ -84,19 +87,14 @@
   .table {
     overflow-x: auto;
   }
-  table {
-    border-collapse: collapse;
-    font-size: 0.875rem;
-  }
-  th,
-  td {
-    text-align: left;
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--rule);
-    white-space: nowrap;
-  }
   tbody th {
     color: var(--muted);
     font-weight: 400;
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  tbody tr:last-child th {
+    border-bottom: 0;
   }
 </style>

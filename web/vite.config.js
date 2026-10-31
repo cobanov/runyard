@@ -5,5 +5,6 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 export default defineConfig({
   plugins: [svelte()],
   build: { outDir: '../server/webdist/dist', emptyOutDir: true },
-  server: { proxy: { '/api': 'http://localhost:8080', '/media': 'http://localhost:8080', '/mcp': 'http://localhost:8080' } },
+  // RUNYARD_API=https://some-server npm run dev points the dev server at real data.
+  server: { proxy: Object.fromEntries(['/api', '/media', '/mcp'].map((p) => [p, { target: process.env.RUNYARD_API || 'http://localhost:8080', changeOrigin: true }])) },
 })

@@ -17,12 +17,13 @@
   }
 </script>
 
-<form onsubmit={submit}>
+<form onsubmit={submit} class="card">
+  <p class="brand">runyard</p>
   <h1>Log in</h1>
   <label>Name <input bind:value={name} autocomplete="username" autocapitalize="none" required /></label>
   <label>Password <input type="password" bind:value={password} autocomplete="current-password" required /></label>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
-  <button disabled={busy}>Log in</button>
+  <button class="btn-primary" disabled={busy}>Log in</button>
   <p class="muted small">Accounts are made on the server: <code>runyard-server user add NAME</code>.</p>
 </form>
 
@@ -30,8 +31,13 @@
   form {
     display: grid;
     gap: 14px;
-    max-width: 340px;
-    padding-top: 24px;
+    width: min(360px, calc(100vw - 32px));
+    padding: 28px 24px;
+  }
+  .brand {
+    margin: 0;
+    font-weight: 800;
+    letter-spacing: -0.02em;
   }
   label {
     display: grid;
@@ -41,8 +47,8 @@
   input {
     padding: 10px 12px;
     border: 1px solid var(--rule);
-    border-radius: 6px;
-    background: var(--panel);
+    border-radius: 8px;
+    background: var(--paper);
     font-weight: 400;
   }
   .error {

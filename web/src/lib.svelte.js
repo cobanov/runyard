@@ -86,5 +86,31 @@ export function flatten(obj, prefix = '', out = {}) {
   return out
 }
 
+// Projects, shared by the sidebar and the Projects page; reloaded on every run event.
+export const store = $state({ projects: null })
+export const loadProjects = throttle(() => get('/projects').then((p) => void (store.projects = p)).catch(() => {}))
+
+// mainMetric picks the key to show for a run at a glance: a loss if there is one, else the most logged non-sys key.
+export function mainMetric(metrics) {
+  const keys = Object.keys(metrics || {}).filter((k) => !k.startsWith('sys/'))
+  const loss = keys.filter((k) => /loss/i.test(k)).sort((a, b) => a.length - b.length)[0]
+  return loss || keys.sort((a, b) => metrics[b].count - metrics[a].count)[0]
+}
+
+// sysLoad groups the last sys/* values of running runs by host: {host: {cpu, ram_gb, gpus: [{i, util, mem_gb, temp_c, power_w}]}}
+export function sysLoad(runs) {
+  const hosts = {}
+  for (const r of runs) {
+    for (const [k, m] of Object.entries(r.metrics || {})) {
+      if (!k.startsWith('sys/')) continue
+      const h = (hosts[r.host || '?'] ||= { gpus: {} })
+      const gpu = k.match(/^sys\/gpu(\d+)\.(\w+)$/)
+      if (gpu) (h.gpus[gpu[1]] ||= { i: +gpu[1] })[gpu[2]] = m.last
+      else h[k.slice(4)] = m.last
+    }
+  }
+  return Object.entries(hosts).map(([host, h]) => ({ host, ...h, gpus: Object.values(h.gpus).sort((a, b) => a.i - b.i) }))
+}
+
 export const palette = ['--c1', '--c2', '--c3', '--c4', '--c5', '--c6']
 export const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()

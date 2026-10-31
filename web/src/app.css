@@ -1,42 +1,30 @@
+/* Design tokens. Neutral surfaces, one hairline border, colour only for state: the shadcn look in plain CSS.
+   light-dark() picks per colour-scheme; data-theme="light|dark" on <html> overrides the OS setting. */
 :root {
-  --paper: #f3f6f9;
-  --panel: #ffffff;
-  --ink: #14324f;
-  --muted: #5b6f83;
-  --rule: #d6dfe8;
-  --running: #0e8a8c;
-  --finished: #14324f;
-  --failed: #c4513a;
-  --crashed: #b4770f;
-  --c1: #1f5f99;
-  --c2: #0e8a8c;
-  --c3: #c4513a;
-  --c4: #7a4f9a;
-  --c5: #b4770f;
-  --c6: #3b7d3b;
+  color-scheme: light dark;
+  --paper: light-dark(#f6f6f7, #09090b);
+  --panel: light-dark(#ffffff, #121214);
+  --ink: light-dark(#18181b, #fafafa);
+  --muted: light-dark(#71717a, #a1a1aa);
+  --rule: light-dark(#e4e4e7, #27272a);
+  --soft: light-dark(#f4f4f5, #1c1c1f);
+  --running: light-dark(#0f9488, #2dd4bf);
+  --finished: light-dark(#52525b, #a1a1aa);
+  --failed: light-dark(#dc2626, #f87171);
+  --crashed: light-dark(#d97706, #fbbf24);
+  --c1: light-dark(#2563eb, #60a5fa);
+  --c2: light-dark(#0f9488, #2dd4bf);
+  --c3: light-dark(#dc2626, #f87171);
+  --c4: light-dark(#7c3aed, #a78bfa);
+  --c5: light-dark(#d97706, #fbbf24);
+  --c6: light-dark(#16a34a, #4ade80);
+  --radius: 10px;
+  --shadow: light-dark(0 1px 2px rgb(0 0 0 / 0.04), none);
   --sans: "Atkinson Hyperlegible Next Variable", system-ui, sans-serif;
   --mono: "Atkinson Hyperlegible Mono Variable", ui-monospace, monospace;
-  color-scheme: light dark;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #0f2236;
-    --panel: #132b44;
-    --ink: #e4edf5;
-    --muted: #93a8bc;
-    --rule: #24425f;
-    --running: #3cc6c8;
-    --finished: #c9d7e4;
-    --failed: #f07f69;
-    --crashed: #e9b55a;
-    --c1: #74ade6;
-    --c2: #3cc6c8;
-    --c3: #f07f69;
-    --c4: #b892dc;
-    --c5: #e9b55a;
-    --c6: #7cc47c;
-  }
-}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
@@ -44,7 +32,7 @@ body {
   margin: 0;
   background: var(--paper);
   color: var(--ink);
-  font: 16px/1.45 var(--sans);
+  font: 15px/1.5 var(--sans);
   font-variant-numeric: tabular-nums;
 }
 a { color: inherit; }
@@ -52,31 +40,53 @@ button, input, select { font: inherit; color: inherit; }
 button {
   background: var(--panel);
   border: 1px solid var(--rule);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 6px 12px;
+  font-size: 0.875rem;
+  font-weight: 500;
   cursor: pointer;
 }
+button:hover { background: var(--soft); }
 button[aria-pressed="true"], button[aria-selected="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 :focus-visible { outline: 2px solid var(--c1); outline-offset: 2px; }
-h1 { font-size: 1.5625rem; line-height: 1.2; margin: 0; font-weight: 700; letter-spacing: -0.01em; overflow-wrap: anywhere; }
-h2 { font-size: 1rem; margin: 0 0 8px; font-weight: 700; }
+h1 { font-size: 1.5rem; line-height: 1.2; margin: 0; font-weight: 700; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+h2 { font-size: 0.875rem; margin: 0 0 10px; font-weight: 600; color: var(--muted); letter-spacing: 0.02em; text-transform: uppercase; }
 .muted { color: var(--muted); }
 .small { font-size: 0.8125rem; }
-.wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px 48px; }
-.empty { padding: 32px 0; color: var(--muted); max-width: 60ch; }
+.empty { padding: 28px 0; color: var(--muted); max-width: 60ch; }
 .empty code, pre { font-family: var(--mono); font-size: 0.875rem; }
-.row-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
 
-/* The status edge: the one loud thing. A run's state reads at a glance from across the room. */
+/* Cards and tables: every surface is a panel with one hairline and a soft radius. */
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius); box-shadow: var(--shadow); }
+.card-pad { padding: 16px 18px; }
+.row-list { list-style: none; margin: 0; padding: 0; }
+.row-list > li { border-top: 1px solid var(--rule); }
+.row-list > li:first-child { border-top: 0; }
+.table { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.875rem; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule); white-space: nowrap; vertical-align: middle; }
+thead th { color: var(--muted); font-weight: 500; font-size: 0.8125rem; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--soft); }
+.crumb { margin: 0 0 4px; font-size: 0.8125rem; color: var(--muted); }
+.crumb a { text-decoration: none; }
+.crumb a:hover { text-decoration: underline; }
+.page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; margin: 0 0 20px; }
+.tag { display: inline-block; border: 1px solid var(--rule); border-radius: 999px; padding: 0 8px; font-size: 0.75rem; line-height: 1.6; color: var(--muted); }
+.btn-primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.btn-primary:hover { background: var(--ink); opacity: 0.9; }
+
+/* Status: a dot and a word, in the state's colour. A running dot breathes. */
 .status-running { --state: var(--running); }
 .status-finished { --state: var(--finished); }
 .status-failed { --state: var(--failed); }
 .status-crashed { --state: var(--crashed); }
-.edge { border-left: 6px solid var(--state, var(--rule)); }
-.state { color: var(--state); font-weight: 700; }
+.state { color: var(--state); font-weight: 600; }
+.badge { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 600; color: var(--state, var(--muted)); text-transform: capitalize; }
+.badge::before, .pip { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--state, var(--muted)); flex: none; }
 @media (prefers-reduced-motion: no-preference) {
-  .status-running .edge, .edge.status-running { animation: breathe 2.4s ease-in-out infinite; }
+  .status-running .badge::before, .status-running .pip, .pip.status-running { animation: breathe 2s ease-in-out infinite; }
 }
-@keyframes breathe { 50% { border-left-color: color-mix(in srgb, var(--running) 35%, transparent); } }
+@keyframes breathe { 50% { opacity: 0.35; } }
 
 .uplot { font-family: var(--sans); }

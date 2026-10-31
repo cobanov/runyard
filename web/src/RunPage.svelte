@@ -54,25 +54,25 @@
 {#if error}
   <p class="empty">Could not load this run: {error}</p>
 {:else if run}
-  <div class="status-{run.status}">
-    <p class="muted small crumb"><a href="#/">Projects</a> / <a href="#/p/{encodeURIComponent(run.project)}">{run.project}</a> /</p>
-    <div class="edge head">
+  <p class="crumb"><a href="#/projects">Projects</a> / <a href="#/p/{encodeURIComponent(run.project)}">{run.project}</a> /</p>
+  <div class="card card-pad head status-{run.status}">
+    <div class="title">
       <h1>{run.name}</h1>
-      <p class="small">
-        <span class="state">{run.status}</span>
-        <span class="muted">
-          for {runTime(run, live.now)}, started {ago(run.started_at, live.now)}{run.host ? ` on ${run.host}` : ''}{#if run.status === 'running'}, last heartbeat {ago(run.last_heartbeat_at, live.now)}{/if}
-        </span>
-      </p>
-      {#if run.git?.commit}
-        <p class="small muted">git {run.git.branch} {run.git.commit.slice(0, 8)}{run.git.dirty ? ' with uncommitted changes' : ''}</p>
-      {/if}
-      {#if run.notes}<p class="small">{run.notes}</p>{/if}
+      <span class="badge">{run.status}</span>
     </div>
+    <dl class="facts small">
+      <div><dt>Duration</dt><dd>{runTime(run, live.now)}</dd></div>
+      <div><dt>Started</dt><dd>{ago(run.started_at, live.now)}</dd></div>
+      {#if run.status === 'running'}<div><dt>Heartbeat</dt><dd>{ago(run.last_heartbeat_at, live.now)}</dd></div>{/if}
+      {#if run.host}<div><dt>Host</dt><dd>{run.host}</dd></div>{/if}
+      {#if run.git?.commit}<div><dt>Git</dt><dd>{run.git.branch} {run.git.commit.slice(0, 8)}{run.git.dirty ? ', uncommitted changes' : ''}</dd></div>{/if}
+    </dl>
+    {#if run.tags?.length}<p class="tags">{#each run.tags as t}<span class="tag">{t}</span>{/each}</p>{/if}
+    {#if run.notes}<p class="small notes">{run.notes}</p>{/if}
   </div>
 
   {#if alerts.length}
-    <ul class="alerts small" aria-label="Alerts">
+    <ul class="card row-list alerts small" aria-label="Alerts">
       {#each alerts as a (a.id)}
         <li class="level-{a.level}">
           <strong>{a.title}</strong>
@@ -109,7 +109,7 @@
   {:else if tab === 'logs'}
     <Logs {id} running={run.status === 'running'} />
   {:else if tab === 'artifacts'}
-    <ul class="row-list artifacts">
+    <ul class="card row-list artifacts">
       {#each artifacts as a (a.id)}
         <li>
           <div class="edge-row">
@@ -123,11 +123,11 @@
   {:else if tab === 'config'}
     {#if summary.length}
       <h2>Summary</h2>
-      <dl>{#each summary as [k, v]}<dt>{k}</dt><dd>{fmt(v)}</dd>{/each}</dl>
+      <dl class="card kv">{#each summary as [k, v]}<dt>{k}</dt><dd>{fmt(v)}</dd>{/each}</dl>
     {/if}
     <h2>Config</h2>
     {#if config.length}
-      <dl>{#each config as [k, v]}<dt>{k}</dt><dd>{fmt(v)}</dd>{/each}</dl>
+      <dl class="card kv">{#each config as [k, v]}<dt>{k}</dt><dd>{fmt(v)}</dd>{/each}</dl>
     {:else}
       <p class="empty">This run was started without a config.</p>
     {/if}
@@ -135,26 +135,49 @@
 {/if}
 
 <style>
-  .crumb {
-    margin: 0 0 6px;
+  .title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
   }
-  .head {
-    padding: 2px 0 2px 14px;
+  .facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 24px;
+    margin: 12px 0 0;
   }
-  .head p {
-    margin: 4px 0 0;
+  .facts dt {
+    color: var(--muted);
+  }
+  .facts dd {
+    margin: 0;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+  .tags {
+    margin: 10px 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .notes {
+    margin: 10px 0 0;
+    white-space: pre-wrap;
   }
   .alerts {
-    list-style: none;
     margin: 14px 0 0;
-    padding: 0;
-    display: grid;
-    gap: 4px;
   }
   .alerts li {
     border-left: 3px solid var(--muted);
-    padding: 2px 0 2px 10px;
+    padding: 8px 14px;
     overflow-wrap: anywhere;
+  }
+  .alerts li:first-child {
+    border-top-left-radius: var(--radius);
+  }
+  .alerts li:last-child {
+    border-bottom-left-radius: var(--radius);
   }
   .alerts .level-warn {
     border-left-color: var(--crashed);
@@ -163,8 +186,7 @@
     border-left-color: var(--failed);
   }
   .artifacts li {
-    padding: 10px 0;
-    border-bottom: 1px solid var(--rule);
+    padding: 10px 14px;
     overflow-wrap: anywhere;
   }
   .edge-row {
@@ -180,31 +202,63 @@
   }
   .tabs {
     display: flex;
-    gap: 6px;
-    margin: 18px 0 14px;
+    gap: 2px;
+    margin: 20px 0 16px;
     overflow-x: auto;
-    padding-bottom: 2px;
+    overflow-y: hidden;
+    border-bottom: 1px solid var(--rule);
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tabs {
+    scrollbar-width: none;
   }
   .tabs button {
     white-space: nowrap;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    margin-bottom: -1px;
+    padding: 8px 12px;
+    background: none;
+    color: var(--muted);
+  }
+  .tabs button:hover {
+    color: var(--ink);
+  }
+  .tabs button[aria-selected='true'] {
+    background: none;
+    color: var(--ink);
+    border-bottom-color: var(--ink);
   }
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
     gap: 12px;
   }
-  dl {
+  .kv {
     display: grid;
     grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
-    gap: 4px 16px;
-    margin: 0 0 20px;
+    gap: 0;
+    margin: 0 0 24px;
+    font-size: 0.875rem;
   }
-  dt {
+  .kv dt,
+  .kv dd {
+    padding: 7px 14px;
+    border-top: 1px solid var(--rule);
+    overflow-wrap: anywhere;
+  }
+  .kv dt:first-child,
+  .kv dt:first-child + dd {
+    border-top: 0;
+  }
+  .kv dt {
     color: var(--muted);
-    overflow-wrap: anywhere;
+    font-family: var(--mono);
   }
-  dd {
+  .kv dd {
     margin: 0;
-    overflow-wrap: anywhere;
   }
 </style>

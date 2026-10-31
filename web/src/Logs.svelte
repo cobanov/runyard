@@ -32,7 +32,7 @@
     margin: 0;
     background: var(--panel);
     border: 1px solid var(--rule);
-    border-radius: 8px;
+    border-radius: var(--radius);
     padding: 10px 12px;
     height: min(70vh, 720px);
     overflow: auto;

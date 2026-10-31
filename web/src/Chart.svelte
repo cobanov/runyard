@@ -82,8 +82,9 @@
     margin: 0;
     background: var(--panel);
     border: 1px solid var(--rule);
-    border-radius: 8px;
-    padding: 10px 10px 4px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 12px 12px 6px;
     min-width: 0;
   }
   figcaption {
@@ -94,7 +95,8 @@
     padding: 0 4px 6px;
   }
   .title {
-    font-weight: 700;
+    font-weight: 600;
+    font-size: 0.875rem;
     overflow-wrap: anywhere;
   }
   .plot {
