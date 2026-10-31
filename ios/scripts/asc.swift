@@ -6,7 +6,11 @@
 //   swift scripts/asc.swift profile <sha1>  App Store profile for the distribution certificate with that SHA-1
 //   swift scripts/asc.swift builds          the latest builds and their processing state
 //   swift scripts/asc.swift tester <email>  add a team member to the internal group that gets every build
+//   swift scripts/asc.swift public <build>  open TestFlight to anyone: test information, the external group
+//                                           "Public" with a public link, that build in it, sent to beta review
 //
+// `public` also needs CONTACT_FIRST, CONTACT_LAST, CONTACT_EMAIL and CONTACT_PHONE for Apple's reviewer;
+// they stay out of this public repository.
 // Environment: ASC_KEY_ID, ASC_ISSUER_ID, APPLE_TEAM_ID (the key is read from
 // ~/.appstoreconnect/private_keys/AuthKey_<ASC_KEY_ID>.p8). Adapted from PocketVibe's.
 import CryptoKit
@@ -190,6 +194,84 @@ func tester(_ email: String) {
     }
 }
 
+// ---------- Public TestFlight ----------
+
+let testerInfo = """
+runyard shows your ML training runs live: metrics, logs, samples, GPU load and alerts, from your own runyard \
+server (github.com/cobanov/runyard). No server yet? Tap "Try the demo" on the first screen.
+"""
+let reviewNotes = """
+runyard is the companion app for a self-hosted server (https://github.com/cobanov/runyard), so there is no account \
+to sign in with. To review it, tap "Try the demo" on the first screen: the whole app opens on built-in sample \
+training runs, with no server and no network. "Leave demo" goes back to the first screen.
+"""
+
+/// Creates or updates the one item at `listPath` (a to-one or a list) with these attributes.
+func upsert(_ listPath: String, type: String, attributes: [String: Any], create: [String: Any], fixed: Set<String> = []) {
+    let found: [String: Any]?
+    do {
+        let data = try call("GET", listPath)["data"]
+        found = (data as? [[String: Any]])?.first ?? (data as? [String: Any])
+    } catch { die("GET \(listPath): \(error)") }
+    do {
+        if let id = found?["id"] as? String {
+            try call("PATCH", "/v1/\(type)/\(id)", ["data": ["type": type, "id": id, "attributes": attributes.filter { !fixed.contains($0.key) }]])
+        } else {
+            try call("POST", "/v1/\(type)", ["data": ["type": type, "attributes": attributes].merging(create) { a, _ in a }])
+        }
+    } catch { die("\(type): \(error)") }
+}
+
+func publicBeta(_ number: String) {
+    guard let id = app()?["id"] as? String else { die("no app record") }
+    let contact = ["CONTACT_FIRST", "CONTACT_LAST", "CONTACT_EMAIL", "CONTACT_PHONE"].map { env[$0] ?? "" }
+    if contact.contains(where: \.isEmpty) { die("set CONTACT_FIRST, CONTACT_LAST, CONTACT_EMAIL and CONTACT_PHONE") }
+    guard let build = list("/v1/builds?filter[app]=\(id)&filter[version]=\(number)").first, let bid = build["id"] as? String
+    else { die("no build \(number)") }
+    guard attributes(build)["processingState"] as? String == "VALID" else { die("build \(number) is not processed yet") }
+    let toApp = ["relationships": ["app": ["data": ["type": "apps", "id": id]]]]
+
+    upsert("/v1/apps/\(id)/betaAppLocalizations", type: "betaAppLocalizations", attributes: [
+        "locale": "en-US", "description": testerInfo, "feedbackEmail": contact[2],
+        "marketingUrl": "https://runyard.cobanov.dev", "privacyPolicyUrl": "https://runyard.cobanov.dev/privacy",
+    ], create: toApp, fixed: ["locale"])
+    upsert("/v1/apps/\(id)/betaAppReviewDetail", type: "betaAppReviewDetails", attributes: [
+        "contactFirstName": contact[0], "contactLastName": contact[1], "contactEmail": contact[2], "contactPhone": contact[3],
+        "demoAccountRequired": false, "notes": reviewNotes,
+    ], create: toApp)
+    upsert("/v1/builds/\(bid)/betaBuildLocalizations", type: "betaBuildLocalizations", attributes: [
+        "locale": "en-US", "whatsNew": "Try the demo: the whole app on sample runs, no server needed.",
+    ], create: ["relationships": ["build": ["data": ["type": "builds", "id": bid]]]], fixed: ["locale"])
+    print("test information, review contact and what to test set")
+
+    var group = list("/v1/apps/\(id)/betaGroups?limit=200").first { attributes($0)["name"] as? String == "Public" }
+    if group == nil {
+        do {
+            group = try call("POST", "/v1/betaGroups", ["data": [
+                "type": "betaGroups",
+                "attributes": ["name": "Public", "publicLinkEnabled": true, "feedbackEnabled": true],
+            ].merging(toApp) { a, _ in a }])["data"] as? [String: Any]
+            print("external group \"Public\" created")
+        } catch { die("creating the external group failed: \(error)") }
+    }
+    guard let gid = group?["id"] as? String else { die("no external group") }
+    do {
+        try call("POST", "/v1/betaGroups/\(gid)/relationships/builds", ["data": [["type": "builds", "id": bid]]])
+        print("build \(number) added to Public")
+    } catch { die("adding the build failed: \(error)") }
+    do {
+        try call("POST", "/v1/betaAppReviewSubmissions", ["data": [
+            "type": "betaAppReviewSubmissions", "relationships": ["build": ["data": ["type": "builds", "id": bid]]],
+        ]])
+        print("build \(number) sent to beta review")
+    } catch let error as APIError where error.status == 409 {
+        print("build \(number) already in beta review: \(error.body.prefix(200))")
+    } catch { die("submitting for review failed: \(error)") }
+    if let link = list("/v1/apps/\(id)/betaGroups?limit=200").first(where: { $0["id"] as? String == gid }).flatMap({ attributes($0)["publicLink"] as? String }) {
+        print("public link: \(link)")
+    }
+}
+
 let args = CommandLine.arguments.dropFirst()
 switch args.first {
 case "probe": probe()
@@ -201,5 +283,8 @@ case "builds": builds()
 case "tester":
     guard args.count == 2 else { die("usage: tester <email>") }
     tester(args[args.startIndex + 1])
-default: die("usage: swift scripts/asc.swift probe|ensure-app|profile <sha1>|builds|tester <email>")
+case "public":
+    guard args.count == 2 else { die("usage: public <build number>") }
+    publicBeta(args[args.startIndex + 1])
+default: die("usage: swift scripts/asc.swift probe|ensure-app|profile <sha1>|builds|tester <email>|public <build>")
 }

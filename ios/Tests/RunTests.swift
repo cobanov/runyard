@@ -36,3 +36,14 @@ private func summary(step: Int, last: Double) -> String { #"{"count":1,"step":\#
     #expect(load.gpus[0].util == 86 && load.gpus[0].details == "62.5 GB")
     #expect(SysLoad(["loss": r.metrics!["loss"]!]) == nil)
 }
+
+@Test func demoAnswersMeAndRuns() throws {
+    let get = { (path: String) in Demo.answer("GET", URL(string: DemoServer.base + path)!, body: Data()) }
+    let me = get("/api/v1/me")
+    #expect(me.0 == 200)
+    #expect(try API.decoder.decode(Me.self, from: me.1).auth == false)
+    let runs = try API.decoder.decode([Run].self, from: get("/api/v1/runs?limit=200&metrics=1").1)
+    #expect(runs.count == 11)
+    #expect(runs.contains { $0.running && $0.mainMetric != nil && $0.progress != nil })
+    #expect(runs.contains { $0.status == "crashed" })
+}

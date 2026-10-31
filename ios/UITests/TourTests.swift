@@ -65,6 +65,57 @@ final class TourTests: XCTestCase {
         shot(app, "08-server")
     }
 
+    /// The built-in demo, no server needed: what App Review sees.
+    @MainActor
+    func testDemo() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-resetState", "YES"]
+        app.launch()
+        let demo = app.buttons["Try the demo"]
+        XCTAssert(demo.waitForExistence(timeout: 10))
+        shot(app, "01-connect")
+        demo.tap()
+        XCTAssert(app.navigationBars["Projects"].waitForExistence(timeout: 15), "no project list")
+        sleep(2)
+        shot(app, "02-home")
+        app.buttons.containing(.staticText, identifier: "qwen3-8b-full-lr2e-5").firstMatch.tap()
+        XCTAssert(app.segmentedControls.firstMatch.waitForExistence(timeout: 15), "no run page")
+        sleep(2)
+        shot(app, "03-running-run")
+        app.navigationBars.buttons.firstMatch.tap()
+        // The project rows sit below the running cards, and the list only builds what is on screen.
+        app.collectionViews.firstMatch.swipeUp(velocity: .fast)
+        app.collectionViews.firstMatch.swipeUp(velocity: .fast)
+        app.buttons.containing(.staticText, identifier: "qwen-sft").allElementsBoundByIndex.last!.tap()
+        let qwen3Row = app.buttons.containing(.staticText, identifier: "qwen3-8b-lora-r16-nopack").firstMatch
+        XCTAssert(qwen3Row.waitForExistence(timeout: 10))
+        qwen3Row.tap()
+        XCTAssert(app.segmentedControls.firstMatch.waitForExistence(timeout: 15), "no run page")
+        sleep(2)
+        shot(app, "04-crashed-run")
+        app.segmentedControls.buttons["Logs"].tap()
+        sleep(2)
+        shot(app, "05-crashed-logs")
+        app.navigationBars.buttons.firstMatch.tap()
+        app.navigationBars.buttons.firstMatch.tap()
+        let project = app.buttons.containing(.staticText, identifier: "pixel-diffusion").allElementsBoundByIndex.last!
+        XCTAssert(project.waitForExistence(timeout: 10))
+        project.tap()
+        let ditRow = app.buttons.containing(.staticText, identifier: "dit-s-pixel32").firstMatch
+        XCTAssert(ditRow.waitForExistence(timeout: 10))
+        ditRow.tap()
+        XCTAssert(app.segmentedControls.firstMatch.waitForExistence(timeout: 15), "no run page")
+        app.segmentedControls.buttons["Samples"].tap()
+        sleep(3)
+        shot(app, "06-samples")
+        app.tabBars.buttons["Alerts"].tap()
+        sleep(2)
+        shot(app, "07-alerts")
+        app.tabBars.buttons["Server"].tap()
+        sleep(2)
+        shot(app, "08-server")
+    }
+
     @MainActor
     private func shot(_ app: XCUIApplication, _ name: String) {
         let a = XCTAttachment(screenshot: app.screenshot())

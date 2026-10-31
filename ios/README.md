@@ -24,6 +24,14 @@ scheme the app tries https, then http. Plain http is allowed, since a home serve
 The address and the session (the same `runyard_session` the web UI gets from `POST /api/v1/login`) are kept in
 the keychain. On a server without `RUNYARD_AUTH` there is no sign-in.
 
+### Demo
+
+"Try the demo" on the connect screen opens the whole app on made-up runs, with no server: the web demo's story
+(`web/demo/mock.js`), answered inside the app by a `URLProtocol` (`Runyard/Demo.swift`) that `API.http` routes
+`https://demo.runyard.invalid` to. Runs keep training while you watch, `qwen3-8b-full-lr2e-5` goes NaN about 2.5
+minutes in, and a relaunch starts the story over. It is kept like a server, so the app reopens in the demo until
+"Leave demo". Videos are left out, since AVPlayer does not go through the session.
+
 ## Build and install
 
 Needs Xcode 27 and [XcodeGen](https://github.com/yonaskolb/XcodeGen); the Xcode project is generated, not

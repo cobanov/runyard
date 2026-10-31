@@ -283,6 +283,7 @@ nonisolated struct API: Sendable {
         c.httpShouldSetCookies = false
         c.httpCookieStorage = nil
         c.timeoutIntervalForRequest = 20
+        c.protocolClasses = [DemoServer.self] + (c.protocolClasses ?? [])
         return URLSession(configuration: c)
     }()
 

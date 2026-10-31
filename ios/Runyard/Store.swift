@@ -40,6 +40,16 @@ final class Store {
         throw APIError(status: 0, message: "No runyard server answered at \(a).")
     }
 
+    /// Made-up runs answered inside the app (Demo.swift). It is kept like a server, so a relaunch opens the demo again.
+    func demo() {
+        session = nil
+        me = nil
+        loadError = nil
+        server = DemoServer.base
+    }
+
+    var isDemo: Bool { server == DemoServer.base }
+
     func loadMe() async {
         do {
             me = try await api.get("/api/v1/me")

@@ -44,6 +44,17 @@ struct ConnectView: View {
                 }
                 .disabled(busy || address.trimmingCharacters(in: .whitespaces).isEmpty)
             }
+            Section {
+                Button(action: store.demo) {
+                    HStack {
+                        Spacer()
+                        Text("Try the demo")
+                        Spacer()
+                    }
+                }
+            } footer: {
+                Text("No server yet? Look around on made-up runs that keep training while you watch.")
+            }
         }
     }
 

@@ -71,7 +71,24 @@ extension Binding where Value == Bool {
 }
 
 struct MainView: View {
+    @Environment(Store.self) private var store
+
     var body: some View {
+        if store.isDemo {
+            tabs.tabViewBottomAccessory {
+                HStack {
+                    Text("Demo: made-up runs").font(.subheadline).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Leave demo") { store.forget() }.font(.subheadline.weight(.medium))
+                }
+                .padding(.horizontal, 16)
+            }
+        } else {
+            tabs
+        }
+    }
+
+    private var tabs: some View {
         TabView {
             Tab("Runs", systemImage: "chart.xyaxis.line") {
                 NavigationStack { HomeView().routes() }
@@ -102,7 +119,7 @@ struct ServerView: View {
                 }
             }
             Section("Server") {
-                LabeledContent("Address", value: store.server)
+                LabeledContent("Address", value: store.isDemo ? "Demo, made-up runs" : store.server)
                 if let me = store.me {
                     LabeledContent("Signed in as", value: me.auth ? me.user : "Open server, no sign-in")
                 }
@@ -111,7 +128,7 @@ struct ServerView: View {
                 if store.me?.auth == true {
                     Button("Sign out") { Task { await store.logout() } }
                 }
-                Button("Change server", role: .destructive) { store.forget() }
+                Button(store.isDemo ? "Leave demo" : "Change server", role: .destructive) { store.forget() }
             }
             Section {
                 LabeledContent("App version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
