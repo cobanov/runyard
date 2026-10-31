@@ -97,8 +97,11 @@ export MLFLOW_TRACKING_URI=https://my-server MLFLOW_TRACKING_TOKEN=ry_...
 
 ## Read runs
 
-- Web UI: runs by project, a run page with charts, samples, logs, config, system and artifacts, and run
-  comparison. Live. Installs as an app on the phone; the bell turns on push notifications for that device.
+- Web UI: an overview of what is running and how loaded each machine's GPUs are, runs by project, a run page
+  with charts, samples, logs, config, system and artifacts, and run comparison. Live. Installs as an app on the
+  phone; the bell turns on push notifications for that device.
+- iOS app ([ios/](ios/README.md)): type the server's address, sign in, and read runs, charts, GPU load,
+  samples, logs and alerts.
 - CLI: `runyard runs ls`, `runyard runs show RUN`, `runyard logs RUN -f`, `runyard samples RUN`,
   `runyard artifacts RUN [--get NAME]`; `--json` everywhere.
 - MCP for agents, at `/mcp`: `list_runs`, `get_run`, `get_metrics`, `get_samples` (returns the images),
@@ -156,6 +159,7 @@ without `-user` acts as the server and sees everything.
 | `server/` | Go server: REST API, SSE, MCP, notifications, embedded web UI |
 | `web/` | Svelte + Vite web UI (built into `server/webdist/dist`) |
 | `sdk/python/` | Python client library, CLI and framework adapters |
+| `ios/` | SwiftUI iPhone app (XcodeGen project) |
 
 ## Development
 
