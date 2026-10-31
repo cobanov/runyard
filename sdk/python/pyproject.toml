@@ -14,7 +14,7 @@ dependencies = []
 [project.optional-dependencies]
 images = ["numpy", "pillow"]
 system = ["nvidia-ml-py", "psutil"]
-dev = ["pytest", "numpy"]
+dev = ["pytest", "numpy", "pillow"]
 
 [project.scripts]
 runyard = "runyard.cli:main"

@@ -1,9 +1,13 @@
 import importlib
+import io
 import os
 import subprocess
 import sys
 import types
+import urllib.request
 from types import SimpleNamespace
+
+from PIL import Image
 
 from conftest import get
 from test_run import wait_for
@@ -36,6 +40,9 @@ for gs in (10, 20):
 wandb.run.summary["train_runtime"] = 1.5
 wandb.log({"completions": wandb.Table(columns=["prompt", "out"], data=[["a", "b"]])})
 wandb.save("model.bin")  # unsupported: a warning, not an error
+frames = np.zeros((4, 3, 8, 8), np.uint8)  # wandb's layout: time, channel, height, width
+frames[:, 0] = np.arange(4)[:, None, None] * 60
+wandb.log({"rollout": wandb.Video(frames, fps=8, caption="red ramp")})
 """
 
 
@@ -60,8 +67,13 @@ def test_wandb_bridge(server, tmp_path):
     assert hf["config"] == {"learning_rate": 5e-5, "model/num_parameters": 10}
     assert hf["summary"] == {"train_runtime": 1.5}
     assert hf["metrics"]["train/loss"]["step"] == 20 and hf["metrics"]["train/loss"]["count"] == 2
-    [table] = get(api + runs["hf"]["id"] + "/media")
-    assert table["kind"] == "text" and get(server + table["url"]) == [{"prompt": "a", "out": "b"}]
+    media = {m["kind"]: m for m in get(api + runs["hf"]["id"] + "/media")}
+    assert get(server + media["text"]["url"]) == [{"prompt": "a", "out": "b"}]
+    video = media["video"]
+    assert video["key"] == "rollout" and video["meta"] == {"caption": "red ramp", "fps": 8} and video["url"].endswith(".gif")
+    with urllib.request.urlopen(server + video["url"]) as r:
+        gif = Image.open(io.BytesIO(r.read()))
+        assert gif.n_frames == 4 and gif.size == (8, 8)
 
 
 def test_wandb_bridge_off_by_default(tmp_path):
