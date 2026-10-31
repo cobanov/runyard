@@ -48,7 +48,9 @@ open Runyard.xcodeproj   # pick your team under Signing, then Run on your iPhone
 ### TestFlight
 
 `scripts/testflight.sh` archives, signs for the App Store and uploads with an App Store Connect API key;
-`scripts/asc.swift` registers the bundle id, makes the App Store profile, and adds a tester to an internal group.
+`scripts/asc.swift` registers the bundle id, makes the App Store profile, and adds a tester to an internal group;
+`asc.swift public <build>` opens a build to anyone through the [public link](https://testflight.apple.com/join/A9jhtURf)
+and sends it to Apple's beta review.
 Once: create the app record in App Store Connect (the API cannot), then `swift scripts/asc.swift profile <sha1>`.
 Each upload needs a new commit, since the build number counts them. The variables are in the script's header.
 

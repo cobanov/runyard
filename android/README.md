@@ -4,6 +4,9 @@ A native Android app for a runyard server, the counterpart of the iPhone app (`i
 sign in if the server has `RUNYARD_AUTH` on, and read your runs. Kotlin and Jetpack Compose, themed with
 `DESIGN.md`'s tokens in light and dark.
 
+Get it: [runyard-0.4.0.apk](https://github.com/cobanov/runyard/releases/download/v0.4.0/runyard-0.4.0.apk) from the
+v0.4.0 release (allow installs from your browser when Android asks).
+
 - **Projects:** a card per running run (its main metric with a sparkline, heartbeat, host, and the machine's CPU
   and per-GPU load), then every project with its run count.
 - **A project:** its runs, newest first, with status, duration, start and main metric.

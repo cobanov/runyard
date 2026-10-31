@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Your training runs, live, on your own machines.</strong><br>
-  A self-hosted tracker for ML runs: one Go binary and PostgreSQL, a web UI, an iPhone app, and an MCP server for your agents.
+  A self-hosted tracker for ML runs: one Go binary and PostgreSQL, a web UI, iPhone and Android apps, and an MCP server for your agents.
 </p>
 
 <p align="center">
@@ -15,6 +15,8 @@
   <a href="https://cobanov.github.io/runyard/">Docs</a> ·
   <a href="https://runyard.cobanov.dev">Website</a> ·
   <a href="https://pypi.org/project/runyard/">PyPI</a> ·
+  <a href="https://testflight.apple.com/join/A9jhtURf">iPhone beta</a> ·
+  <a href="https://github.com/cobanov/runyard/releases/download/v0.4.0/runyard-0.4.0.apk">Android APK</a> ·
   <a href="https://github.com/cobanov/runyard/issues">Issues</a>
 </p>
 
@@ -87,13 +89,14 @@ Open `http://localhost:8080`: the run is there, live. [Log runs](docs/logging.md
 claude mcp add --transport http runyard http://localhost:8080/mcp --header "Authorization: Bearer $RUNYARD_API_KEY"
 ```
 
-**On the phone.** The web UI installs to the home screen and sends push notifications. The native iPhone app
-connects to your server by its address; see [ios/](ios/README.md).
+**On the phone.** The web UI installs to the home screen and sends push notifications. The native apps connect
+to your server by its address, and both have "Try the demo" for a look without one: iPhone through the
+[TestFlight beta](https://testflight.apple.com/join/A9jhtURf) ([ios/](ios/README.md)), Android as an [APK](https://github.com/cobanov/runyard/releases/download/v0.4.0/runyard-0.4.0.apk) ([android/](android/README.md)).
 
 ## Want to tinker?
 
 A Go server (net/http, pgx, the MCP Go SDK) with the Svelte 5 web UI embedded in its binary, a Python library with
-no required dependencies, and a SwiftUI app. `make server` builds it, `make test` runs the Go and Python tests
+no required dependencies, a SwiftUI app and a Compose Android app. `make server` builds it, `make test` runs the Go and Python tests
 against a PostgreSQL in Docker.
 
 [Run the server](docs/server.md) ·
@@ -101,6 +104,7 @@ against a PostgreSQL in Docker.
 [Read runs](docs/reading.md) ·
 [Notifications and checks](docs/notifications.md) ·
 [iPhone app](ios/README.md) ·
+[Android app](android/README.md) ·
 [Design](DESIGN.md) ·
 [For agents](SKILL.md) ·
 [llms.txt](docs/llms.txt)
@@ -111,6 +115,7 @@ against a PostgreSQL in Docker.
 | `web/` | Svelte + Vite web UI (built into `server/webdist/dist`) |
 | `sdk/python/` | Python library, CLI and framework integrations |
 | `ios/` | SwiftUI iPhone app (an XcodeGen project) |
+| `android/` | Kotlin and Compose Android app |
 | `www/` | the website at runyard.cobanov.dev; `web/demo/` builds its live demo |
 
 ---
