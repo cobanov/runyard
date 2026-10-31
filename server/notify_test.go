@@ -90,11 +90,12 @@ func TestNotifications(t *testing.T) {
 
 	// Silent: no heartbeat for longer than crashAfter.
 	id = newRun("gba", "pixel96")
-	s.db.Exec(ctx, `UPDATE runs SET last_heartbeat_at = now() - interval '10 minutes' WHERE id = $1::uuid`, id)
+	s.db.Exec(ctx, `UPDATE runs SET started_at = now() - interval '20 minutes', last_heartbeat_at = now() - interval '10 minutes' WHERE id = $1::uuid`, id)
+	s.db.Exec(ctx, `INSERT INTO logs (run_id, seq, ts, stream, line) VALUES ($1::uuid, 1, now() - interval '9 minutes', 1, 'step 19')`, id)
 	if ids := s.markCrashed(ctx, crashAfter); len(ids) != 1 || ids[0] != id {
 		t.Fatalf("crashed ids: %v", ids)
 	}
-	if h = next(t, got); h.q.Get("title") != "gba/pixel96 went silent" {
+	if h = next(t, got); h.q.Get("title") != "gba/pixel96 went silent" || !strings.Contains(h.q.Get("message"), "after 11m 0s of running") {
 		t.Fatalf("crashed: %+v", h)
 	}
 	var status map[string]string

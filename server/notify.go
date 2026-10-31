@@ -224,7 +224,9 @@ func post(ctx context.Context, method, u, token string, body io.Reader, ctype st
 
 // markCrashed flags running runs whose heartbeat is older than after, notifies, and returns their ids.
 func (s *srv) markCrashed(ctx context.Context, after time.Duration) []string {
-	rows, _ := s.db.Query(ctx, `UPDATE runs SET status = 'crashed', ended_at = last_heartbeat_at
+	// It ended at its last sign of life: the last heartbeat, or a later output line (heartbeats are 30 s apart).
+	rows, _ := s.db.Query(ctx, `UPDATE runs SET status = 'crashed', ended_at = greatest(last_heartbeat_at,
+			(SELECT ts FROM logs WHERE run_id = runs.id ORDER BY seq DESC LIMIT 1))
 		WHERE status = 'running' AND last_heartbeat_at < now() - make_interval(secs => $1) RETURNING id::text`, after.Seconds())
 	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
