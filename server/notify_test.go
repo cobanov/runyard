@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -139,5 +140,13 @@ func TestEvents(t *testing.T) {
 			}
 			return
 		}
+	}
+}
+
+func TestResults(t *testing.T) {
+	run := Run{Summary: []byte(`{"rec_mse": 0.012345678}`), Metrics: map[string]metricSummary{
+		"loss": {Last: num(0.03455612063407898)}, "sys/cpu": {Last: 50}, "x": {Last: num(math.NaN())}}}
+	if got, want := results(run), "\nloss: 0.03456\nrec_mse: 0.01235\nx: NaN"; got != want {
+		t.Fatalf("results = %q, want %q", got, want)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -110,17 +111,15 @@ func (s *srv) message(ctx context.Context, run Run, event string, a *Alert) mess
 	return m
 }
 
-// results lists the summary, or else the last value of each metric, so the phone shows how the run ended.
+// results lists the last value of each metric and the summary on top, so the phone shows how the run ended.
 func results(run Run) string {
 	vals := map[string]any{}
-	json.Unmarshal(run.Summary, &vals)
-	if len(vals) == 0 {
-		for k, v := range run.Metrics {
-			if !strings.HasPrefix(k, "sys/") {
-				vals[k] = v.Last
-			}
+	for k, v := range run.Metrics {
+		if !strings.HasPrefix(k, "sys/") {
+			vals[k] = float64(v.Last)
 		}
 	}
+	json.Unmarshal(run.Summary, &vals)
 	keys := make([]string, 0, len(vals))
 	for k := range vals {
 		keys = append(keys, k)
@@ -133,6 +132,9 @@ func results(run Run) string {
 			break
 		}
 		v, _ := json.Marshal(vals[k])
+		if f, ok := vals[k].(float64); ok {
+			v = []byte(strconv.FormatFloat(f, 'g', 4, 64)) // also NaN and ±Inf, which JSON cannot hold
+		}
 		fmt.Fprintf(&b, "\n%s: %s", k, v)
 	}
 	return b.String()
