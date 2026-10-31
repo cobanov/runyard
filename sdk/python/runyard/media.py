@@ -1,4 +1,4 @@
-"""Turns images and videos into files. numpy and Pillow are optional: without Pillow, PNGs are written by hand."""
+"""Turns images and videos into files. numpy, Pillow and imageio are optional: without Pillow, PNGs are written by hand."""
 import os
 import shutil
 import struct
@@ -69,13 +69,27 @@ def save_image(obj, path):
 
 
 def save_video(obj, path, fps):
-    """A video file is copied; frames (arrays, tensors or PIL images) become an animated GIF, which needs Pillow."""
+    """A video file is copied; frames (arrays, tensors or PIL images) become an H.264 mp4 with imageio and imageio-ffmpeg,
+    else an animated GIF, which needs Pillow."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if isinstance(obj, (str, os.PathLike)):
         return _copy(obj, path)
-    from PIL import Image
+    try:
+        import imageio.v2 as imageio
+        import imageio_ffmpeg  # noqa: F401  the backend imageio writes mp4 with
+    except ImportError:
+        from PIL import Image
 
-    frames = [f if hasattr(f, "mode") else Image.fromarray(to_array(f)) for f in obj]
-    path = path.with_suffix(".gif")
-    frames[0].save(path, save_all=True, append_images=frames[1:], duration=max(1, round(1000 / fps)), loop=0)
+        frames = [f if hasattr(f, "mode") else Image.fromarray(to_array(f)) for f in obj]
+        path = path.with_suffix(".gif")
+        frames[0].save(path, save_all=True, append_images=frames[1:], duration=max(1, round(1000 / fps)), loop=0)
+        return path
+    import numpy as np
+
+    path = path.with_suffix(".mp4")
+    with imageio.get_writer(path, fps=fps, codec="libx264", pixelformat="yuv420p", macro_block_size=1) as w:
+        for f in obj:
+            a = np.asarray(f.convert("RGB")) if hasattr(f, "mode") else to_array(f)
+            # yuv420p needs even sides (Safari and iOS play nothing else): repeat the last row or column
+            w.append_data(np.pad(a, ((0, a.shape[0] % 2), (0, a.shape[1] % 2)) + ((0, 0),) * (a.ndim - 2), mode="edge"))
     return path

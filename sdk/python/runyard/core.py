@@ -238,7 +238,7 @@ class Run:
 
     @_safe
     def video(self, key, video, fps=30, step=None, caption=None):
-        """A video file path, or frames (arrays, tensors, PIL images) that become a GIF."""
+        """A video file path, or frames (arrays, tensors, PIL images) that become an mp4 (a GIF without imageio-ffmpeg)."""
         path = media.save_video(video, self._dir / f"{uuid.uuid4()}.mp4", fps)
         self._media(key, "video", step, path, {"caption": caption, "fps": fps})
 

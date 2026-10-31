@@ -1,4 +1,4 @@
-import importlib
+import importlib.util
 import io
 import os
 import subprocess
@@ -70,10 +70,14 @@ def test_wandb_bridge(server, tmp_path):
     media = {m["kind"]: m for m in get(api + runs["hf"]["id"] + "/media")}
     assert get(server + media["text"]["url"]) == [{"prompt": "a", "out": "b"}]
     video = media["video"]
-    assert video["key"] == "rollout" and video["meta"] == {"caption": "red ramp", "fps": 8} and video["url"].endswith(".gif")
+    assert video["key"] == "rollout" and video["meta"] == {"caption": "red ramp", "fps": 8}
     with urllib.request.urlopen(server + video["url"]) as r:
-        gif = Image.open(io.BytesIO(r.read()))
-        assert gif.n_frames == 4 and gif.size == (8, 8)
+        data = r.read()
+    if importlib.util.find_spec("imageio_ffmpeg"):  # the same function writes an mp4 when it can (test_video_mp4_or_gif)
+        assert video["url"].endswith(".mp4") and data[4:8] == b"ftyp"
+    else:
+        gif = Image.open(io.BytesIO(data))
+        assert video["url"].endswith(".gif") and gif.n_frames == 4 and gif.size == (8, 8)
 
 
 def test_wandb_bridge_off_by_default(tmp_path):

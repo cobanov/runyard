@@ -14,6 +14,7 @@ dependencies = []
 [project.optional-dependencies]
 images = ["numpy", "pillow"]
 system = ["nvidia-ml-py", "psutil"]
+video = ["imageio", "imageio-ffmpeg"]
 dev = ["pytest", "numpy", "pillow"]
 
 [project.scripts]

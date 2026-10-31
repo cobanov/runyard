@@ -5,10 +5,12 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.request
 import zlib
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 import runyard as ry
 import runyard.core
@@ -87,6 +89,29 @@ def test_to_array():
     a = media.to_array(f)
     assert a.shape == (4, 5, 3) and a.dtype == np.uint8 and a.max() == 0
     assert media.to_array(np.full((4, 4), 255.0)).max() == 255
+
+
+def test_video_mp4_or_gif(server, monkeypatch, tmp_path):
+    imageio_ffmpeg = pytest.importorskip("imageio_ffmpeg")
+    pytest.importorskip("imageio")
+    frames = np.random.randint(0, 255, (4, 7, 9, 3), np.uint8)  # odd sides: padded to even for yuv420p
+    run = ry.Run(project="video", name="mp4", system=False)
+    run.video("rollout", frames, fps=8, step=1)
+    monkeypatch.setitem(sys.modules, "imageio_ffmpeg", None)  # import fails: the GIF fallback
+    run.video("rollout", frames, fps=8, step=2)
+    run.finish()
+
+    mp4, gif = sorted(get(server + f"/api/v1/runs/{run.id}/media"), key=lambda m: m["step"])
+    assert mp4["url"].endswith(".mp4") and gif["url"].endswith(".gif")
+    with urllib.request.urlopen(server + mp4["url"]) as r:
+        data = r.read()
+    assert data[4:8] == b"ftyp"
+    p = tmp_path / "check.mp4"
+    p.write_bytes(data)
+    meta = next(imageio_ffmpeg.read_frames(str(p)))
+    assert meta["codec"].startswith("h264") and meta["pix_fmt"].startswith("yuv420p") and meta["size"] == (10, 8)
+    with urllib.request.urlopen(server + gif["url"]) as r:
+        assert r.read()[:4] == b"GIF8"
 
 
 def test_server_down_never_blocks_then_sync(server, monkeypatch, capsys):

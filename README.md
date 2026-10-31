@@ -32,6 +32,7 @@ import runyard as ry
 run = ry.init(project="my-project", name="lr3e-4", config=vars(args))
 run.log({"loss": loss.item(), "lr": sched.get_last_lr()[0]}, step=step)
 run.image("samples", grid, step=step)       # PIL image, numpy array, torch tensor or path; also a list
+run.video("rollout", frames, fps=8)         # frames: an H.264 mp4 with the `video` extra, else a GIF; or a path
 run.text("generations", [{"prompt": p, "output": o}], step=step)
 run.alert("loss is NaN", level="error")     # also notifies the phone
 ```
