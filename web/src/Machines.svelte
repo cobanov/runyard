@@ -15,6 +15,7 @@
   // History: refetched every 30 s and when the window changes, not on every reading.
   let hours = $state(1)
   let hist = $state({}) // host name -> {ts, values}
+  let totals = $state({}) // host name -> its stats when the history came, for the memory charts' scale
   const names = $derived(hosts?.map((h) => h.name).join('\n') || '')
   $effect(() => {
     const list = names ? names.split('\n') : []
@@ -22,21 +23,26 @@
     const load = async () => {
       const out = {}
       await Promise.all(list.map(async (n) => (out[n] = await get(`/hosts/${encodeURIComponent(n)}/history?hours=${h}`).catch(() => null))))
+      totals = Object.fromEntries((hosts || []).map((x) => [x.name, x.stats])) // after the await: not a dependency of this effect
       hist = out
     }
     load()
     const t = setInterval(load, 30000)
     return () => clearInterval(t)
   })
-  const charts = $derived(Object.fromEntries(Object.entries(hist).map(([n, h]) => [n, h?.ts.length ? chartsOf(h) : []])))
-  function chartsOf(h) {
+  const charts = $derived(Object.fromEntries(Object.entries(hist).map(([n, h]) => [n, h?.ts.length ? chartsOf(h, totals[n] || {}) : []])))
+  function chartsOf(h, st) {
+    const gpuTotal = (i) => st.gpus?.find((g) => g.i === +i)?.mem_total_gb
     const gpus = [...new Set(Object.keys(h.values).map((k) => k.match(/^gpu(\d+)\./)?.[1]).filter(Boolean))].sort((a, b) => a - b)
     const want = [
-      ['cpu', 'CPU', '%', '--c3'],
-      ['ram_gb', 'Memory', 'GB', '--c4'],
-      ...gpus.flatMap((i) => [[`gpu${i}.util`, `GPU ${i} util`, '%', '--c1'], [`gpu${i}.mem_gb`, `GPU ${i} memory`, 'GB', '--c2']]),
+      ['cpu', 'CPU', '%', '--c3', 100],
+      ['ram_gb', 'Memory', 'GB', '--c4', st.ram_total_gb],
+      ...gpus.flatMap((i) => [[`gpu${i}.util`, `GPU ${i} util`, '%', '--c1', 100], [`gpu${i}.mem_gb`, `GPU ${i} memory`, 'GB', '--c2', gpuTotal(i)]]),
     ]
-    return want.filter(([k]) => h.values[k]).map(([k, label, unit, color]) => ({ k, title: `${label}, ${unit}`, lines: [{ label, color, x: h.ts, y: h.values[k] }] }))
+    // Against the whole (0 to 100 %, 0 to all the memory), so a quiet machine looks quiet.
+    return want
+      .filter(([k]) => h.values[k])
+      .map(([k, label, unit, color, top]) => ({ k, title: `${label}, ${unit}`, range: top ? [0, top] : null, lines: [{ label, color, x: h.ts, y: h.values[k] }] }))
   }
 
   const remove = (h) =>
@@ -109,7 +115,7 @@ RUNYARD_SERVER={location.origin} RUNYARD_API_KEY=ry_... runyard agent</pre>
 
         {#if charts[h.name]?.length}
           <div class="charts">
-            {#each charts[h.name] as c (c.k)}<Chart title={c.title} lines={c.lines} xLabel="at" height={110} time />{/each}
+            {#each charts[h.name] as c (c.k)}<Chart title={c.title} lines={c.lines} range={c.range} xLabel="at" height={110} time />{/each}
           </div>
         {/if}
 

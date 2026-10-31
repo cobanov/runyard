@@ -4,8 +4,9 @@
   import { cssVar, cssColor, withAlpha, theme, fmt, duration } from './lib.svelte.js'
 
   // lines: [{label, color (css var name), x, y, min?, max?}]. A single line with min/max draws the bucket range as a band.
-  // smooth: EMA weight, 0 is off; log: a log10 y axis; elapsed: x is seconds since the run started; time: x is unix seconds.
-  let { title, lines, xLabel = 'step', height = 170, smooth = 0, log = false, elapsed = false, time = false } = $props()
+  // smooth: EMA weight, 0 is off; log: a log10 y axis; elapsed: x is seconds since the run started; time: x is unix seconds;
+  // range: a fixed [min, max] for y, as 0 to 100 for a percentage.
+  let { title, lines, xLabel = 'step', height = 170, smooth = 0, log = false, elapsed = false, time = false, range = null } = $props()
 
   let el = $state()
   let hover = $state(null)
@@ -52,10 +53,10 @@
         height,
         series,
         legend: { show: false },
-        scales: { x: { time }, y: { distr: log ? 3 : 1 } },
+        scales: { x: { time }, y: { distr: log ? 3 : 1, ...(range && { range }) } },
         bands: band ? [{ series: [per + 2, per + 1], fill: withAlpha(color(lines[0]), 0.14) }] : [],
         axes: [
-          { stroke: muted, grid, ticks: { show: false }, border: { show: false }, font, size: 28, ...(elapsed && { incrs: secs, values: (u, v) => v.map(short) }) },
+          { stroke: muted, grid, ticks: { show: false }, border: { show: false }, font, size: 28, ...(elapsed && { incrs: secs, values: (u, v) => v.map(short) }), ...(time && { values: (u, v) => v.map(xFmt) }) },
           { stroke: muted, grid, ticks: { show: false }, border: { show: false }, font, size: 52, values: (u, vals) => vals.map((v) => (v == null ? '' : fmt(v))), ...(log && { splits: decades }) },
         ],
         cursor: { points: { size: 6 } },

@@ -122,6 +122,7 @@ docker compose exec app /runyard-server channel add ntfy https://ntfy.sh/my-topi
   <p class="muted small">{made ? 'These use the key you just made.' : 'Make an API key below and the commands fill it in.'} MCP gives agents the runs, metrics, logs and samples to read.</p>
 </section>
 
+{#if auth || cred.key}
 <section>
   <h2>API keys</h2>
   {#if errors.keys}
@@ -218,6 +219,7 @@ docker compose exec app /runyard-server channel add ntfy https://ntfy.sh/my-topi
     {/if}
   {/if}
 </section>
+{/if}
 
 <style>
   section {
