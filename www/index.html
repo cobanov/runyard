@@ -111,7 +111,7 @@ docker compose exec app /runyard-server key create my-laptop</pre>
       </div>
       <div>
         <p>Log from Python in three lines. Calls are queued and sent from a background thread, so the library never stops training.</p>
-<pre><span class="c"># training script</span>
+<pre><span class="c"># pip install runyard, then in the training script</span>
 <span class="k">import</span> runyard <span class="k">as</span> ry
 
 run = ry.init(project=<span class="c">"my-project"</span>, config={<span class="c">"lr"</span>: 3e-4})
@@ -127,7 +127,7 @@ run.alert(<span class="c">"loss is NaN"</span>, level=<span class="c">"error"</s
       <div class="card"><h3>Reading</h3><p>A phone-first web UI with live charts, samples, logs and config diffs between runs. A CLI with <code>--json</code>, and an MCP server so coding agents can read runs and alerts.</p></div>
       <div class="card"><h3>Notifications</h3><p>ntfy, Slack, Discord, Telegram, a webhook or web push to the installed app. Checks raise alerts from the data: a NaN loss, a crossed threshold, a stuck run.</p></div>
       <div class="card"><h3>Machine load</h3><p>GPU utilisation, memory, temperature and power per host from the runs themselves, next to CPU and RAM. One glance says what is training and how the machine is doing.</p></div>
-      <div class="card"><h3>Self-hosted</h3><p>PostgreSQL, a media directory or an S3-compatible bucket, optional users and teams. Reach it over Tailscale, a tunnel, or bind it to a port.</p></div>
+      <div class="card"><h3>Self-hosted</h3><p>PostgreSQL, a media directory or an S3-compatible bucket, optional users and teams. API keys, notification channels and old runs are managed on a Settings page. Reach it over Tailscale, a tunnel, or bind it to a port.</p></div>
       <div class="card"><h3>Honest states</h3><p>A clean exit marks a run finished, an exception failed, and five minutes without a heartbeat crashed. What could not be sent is saved at exit for <code>runyard sync</code>.</p></div>
     </div>
 
@@ -135,7 +135,8 @@ run.alert(<span class="c">"loss is NaN"</span>, level=<span class="c">"error"</s
       <span>runyard, by <a href="https://cobanov.dev">Mert Cobanov</a></span>
       <a href="https://cobanov.github.io/runyard/">Documentation</a>
       <a href="https://github.com/cobanov/runyard">GitHub</a>
-      <span>Not released yet; APIs may still change.</span>
+      <a href="/llms.txt">llms.txt</a>
+<span>v0.3 on PyPI; APIs may still change.</span>
     </footer>
   </div>
 </body>
