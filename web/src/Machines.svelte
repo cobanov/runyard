@@ -1,5 +1,6 @@
 <script>
   import { get, send, why, onEvent, throttle, ago, live } from './lib.svelte.js'
+  import Chart from './Chart.svelte'
 
   // Each machine running `runyard agent`: its latest reading, the runs training on it, and every process on its GPUs.
   let hosts = $state(null)
@@ -10,6 +11,33 @@
   )
   load()
   $effect(() => onEvent((e) => (e.type === 'host' || e.type === 'run' || e.type === 'reconnect') && load()))
+
+  // History: refetched every 30 s and when the window changes, not on every reading.
+  let hours = $state(1)
+  let hist = $state({}) // host name -> {ts, values}
+  const names = $derived(hosts?.map((h) => h.name).join('\n') || '')
+  $effect(() => {
+    const list = names ? names.split('\n') : []
+    const h = hours
+    const load = async () => {
+      const out = {}
+      await Promise.all(list.map(async (n) => (out[n] = await get(`/hosts/${encodeURIComponent(n)}/history?hours=${h}`).catch(() => null))))
+      hist = out
+    }
+    load()
+    const t = setInterval(load, 30000)
+    return () => clearInterval(t)
+  })
+  const charts = $derived(Object.fromEntries(Object.entries(hist).map(([n, h]) => [n, h?.ts.length ? chartsOf(h) : []])))
+  function chartsOf(h) {
+    const gpus = [...new Set(Object.keys(h.values).map((k) => k.match(/^gpu(\d+)\./)?.[1]).filter(Boolean))].sort((a, b) => a - b)
+    const want = [
+      ['cpu', 'CPU', '%', '--c3'],
+      ['ram_gb', 'Memory', 'GB', '--c4'],
+      ...gpus.flatMap((i) => [[`gpu${i}.util`, `GPU ${i} util`, '%', '--c1'], [`gpu${i}.mem_gb`, `GPU ${i} memory`, 'GB', '--c2']]),
+    ]
+    return want.filter(([k]) => h.values[k]).map(([k, label, unit, color]) => ({ k, title: `${label}, ${unit}`, lines: [{ label, color, x: h.ts, y: h.values[k] }] }))
+  }
 
   const remove = (h) =>
     confirm(`Remove ${h.name}? It comes back when its agent sends again.`) &&
@@ -28,7 +56,12 @@
 
 <div class="page-head">
   <h1>Machines</h1>
-  {#if hosts?.length}<span class="muted small">{hosts.filter((h) => !h.silent).length} of {hosts.length} sending</span>{/if}
+  {#if hosts?.length}
+    <span class="muted small">{hosts.filter((h) => !h.silent).length} of {hosts.length} sending</span>
+    <div class="range" role="group" aria-label="History">
+      {#each [1, 6, 24] as n}<button aria-pressed={hours === n} onclick={() => (hours = n)}>{n}h</button>{/each}
+    </div>
+  {/if}
 </div>
 
 {#if error}
@@ -72,6 +105,12 @@ RUNYARD_SERVER={location.origin} RUNYARD_API_KEY=ry_... runyard agent</pre>
             Training:
             {#each h.runs as r, i (r.id)}{i ? ', ' : ' '}<a href="#/r/{r.id}">{r.name}</a> <span class="muted">{r.project}</span>{/each}
           </p>
+        {/if}
+
+        {#if charts[h.name]?.length}
+          <div class="charts">
+            {#each charts[h.name] as c (c.k)}<Chart title={c.title} lines={c.lines} xLabel="at" height={110} time />{/each}
+          </div>
         {/if}
 
         {#each s.gpus || [] as g (g.i)}
@@ -204,6 +243,20 @@ RUNYARD_SERVER={location.origin} RUNYARD_API_KEY=ry_... runyard agent</pre>
   }
   .training {
     margin: 12px 0 0;
+  }
+  .range {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+  }
+  .range button {
+    padding: 2px 10px;
+  }
+  .charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
+    gap: 8px;
+    margin-top: 14px;
   }
   .gpu {
     margin-top: 14px;

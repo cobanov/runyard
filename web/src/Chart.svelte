@@ -4,15 +4,16 @@
   import { cssVar, cssColor, withAlpha, theme, fmt, duration } from './lib.svelte.js'
 
   // lines: [{label, color (css var name), x, y, min?, max?}]. A single line with min/max draws the bucket range as a band.
-  // smooth: EMA weight, 0 is off; log: a log10 y axis; elapsed: x is seconds since the run started.
-  let { title, lines, xLabel = 'step', height = 170, smooth = 0, log = false, elapsed = false } = $props()
+  // smooth: EMA weight, 0 is off; log: a log10 y axis; elapsed: x is seconds since the run started; time: x is unix seconds.
+  let { title, lines, xLabel = 'step', height = 170, smooth = 0, log = false, elapsed = false, time = false } = $props()
 
   let el = $state()
   let hover = $state(null)
   let plot
 
   const last = $derived(lines.length === 1 ? lines[0].y.findLast((v) => v != null) : undefined)
-  const xFmt = (x) => (elapsed ? duration(x * 1000) : fmt(x))
+  const xFmt = (x) =>
+    time ? new Date(x * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : elapsed ? duration(x * 1000) : fmt(x)
 
   // TensorBoard's debiased EMA, so the start isn't dragged towards zero; gaps (null) pass through.
   function ema(ys, w) {
@@ -51,7 +52,7 @@
         height,
         series,
         legend: { show: false },
-        scales: { x: { time: false }, y: { distr: log ? 3 : 1 } },
+        scales: { x: { time }, y: { distr: log ? 3 : 1 } },
         bands: band ? [{ series: [per + 2, per + 1], fill: withAlpha(color(lines[0]), 0.14) }] : [],
         axes: [
           { stroke: muted, grid, ticks: { show: false }, border: { show: false }, font, size: 28, ...(elapsed && { incrs: secs, values: (u, v) => v.map(short) }) },
