@@ -1,6 +1,12 @@
 # Upstream integration drafts
 
-Two patches that make runyard a built-in reporting target (plan.md §13, v0.3). Neither has been sent.
+Two patches that make runyard a built-in reporting target (plan.md §13, v0.3).
+
+- **accelerate:** sent as [huggingface/accelerate#4483](https://github.com/huggingface/accelerate/pull/4483) (2026-10-31).
+- **transformers:** not sent. Its PR template and `.ai/AGENTS.md` ask first-time contributors not to submit
+  PRs written by a code agent, and such PRs get closed and their authors may be blocked. This patch was
+  written with one, so it goes in only if a maintainer asks for it (for example after the accelerate PR, or
+  through an issue), or as a PR the author writes themselves.
 
 | Patch | Upstream | Base commit | Result |
 |---|---|---|---|
@@ -19,6 +25,10 @@ git apply ../runyard/upstream/transformers.patch      # 3-way: git apply -3
 ```
 
 ## How they were tested
+
+Re-checked on 2026-10-31 against `runyard==0.3.0` from PyPI: both patches still apply to the base commits above,
+the unit tests pass, and transformers' `make check-repo` passes except `types`, which fails in
+`cli/serving/response.py`, a file the patch does not touch.
 
 Both clones were installed editable in one venv (Python 3.12, torch 2.15.0, transformers 5.23.0.dev0,
 accelerate 1.16.0.dev0), with runyard installed editable from this repo. A server built from this repo ran on a
