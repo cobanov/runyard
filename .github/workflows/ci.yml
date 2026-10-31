@@ -1,0 +1,33 @@
+# What `make test` does, against a Postgres service container.
+name: ci
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env: { POSTGRES_PASSWORD: test }
+        ports: ["55432:5432"]
+        options: --health-cmd pg_isready --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      RUNYARD_TEST_DATABASE_URL: postgres://postgres:test@localhost:55432/postgres?sslmode=disable
+      RUNYARD_TEST_PG_CONTAINER: ""  # no container to docker exec into: conftest runs the runner's psql
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 26, cache: npm, cache-dependency-path: web/package-lock.json }
+      - name: web (embedded by the server from server/webdist/dist)
+        working-directory: web
+        run: npm ci && npm run build
+      - uses: actions/setup-go@v5
+        with: { go-version-file: server/go.mod, cache-dependency-path: server/go.sum }
+      - name: go
+        working-directory: server
+        run: go vet ./... && go test -count=1 ./...
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: python
+        working-directory: sdk/python
+        run: pip install -e '.[dev]' && pytest -q

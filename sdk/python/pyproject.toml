@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "runyard"
-version = "0.1.0.dev0"
+dynamic = ["version"]  # runyard/__init__.py; release.yml sets it from the tag
 description = "Python client for runyard, a lightweight self-hosted training tracker"
 readme = "README.md"
 license = "Apache-2.0"
@@ -23,6 +23,9 @@ runyard = "runyard.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/cobanov/runyard"
+
+[tool.hatch.version]
+path = "runyard/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["runyard"]
