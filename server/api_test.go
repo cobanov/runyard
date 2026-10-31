@@ -38,6 +38,9 @@ func testServer(t *testing.T) (*httptest.Server, string, *srv) {
 	if err := migrate(ctx, db); err != nil { // a second start must be a no-op
 		t.Fatal(err)
 	}
+	if err := loadVAPID(ctx, db); err != nil {
+		t.Fatal(err)
+	}
 	key, err := createKey(ctx, db, "test")
 	if err != nil {
 		t.Fatal(err)

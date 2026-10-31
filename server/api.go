@@ -77,6 +77,7 @@ func (s *srv) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/events", s.hub.serve)
 	mux.Handle("/mcp", s.mcpHandler())
 	s.mlflowRoutes(mux)
+	s.pushRoutes(mux)
 
 	mux.HandleFunc("GET /media/{key...}", func(w http.ResponseWriter, r *http.Request) {
 		key := r.PathValue("key")
@@ -133,6 +134,10 @@ func (s *srv) read(f func(*http.Request) (any, error)) http.HandlerFunc {
 }
 
 func (s *srv) fail(w http.ResponseWriter, err error) {
+	if errors.As(err, new(badRequest)) {
+		httpError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	code := errStatus(err)
 	if code == http.StatusInternalServerError {
 		log.Print(err)
@@ -150,11 +155,6 @@ func (s *srv) write(f func(*http.Request) (any, error)) http.HandlerFunc {
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 4<<30)
 		v, err := f(r)
-		var bad badRequest
-		if errors.As(err, &bad) {
-			httpError(w, http.StatusBadRequest, err.Error())
-			return
-		}
 		if err != nil {
 			s.fail(w, err)
 			return

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -25,6 +26,9 @@ type channelConfig struct {
 	URL   string `json:"url"`            // ntfy: server URL with topic; webhook, slack, discord: the webhook URL; telegram: Bot API base, empty for the official one
 	Token string `json:"token"`          // ntfy access token (optional), telegram bot token
 	Chat  string `json:"chat,omitempty"` // telegram chat id
+	// webpush: URL is the subscription endpoint, these its keys
+	P256dh string `json:"p256dh,omitempty"`
+	Auth   string `json:"auth,omitempty"`
 }
 
 type message struct {
@@ -60,7 +64,10 @@ func (s *srv) notify(runID, event string, a *Alert) {
 	}
 	m := s.message(ctx, run, event, a)
 	for _, c := range chans {
-		if err := c.send(ctx, m); err != nil {
+		err := c.send(ctx, m)
+		if errors.Is(err, errGone) {
+			s.db.Exec(ctx, `DELETE FROM channels WHERE id = $1`, c.ID)
+		} else if err != nil {
 			log.Printf("notify %s via channel %d: %v", runID, c.ID, err)
 		}
 	}
@@ -185,6 +192,8 @@ func (c channel) send(ctx context.Context, m message) error {
 		return sendDiscord(ctx, c.Config.URL, m)
 	case "telegram":
 		return sendTelegram(ctx, c.Config.URL, c.Config.Token, c.Config.Chat, m)
+	case "webpush":
+		return sendPush(ctx, c.Config, m)
 	}
 	q := url.Values{"title": {m.Title}, "message": {m.Body}, "priority": {m.priority}}
 	if m.tags != "" {

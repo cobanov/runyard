@@ -42,6 +42,9 @@ func main() {
 	if err := migrate(ctx, db); err != nil {
 		log.Fatal("migrate: ", err)
 	}
+	if err := loadVAPID(ctx, db); err != nil {
+		log.Fatal(err)
+	}
 
 	args := os.Args[1:]
 	switch {
