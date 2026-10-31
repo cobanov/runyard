@@ -44,7 +44,11 @@ func (s *srv) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/projects", s.read(func(r *http.Request) (any, error) { return listProjects(r.Context(), s.db) }))
 	mux.HandleFunc("GET /api/v1/runs", s.read(func(r *http.Request) (any, error) {
 		q := r.URL.Query()
-		return listRuns(r.Context(), s.db, q.Get("project"), q.Get("status"), q.Get("tag"), intParam(r, "limit", 200))
+		runs, err := listRuns(r.Context(), s.db, q.Get("project"), q.Get("status"), q.Get("tag"), intParam(r, "limit", 200))
+		if err == nil && q.Has("metrics") { // each run's metric summary too, as GET /runs/{id} has it
+			err = addMetrics(r.Context(), s.db, runs)
+		}
+		return runs, err
 	}))
 	mux.HandleFunc("GET /api/v1/runs/{id}", s.read(func(r *http.Request) (any, error) {
 		id, err := s.resolveRun(r.Context(), r.PathValue("id")) // also takes an id prefix or a run name, for the CLI

@@ -205,8 +205,12 @@ func TestWriteFlow(t *testing.T) {
 	call(t, "GET", api+"/runs?project=gba&tag=sweep", "", nil, &runs)
 	var projects []Project
 	call(t, "GET", api+"/projects", "", nil, &projects)
-	if len(runs) != 1 || len(projects) != 1 || projects[0].Runs != 1 {
+	if len(runs) != 1 || len(projects) != 1 || projects[0].Runs != 1 || runs[0].Metrics != nil {
 		t.Fatalf("runs %+v projects %+v", runs, projects)
+	}
+	call(t, "GET", api+"/runs?project=gba&metrics=1", "", nil, &runs)
+	if m := runs[0].Metrics["loss"]; len(runs) != 1 || m.Count != 3 || m.Step != 3 {
+		t.Fatalf("runs with metrics: %+v", runs)
 	}
 }
 

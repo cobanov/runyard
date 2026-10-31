@@ -142,19 +142,32 @@ func getRun(ctx context.Context, db *pgxpool.Pool, id string) (Run, error) {
 	if err != nil {
 		return r, err
 	}
-	// shortcut: scans every metric row of the run; fine to ~10M rows, keep a per-key summary table past that.
-	rows, _ := db.Query(ctx, `SELECT k.name, count(*), max(m.step), (array_agg(m.value ORDER BY m.step DESC))[1], min(m.value), max(m.value)
-		FROM metrics m JOIN metric_keys k ON k.id = m.key_id WHERE m.run_id = $1::uuid GROUP BY k.name`, id)
-	r.Metrics = map[string]metricSummary{}
-	var name string
+	runs := []Run{r}
+	err = addMetrics(ctx, db, runs)
+	return runs[0], err
+}
+
+// addMetrics fills in each run's per-key metric summary, for all the runs in one query.
+// shortcut: scans every metric row of the runs; fine to ~10M rows, keep a per-key summary table past that.
+func addMetrics(ctx context.Context, db *pgxpool.Pool, runs []Run) error {
+	ids := make([]string, len(runs))
+	byID := make(map[string]*Run, len(runs))
+	for i := range runs {
+		ids[i] = runs[i].ID
+		runs[i].Metrics = map[string]metricSummary{}
+		byID[runs[i].ID] = &runs[i]
+	}
+	rows, _ := db.Query(ctx, `SELECT m.run_id::text, k.name, count(*), max(m.step), (array_agg(m.value ORDER BY m.step DESC))[1], min(m.value), max(m.value)
+		FROM metrics m JOIN metric_keys k ON k.id = m.key_id WHERE m.run_id = ANY($1::uuid[]) GROUP BY 1, 2`, ids)
+	var id, name string
 	var s metricSummary
 	var last, lo, hi float64
-	_, err = pgx.ForEachRow(rows, []any{&name, &s.Count, &s.Step, &last, &lo, &hi}, func() error {
+	_, err := pgx.ForEachRow(rows, []any{&id, &name, &s.Count, &s.Step, &last, &lo, &hi}, func() error {
 		s.Last, s.Min, s.Max = num(last), num(lo), num(hi)
-		r.Metrics[name] = s
+		byID[id].Metrics[name] = s
 		return nil
 	})
-	return r, err
+	return err
 }
 
 type series struct {
