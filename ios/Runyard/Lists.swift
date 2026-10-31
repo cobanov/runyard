@@ -173,8 +173,8 @@ struct ProjectRow: View {
                     Text("\(project.running) running")
                         .font(.caption.bold())
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(.blue.opacity(0.15), in: .capsule)
-                        .foregroundStyle(.blue)
+                        .background(Color.accentColor.opacity(0.15), in: .capsule)
+                        .foregroundStyle(Color.accentColor)
                 }
             }
             Text([project.runs == 1 ? "1 run" : "\(project.runs) runs",
@@ -328,7 +328,7 @@ struct AlertRow: View {
 
 func statusColor(_ status: String) -> Color {
     switch status {
-    case "running": .blue
+    case "running": .accentColor  // the running teal, as in DESIGN.md
     case "finished": .green
     case "failed": .red
     case "crashed": .orange
