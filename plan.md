@@ -79,7 +79,8 @@ hazır araçlar ──(W&B köprüsü / MLflow ucu / TensorBoard izleyici)─┤
 - `channels(id, kind, config jsonb)`, `rules(id, project_id, event, condition jsonb, channel_id)`
 - `api_keys(id, name, hash, scopes, created_at)`
 
-Metrikler toplu `COPY` ile yazılır. Grafikler ham noktayı değil, aralık başına min/max/son değeri ister
+Metrikler toplu yazılır: v0.1'de `COPY` yerine `unnest` dizileriyle tek `INSERT ... ON CONFLICT` (istemci aynı partiyi
+yeniden gönderebildiği için idempotent olmalı; `COPY` çakışmayı çözemiyor). Grafikler ham noktayı değil, aralık başına min/max/son değeri ister
 (`?points=1000`); böylece çalıştırma başına milyonlarca satır taşınır.
 
 Durum mantığı: `finish()` → `finished`; Python'da yakalanmayan hata veya sıfırdan farklı çıkış → `failed`
@@ -160,6 +161,8 @@ Kimlik: API anahtarı (`Authorization: Bearer`). v0.1 tek kullanıcı.
 - **Kanallar:** ntfy, genel webhook (JSON), Slack/Discord, Telegram, web push (PWA)
 - **Olaylar:** bitti, başarısız, çöktü/sessiz (heartbeat), NaN/inf, metrik eşiği, koddan `alert()`
 - **Kurallar** proje başına. Bildirimde çalıştırmanın bağlantısı ve son örnek resim (ntfy attachment) olur.
+- v0.1: ntfy ve webhook; kanal ve kurallar `runyard-server channel add|ls|rm|test` ile yönetilir (arayüzde ayar
+  ekranı yok). Çöktü: 5 dakika heartbeat gelmezse; heartbeat dönerse koşu yeniden `running` olur.
 
 ## 11. Ajanlar
 
@@ -216,7 +219,7 @@ izleyicisi; NaN/eşik/sessizlik kuralları; PWA push; video oynatıcı.
   çağırıyor. Köprüyü yalnız gerçek araçlarla test ederek ve gerektiği kadar büyüt.
 - **MLflow ucunun derinliği belirsiz:** `mlflow.autolog` model dosyalarını da yüklemeye çalışıyor; artifact
   uçlarının ne kadarı gerektiği denemeden bilinmez.
-- **LLM ön eğitiminde metrik hacmi:** çalıştırma başına milyonlarca satır. Toplu `COPY` ve özetli sorgu yeterli
+- **LLM ön eğitiminde metrik hacmi:** çalıştırma başına milyonlarca satır. Toplu `INSERT ... unnest` ve özetli sorgu yeterli
   olmalı; olmazsa TimescaleDB.
 
 ## 15. Kararlar (2026-10-31)
