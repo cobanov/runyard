@@ -4,6 +4,7 @@
     runyard runs show RUN            RUN: id, id prefix or run name
     runyard logs RUN [-n 100] [-f]
     runyard samples RUN [--out DIR]  downloads the latest samples
+    runyard artifacts RUN [--get NAME]  checkpoints and files; --get downloads an uploaded one
     runyard sync                     sends runs saved while the server was unreachable
     runyard watch DIR [--project P] [--once] [--interval 10]
                                      sends TensorBoard event files under DIR, one run per directory, until Ctrl-C;
@@ -106,6 +107,27 @@ def cmd_samples(a):
         dump(media)
 
 
+def cmd_artifacts(a):
+    r = api("/runs/" + urllib.parse.quote(a.run))
+    arts = api(f"/runs/{r['id']}/artifacts")
+    if a.get:
+        arts = [x for x in arts if a.get in (x["id"], x["name"]) and x.get("url")]
+        if not arts:
+            print(f"runyard: no uploaded artifact {a.get!r} in {r['name']}", file=sys.stderr)
+            return 1
+        out = Path(a.out or ".")
+        out.mkdir(parents=True, exist_ok=True)
+        dst = out / Path(arts[0]["name"]).name
+        urllib.request.urlretrieve(server() + arts[0]["url"], dst)
+        return print(dst)
+    if a.json:
+        return dump(arts)
+    for x in arts:
+        size = f"{x['size'] / 1e6:.1f} MB" if x.get("size") is not None else "?"
+        where = "uploaded" if x.get("url") else x["uri"]
+        print(f"{x['kind']:<10}  {x['name']}  step {x['step']}  {size}  {where}")
+
+
 def cmd_sync(a):
     """Sends what runs saved at exit while their server was unreachable."""
     from . import core
@@ -159,6 +181,12 @@ def main(argv=None):
     samples.add_argument("--key")
     samples.add_argument("--out", help="directory (default runyard-samples/<run>)")
     samples.set_defaults(fn=cmd_samples)
+
+    arts = sub.add_parser("artifacts", parents=[js], help="a run's checkpoints and files; --get downloads an uploaded one")
+    arts.add_argument("run")
+    arts.add_argument("--get", metavar="NAME", help="download the uploaded artifact with this name or id")
+    arts.add_argument("--out", help="directory for --get (default: here)")
+    arts.set_defaults(fn=cmd_artifacts)
 
     sub.add_parser("sync", help=cmd_sync.__doc__).set_defaults(fn=cmd_sync)
 

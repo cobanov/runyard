@@ -179,3 +179,33 @@ def test_cli(server, tmp_path, capsys):
     files = [m["file"] for m in json.loads(capsys.readouterr().out)]
     assert len(files) == 1 and Path(files[0]).read_bytes()[:4] == b"\x89PNG"
     assert cli(["runs", "show", "no-such-run"]) == 1
+
+
+def test_artifacts(server, tmp_path):
+    ckpt = tmp_path / "checkpoint-500"
+    (ckpt / "sub").mkdir(parents=True)
+    (ckpt / "model.safetensors").write_bytes(b"w" * 3000)
+    (ckpt / "sub" / "config.json").write_text("{}")
+    lora = tmp_path / "owl.safetensors"
+    lora.write_bytes(b"lora-weights")
+    run = ry.init(project="arts", name="a", system=False)
+    run.artifact(ckpt, kind="checkpoint", step=500)  # a record only
+    run.artifact(lora, kind="model", upload=True, meta={"rank": 16})
+    run.artifact(ckpt, name="ckpt", upload=True)  # a directory goes up as .tar.gz
+    run.artifact(tmp_path / "missing")  # a warning, nothing recorded
+    run.finish()
+    arts = get(f"{server}/api/v1/runs/{run.id}/artifacts")
+    assert [(a["name"], a["kind"], a["step"]) for a in arts] == [
+        ("checkpoint-500", "checkpoint", 500), ("owl.safetensors", "model", 0), ("ckpt.tar.gz", "file", 0)]
+    assert arts[0]["uri"] == str(ckpt.resolve()) and arts[0]["size"] == 3002 and "url" not in arts[0]
+    assert arts[1]["meta"] == {"rank": 16} and arts[1]["size"] == len(b"lora-weights")
+    with urllib.request.urlopen(server + arts[1]["url"]) as r:
+        assert r.read() == b"lora-weights"
+
+    out = tmp_path / "dl"
+    assert cli(["artifacts", run.id, "--get", "ckpt.tar.gz", "--out", str(out)]) == 0
+    import tarfile
+
+    with tarfile.open(out / "ckpt.tar.gz") as t:
+        assert sorted(t.getnames()) == [".", "./model.safetensors", "./sub", "./sub/config.json"]
+    assert cli(["artifacts", run.id, "--get", "checkpoint-500"]) == 1  # not uploaded, nothing to download

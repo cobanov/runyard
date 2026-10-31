@@ -10,13 +10,16 @@
   let series = $state({})
   let tab = $state('charts')
   let alerts = $state([])
+  let artifacts = $state([])
 
   const loadRun = throttle(() => get('/runs/' + id).then((r) => (run = r)).catch((e) => (error = e.message)))
   const loadMetrics = throttle(() => get(`/runs/${id}/metrics?points=600`).then((s) => (series = s)), 4000)
   const loadAlerts = throttle(() => get(`/alerts?run=${id}&limit=10`).then((a) => (alerts = a)))
+  const loadArtifacts = throttle(() => get(`/runs/${id}/artifacts`).then((a) => (artifacts = a)))
   loadRun()
   loadMetrics()
   loadAlerts()
+  loadArtifacts()
   $effect(() =>
     onEvent((e) => {
       if (e.type === 'reconnect') (loadRun(), loadMetrics(), loadAlerts())
@@ -24,6 +27,7 @@
       if (e.type === 'run') loadRun()
       if (e.type === 'metrics') loadMetrics()
       if (e.type === 'alert') loadAlerts()
+      if (e.type === 'artifact') loadArtifacts()
     }),
   )
 
@@ -35,12 +39,14 @@
     ['samples', 'Samples'],
     ['logs', 'Logs'],
     ['config', 'Config'],
+    ...(artifacts.length ? [['artifacts', 'Artifacts']] : []),
     ...(sysKeys.length ? [['system', 'GPU & system']] : []),
   ])
   const lineOf = (k) => {
     const s = series[k]
     return [{ label: k, color: '--c1', x: s.step, y: s.last.map(plotValue), min: s.min.map(plotValue), max: s.max.map(plotValue) }]
   }
+  const bytes = (n) => (n < 1e3 ? `${n} B` : n < 1e6 ? `${(n / 1e3).toFixed(1)} kB` : n < 1e9 ? `${(n / 1e6).toFixed(1)} MB` : `${(n / 1e9).toFixed(2)} GB`)
   const config = $derived(Object.entries(flatten(run?.config)))
   const summary = $derived(Object.entries(flatten(run?.summary)))
 </script>
@@ -102,6 +108,18 @@
     <Samples {id} />
   {:else if tab === 'logs'}
     <Logs {id} running={run.status === 'running'} />
+  {:else if tab === 'artifacts'}
+    <ul class="row-list artifacts">
+      {#each artifacts as a (a.id)}
+        <li>
+          <div class="edge-row">
+            {#if a.url}<a href={a.url} download>{a.name}</a>{:else}<span>{a.name}</span>{/if}
+            <span class="muted small">{a.kind}{a.step != null ? `, step ${fmt(a.step)}` : ''}{a.size != null ? `, ${bytes(a.size)}` : ''}</span>
+          </div>
+          {#if !a.url && a.uri}<code class="small muted">{a.uri}</code>{/if}
+        </li>
+      {/each}
+    </ul>
   {:else if tab === 'config'}
     {#if summary.length}
       <h2>Summary</h2>
@@ -143,6 +161,22 @@
   }
   .alerts .level-error {
     border-left-color: var(--failed);
+  }
+  .artifacts li {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+    overflow-wrap: anywhere;
+  }
+  .edge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    align-items: baseline;
+  }
+  .artifacts code {
+    display: block;
+    margin-top: 2px;
+    font-family: var(--mono);
   }
   .tabs {
     display: flex;

@@ -4,6 +4,7 @@ import math
 import urllib.error
 import urllib.request
 import uuid
+from pathlib import Path
 
 
 class HTTPError(Exception):
@@ -30,8 +31,20 @@ def clean(v):
     return str(v)
 
 
+def _stream(head, path, tail):
+    yield head
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(1 << 20)
+            if not chunk:
+                break
+            yield chunk
+    yield tail
+
+
 def request(method, url, key="", body=None, file=None, timeout=10):
-    """Sends body as JSON, or as multipart fields when file=(filename, bytes) is given. Returns the decoded reply."""
+    """Sends body as JSON, or as multipart fields when file=(filename, bytes or Path) is given; a Path is streamed from
+    disk, so a large checkpoint never sits in memory. Returns the decoded reply."""
     headers = {"Authorization": "Bearer " + key} if key else {}
     data = None
     if file is not None:
@@ -40,8 +53,13 @@ def request(method, url, key="", body=None, file=None, timeout=10):
         for k, v in (body or {}).items():
             parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
         parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{file[0]}"\r\n'
-                     f"Content-Type: application/octet-stream\r\n\r\n".encode() + file[1] + b"\r\n")
-        data = b"".join(parts) + f"--{boundary}--\r\n".encode()
+                     f"Content-Type: application/octet-stream\r\n\r\n".encode())
+        head, tail = b"".join(parts), f"\r\n--{boundary}--\r\n".encode()
+        if isinstance(file[1], Path):
+            data = _stream(head, file[1], tail)
+            headers["Content-Length"] = str(len(head) + file[1].stat().st_size + len(tail))
+        else:
+            data = head + file[1] + tail
         headers["Content-Type"] = "multipart/form-data; boundary=" + boundary
     elif body is not None:
         data = json.dumps(clean(body), allow_nan=False).encode()

@@ -48,6 +48,11 @@ def text(key, rows, step=None):
         run.text(key, rows, step=step)
 
 
+def artifact(path, name=None, kind="file", step=None, upload=False, meta=None):
+    if _current("artifact"):
+        run.artifact(path, name=name, kind=kind, step=step, upload=upload, meta=meta)
+
+
 def alert(title, body="", level="info"):
     if _current("alert"):
         run.alert(title, body=body, level=level)

@@ -1,4 +1,6 @@
 """Hugging Face Trainer (and TRL, Unsloth, which use it): Trainer(..., callbacks=[RunyardCallback()])."""
+import os
+
 from transformers import TrainerCallback
 
 from .. import init
@@ -33,6 +35,12 @@ class RunyardCallback(TrainerCallback):
             config["model"] = mc if isinstance(mc, dict) else mc.to_dict()
         name = self.name or (args.run_name if args.run_name and args.run_name != args.output_dir else None)
         self.run = init(self.project, name, config, **self.init_kwargs)
+
+    def on_save(self, args, state, control, **kwargs):
+        # a record of where the checkpoint is (not a copy): runyard artifacts RUN lists them
+        path = os.path.join(args.output_dir, f"checkpoint-{state.global_step}")
+        if self.run is not None and os.path.isdir(path):
+            self.run.artifact(path, kind="checkpoint", step=state.global_step)
 
     def on_log(self, args, state, control, logs=None, **kwargs):
         if self.run is None or not logs:

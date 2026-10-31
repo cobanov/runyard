@@ -9,6 +9,8 @@
   let hash = $state(location.hash)
   window.addEventListener('hashchange', () => (hash = location.hash))
   const route = $derived.by(() => {
+    const mlflow = hash.match(/^#\/experiments\/[^/]+\/runs\/([^/]+)/) // the run links mlflow's client prints
+    if (mlflow) return { kind: 'r', arg: mlflow[1] }
     const [, kind, arg] = hash.match(/^#\/(\w+)\/(.+)$/) || []
     return { kind, arg: arg && decodeURIComponent(arg) }
   })

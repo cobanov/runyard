@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -125,11 +126,28 @@ class Sender:
             request("POST", f"{base}/{self.run_id}/alerts", self.key, batch[0])
         elif kind == "media":
             fields, path = batch[0]
-            try:
-                content = Path(path).read_bytes()
-            except FileNotFoundError:
+            if not Path(path).exists():
                 return  # already sent by an earlier process (runyard sync after a partial upload)
-            request("POST", f"{base}/{self.run_id}/media", self.key, fields, file=(Path(path).name, content), timeout=300)
+            request("POST", f"{base}/{self.run_id}/media", self.key, fields, file=(Path(path).name, Path(path)), timeout=300)
+        elif kind == "artifact":
+            fields, path = batch[0]
+            url = f"{base}/{self.run_id}/artifacts"
+            if path is None:
+                request("POST", url, self.key, {**fields, "meta": json.loads(fields["meta"])})
+                return
+            p = Path(path)
+            if not p.exists():
+                warn(f"artifact {path} is gone, not uploaded")
+                return
+            if p.is_file():
+                request("POST", url, self.key, fields, file=(p.name, p), timeout=3600)
+                return
+            # a directory goes up as one .tar.gz, packed here in the sender thread so training does not wait
+            archive = Path(shutil.make_archive(str(CACHE / "uploads" / fields["id"]), "gztar", p))
+            try:
+                request("POST", url, self.key, {**fields, "name": fields["name"] + ".tar.gz"}, file=(archive.name, archive), timeout=3600)
+            finally:
+                archive.unlink(missing_ok=True)
 
     def save_pending(self):
         """Writes what is still queued to the cache so `runyard sync` can send it later; returns the file or None."""
@@ -253,6 +271,19 @@ class Run:
 
         path.write_text(json.dumps(clean(rows)))
         self._media(key, "text", step, path, {"rows": len(rows)})
+
+    @_safe
+    def artifact(self, path, name=None, kind="file", step=None, upload=False, meta=None):
+        """Records a file or directory the run produced: a checkpoint, a LoRA, an exported model. By default only where
+        it lives (this host and path) is recorded; upload=True also sends a copy (a directory as one .tar.gz)."""
+        p = Path(path).resolve()
+        if not p.exists():
+            warn(f"artifact {path} does not exist, not recorded")
+            return
+        size = p.stat().st_size if p.is_file() else sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+        fields = {"id": str(uuid.uuid4()), "name": name or p.name, "kind": kind, "uri": str(p), "size": size,
+                  "step": self._step_for(step), "meta": json.dumps(meta or {})}
+        self._sender.put("artifact", (fields, str(p) if upload else None))
 
     @_safe
     def alert(self, title, body="", level="info"):
