@@ -2,6 +2,10 @@
 
 See the [main README](https://github.com/cobanov/runyard).
 
+Optional extras: `images` (numpy, Pillow), `system` (GPU, CPU and RAM usage), `video` (imageio-ffmpeg: frames
+become an H.264 mp4 instead of a GIF) and `tensorboard` (for `runyard watch DIR`, which sends TensorBoard event
+files: one run per directory, `--once` to import and exit). `runyard --help` lists the commands.
+
 ## Framework adapters
 
 `runyard.integrations.<module>` imports its framework, which you install yourself. Keyword arguments other than

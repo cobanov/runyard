@@ -201,8 +201,8 @@ class Run:
         return int(step) if step is not None else max(self._step - 1, 0)
 
     @_safe
-    def log(self, data, step=None):
-        """Logs numbers. Without step, each call is the next step after the last one."""
+    def log(self, data, step=None, ts=None):
+        """Logs numbers. Without step, each call is the next step after the last one; ts (ISO 8601) defaults to now."""
         values = {}
         for k, v in data.items():
             n = _number(v)
@@ -216,7 +216,7 @@ class Run:
             step = int(step)
             self._step = max(self._step, step + 1)
         if values:
-            self._sender.put("metrics", {"step": step, "ts": _now(), "values": values})
+            self._sender.put("metrics", {"step": step, "ts": ts or _now(), "values": values})
 
     def _media(self, key, kind, step, path, meta):
         mid = path.stem

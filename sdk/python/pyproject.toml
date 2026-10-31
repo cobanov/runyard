@@ -15,6 +15,7 @@ dependencies = []
 images = ["numpy", "pillow"]
 system = ["nvidia-ml-py", "psutil"]
 video = ["imageio", "imageio-ffmpeg"]
+tensorboard = ["tensorboard"]
 dev = ["pytest", "numpy", "pillow"]
 
 [project.scripts]

@@ -77,6 +77,12 @@ their code: install runyard into their environment and set `RUNYARD_WANDB=1`. `i
 bridge that writes to runyard (`init`, `log`, `config`, `summary`, `define_metric`, `Image`, `Video`, `Table`,
 `alert`, `finish`); anything else prints a warning and is skipped.
 
+TensorBoard: tools that only write event files (kohya sd-scripts `--log_with tensorboard`, DeepSpeed, diffusers
+`--report_to tensorboard`, torch `SummaryWriter`) need no change either. Install runyard with the `tensorboard` extra
+and run `runyard watch ./logs`. Each directory with event files becomes a run named by its path; scalars, images, text
+and hparams are sent, new events every 10 seconds until Ctrl-C. `--once` imports finished trainings; a restarted
+watcher continues the same runs.
+
 ## Read runs
 
 - Web UI: runs by project, a run page with charts, samples, logs, config and system, and run comparison. Live.

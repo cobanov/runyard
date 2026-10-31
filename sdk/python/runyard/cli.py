@@ -5,10 +5,14 @@
     runyard logs RUN [-n 100] [-f]
     runyard samples RUN [--out DIR]  downloads the latest samples
     runyard sync                     sends runs saved while the server was unreachable
+    runyard watch DIR [--project P] [--once] [--interval 10]
+                                     sends TensorBoard event files under DIR, one run per directory, until Ctrl-C;
+                                     --once reads them once and exits (needs the tensorboard package)
 """
 import argparse
 import json
 import os
+import signal
 import sys
 import time
 import urllib.parse
@@ -112,8 +116,23 @@ def cmd_sync(a):
     return 1 if left else 0
 
 
+def cmd_watch(a):
+    """Sends TensorBoard event files under DIR, one run per directory; polls for new events until Ctrl-C."""
+    if not Path(a.dir).is_dir():
+        print(f"runyard: {a.dir} is not a directory", file=sys.stderr)
+        return 1
+    try:
+        from .watch import watch
+    except ImportError as e:
+        print(f"runyard: watch needs tensorboard, pip install 'runyard[tensorboard]' ({e})", file=sys.stderr)
+        return 1
+    if not a.once:
+        signal.signal(signal.SIGTERM, signal.default_int_handler)  # stop like Ctrl-C, so the runs end finished
+    watch(a.dir, a.project, a.once, a.interval)
+
+
 def main(argv=None):
-    p = argparse.ArgumentParser(prog="runyard", description="Reads runs from the server in RUNYARD_SERVER.")
+    p = argparse.ArgumentParser(prog="runyard", description="Reads runs from the server in RUNYARD_SERVER; watch sends to it.")
     p.add_argument("--version", action="version", version=__version__)
     sub = p.add_subparsers(dest="cmd", required=True)
     js = argparse.ArgumentParser(add_help=False)
@@ -142,6 +161,13 @@ def main(argv=None):
     samples.set_defaults(fn=cmd_samples)
 
     sub.add_parser("sync", help=cmd_sync.__doc__).set_defaults(fn=cmd_sync)
+
+    watch = sub.add_parser("watch", help=cmd_watch.__doc__)
+    watch.add_argument("dir")
+    watch.add_argument("--project", help="default: RUNYARD_PROJECT, else the directory's name")
+    watch.add_argument("--once", action="store_true", help="read everything once, finish the runs and exit (imports)")
+    watch.add_argument("--interval", type=float, default=10, help="seconds between polls (default 10)")
+    watch.set_defaults(fn=cmd_watch)
     a = p.parse_args(argv)
     try:
         return a.fn(a) or 0
