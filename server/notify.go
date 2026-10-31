@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -34,7 +33,8 @@ type message struct {
 	URL      string `json:"url,omitempty"`       // the run page, when RUNYARD_URL is set
 	ImageURL string `json:"image_url,omitempty"` // the run's latest image, when RUNYARD_URL is set
 	Run      Run    `json:"run"`
-	image    string // local path of that image, uploaded to ntfy as an attachment
+	image    []byte // that image, attached where the channel allows it
+	imageExt string
 	priority string
 	tags     string
 }
@@ -103,7 +103,8 @@ func (s *srv) message(ctx context.Context, run Run, event string, a *Alert) mess
 	}
 	var rel string
 	if s.db.QueryRow(ctx, `SELECT path FROM media WHERE run_id = $1::uuid AND kind = 'image' ORDER BY step DESC, created_at DESC LIMIT 1`, run.ID).Scan(&rel) == nil {
-		m.image = filepath.Join(s.media, filepath.FromSlash(rel))
+		m.image, _ = readBlob(ctx, s.store, rel)
+		m.imageExt = filepath.Ext(rel)
 		if s.url != "" {
 			m.ImageURL = s.url + "/media/" + rel
 		}
@@ -184,17 +185,14 @@ func (c channel) send(ctx context.Context, m message) error {
 	if m.URL != "" {
 		q.Set("click", m.URL)
 	}
-	if m.image != "" {
-		if f, err := os.Open(m.image); err == nil {
-			defer f.Close()
-			q.Set("filename", filepath.Base(m.image))
-			err = post(ctx, "PUT", c.Config.URL+"?"+q.Encode(), c.Config.Token, f, "")
-			if err == nil {
-				return nil
-			}
-			log.Printf("ntfy attachment refused, sending without it: %v", err)
-			q.Del("filename")
+	if m.image != nil {
+		q.Set("filename", "sample"+m.imageExt)
+		err := post(ctx, "PUT", c.Config.URL+"?"+q.Encode(), c.Config.Token, bytes.NewReader(m.image), "")
+		if err == nil {
+			return nil
 		}
+		log.Printf("ntfy attachment refused, sending without it: %v", err)
+		q.Del("filename")
 	}
 	return post(ctx, "POST", c.Config.URL+"?"+q.Encode(), c.Config.Token, nil, "")
 }

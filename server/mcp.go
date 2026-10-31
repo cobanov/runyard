@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -116,6 +115,14 @@ func (s *srv) mcpHandler() http.Handler {
 				return nil, nil, err
 			}
 			return s.samples(ctx, id, in.Key, in.Step, or(in.Limit, 4))
+		})
+	mcp.AddTool(server, &mcp.Tool{Name: "list_artifacts", Description: "Checkpoints, models and other files the run recorded: name, kind, step, where the file lives (uri) and a download url when a copy was uploaded."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, any, error) {
+			id, err := s.resolveRun(ctx, in.Run)
+			if err != nil {
+				return nil, nil, err
+			}
+			return jsonResult(listArtifacts(ctx, s.db, id))
 		})
 	mcp.AddTool(server, &mcp.Tool{Name: "compare_runs", Description: "Runs side by side: status and duration, the config keys that differ, and last/min of the metrics they share."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in compareIn) (*mcp.CallToolResult, any, error) {
@@ -246,16 +253,15 @@ func (s *srv) samples(ctx context.Context, id, key string, step *int64, limit in
 		if meta.Caption != "" {
 			label += ": " + meta.Caption
 		}
-		path := filepath.Join(s.media, filepath.FromSlash(m.Path))
 		switch {
 		case m.Kind == "text":
-			b, err := os.ReadFile(path)
+			b, err := readBlob(ctx, s.store, m.Path)
 			if err != nil {
 				continue
 			}
 			res.Content = append(res.Content, &mcp.TextContent{Text: label + "\n" + string(b)})
 		case m.Kind == "image" && images < limit:
-			b, err := os.ReadFile(path)
+			b, err := readBlob(ctx, s.store, m.Path)
 			if err != nil {
 				continue
 			}

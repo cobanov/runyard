@@ -68,10 +68,11 @@ func main() {
 		os.Exit(2)
 	}
 
-	s := &srv{db: db, media: env("MEDIA_DIR", "./media"), url: strings.TrimRight(os.Getenv("RUNYARD_URL"), "/"), hub: newHub()}
-	if err := os.MkdirAll(s.media, 0o755); err != nil {
+	store, err := newBlobs()
+	if err != nil {
 		log.Fatal(err)
 	}
+	s := &srv{db: db, store: store, url: strings.TrimRight(os.Getenv("RUNYARD_URL"), "/"), hub: newHub()}
 	go s.watchCrashes(ctx)
 	mux := s.routes()
 	static, _ := fs.Sub(webdist, "webdist/dist")

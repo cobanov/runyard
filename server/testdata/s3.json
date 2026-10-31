@@ -1,0 +1,1 @@
+{"identities": [{"name": "runyard", "credentials": [{"accessKey": "runyard", "secretKey": "runyard-test-secret"}], "actions": ["Admin", "Read", "Write", "List", "Tagging"]}]}

@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -43,7 +42,7 @@ func testServer(t *testing.T) (*httptest.Server, string, *srv) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &srv{db: db, media: t.TempDir(), hub: newHub()}
+	s := &srv{db: db, store: localBlobs(t.TempDir()), hub: newHub()}
 	ts := httptest.NewServer(s.routes())
 	t.Cleanup(func() { ts.Close(); db.Close() })
 	return ts, key, s
@@ -141,7 +140,7 @@ func TestWriteFlow(t *testing.T) {
 		t.Fatalf("media: %d %v", code, up)
 	}
 	call(t, "POST", api+"/runs/"+runID+"/media", key, mediaForm(form, "grid.PNG", []byte("other")), nil) // retry keeps the first file
-	got, _ := os.ReadFile(filepath.Join(s.media, runID, form["id"]+".png"))
+	got, _ := readBlob(context.Background(), s.store, runID+"/"+form["id"]+".png")
 	if !bytes.Equal(got, png) {
 		t.Fatalf("media file = %q", got)
 	}

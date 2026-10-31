@@ -6,10 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -23,7 +21,7 @@ import (
 
 type srv struct {
 	db    *pgxpool.Pool
-	media string // MEDIA_DIR
+	store blobs  // media and artifact files
 	url   string // public base URL for links in notifications, may be empty
 	hub   *hub
 }
@@ -39,6 +37,7 @@ func (s *srv) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/v1/runs/{id}/media", s.write(s.postMedia))
 	mux.HandleFunc("POST /api/v1/runs/{id}/heartbeat", s.write(s.heartbeat))
 	mux.HandleFunc("POST /api/v1/runs/{id}/alerts", s.write(s.postAlert))
+	mux.HandleFunc("POST /api/v1/runs/{id}/artifacts", s.write(s.postArtifact))
 
 	mux.HandleFunc("GET /api/v1/projects", s.read(func(r *http.Request) (any, error) { return listProjects(r.Context(), s.db) }))
 	mux.HandleFunc("GET /api/v1/runs", s.read(func(r *http.Request) (any, error) {
@@ -67,6 +66,10 @@ func (s *srv) routes() *http.ServeMux {
 		q := r.URL.Query()
 		return listMedia(r.Context(), s.db, r.PathValue("id"), q.Get("key"), q.Get("kind"), int64(intParam(r, "step", -1)))
 	}))
+	mux.HandleFunc("GET /api/v1/runs/{id}/artifacts", s.read(func(r *http.Request) (any, error) {
+		return listArtifacts(r.Context(), s.db, r.PathValue("id"))
+	}))
+	mux.HandleFunc("GET /api/v1/artifacts/{id}/file", s.serveArtifact)
 	mux.HandleFunc("GET /api/v1/alerts", s.read(func(r *http.Request) (any, error) {
 		q := r.URL.Query()
 		return listAlerts(r.Context(), s.db, q.Get("run"), q.Get("project"), intParam(r, "limit", 100))
@@ -74,15 +77,15 @@ func (s *srv) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/events", s.hub.serve)
 	mux.Handle("/mcp", s.mcpHandler())
 
-	files := http.FileServer(http.Dir(s.media))
-	mux.Handle("GET /media/", http.StripPrefix("/media", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/") { // no directory listings
+	mux.HandleFunc("GET /media/{key...}", func(w http.ResponseWriter, r *http.Request) {
+		key := r.PathValue("key")
+		if !blobKey.MatchString(key) {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable") // media files never change
-		files.ServeHTTP(w, r)
-	})))
+		s.store.serve(w, r, key)
+	})
 	return mux
 }
 
@@ -349,6 +352,9 @@ func (s *srv) postLogs(r *http.Request) (any, error) {
 var safeExt = regexp.MustCompile(`^\.[a-z0-9]{1,5}$`)
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
+// blobKey is the shape of a media file's key: <run id>/<file id><ext>.
+var blobKey = regexp.MustCompile(`^[0-9a-f-]{36}/[0-9a-f-]{36}(\.[a-z0-9]{1,5})?$`)
+
 // postMedia takes multipart fields id (optional, makes retries idempotent), key, step, kind, meta (JSON) and file.
 func (s *srv) postMedia(r *http.Request) (any, error) {
 	runID := r.PathValue("id")
@@ -387,24 +393,13 @@ func (s *srv) postMedia(r *http.Request) (any, error) {
 		ext = ""
 	}
 	rel := runID + "/" + id + ext
-	if err := os.MkdirAll(filepath.Join(s.media, runID), 0o755); err != nil {
+	if err := s.store.put(r.Context(), rel, file, hdr.Size); err != nil {
 		return nil, err
 	}
-	dst := filepath.Join(s.media, filepath.FromSlash(rel))
-	out, err := os.Create(dst)
+	_, err = s.db.Exec(r.Context(), `INSERT INTO media (id, run_id, key, step, kind, path, meta)
+		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb)`, id, runID, key, step, kind, rel, meta)
 	if err != nil {
-		return nil, err
-	}
-	_, err = io.Copy(out, file)
-	if cerr := out.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		_, err = s.db.Exec(r.Context(), `INSERT INTO media (id, run_id, key, step, kind, path, meta)
-			VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb)`, id, runID, key, step, kind, rel, meta)
-	}
-	if err != nil {
-		os.Remove(dst)
+		s.store.remove(context.WithoutCancel(r.Context()), rel)
 		return nil, err
 	}
 	s.hub.publish(event{Type: "media", Run: runID})
