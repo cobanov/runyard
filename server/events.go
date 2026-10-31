@@ -32,7 +32,8 @@ func (h *hub) publish(e event) {
 	}
 }
 
-func (h *hub) serve(w http.ResponseWriter, r *http.Request) {
+// serve streams events to one client; allow (nil: everything) says which runs' events it may see.
+func (h *hub) serve(w http.ResponseWriter, r *http.Request, allow func(run string) bool) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -60,6 +61,13 @@ func (h *hub) serve(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case b := <-c:
+			if allow != nil {
+				var e event
+				json.Unmarshal(b, &e)
+				if e.Run != "" && !allow(e.Run) {
+					continue
+				}
+			}
 			w.Write([]byte("data: "))
 			w.Write(b)
 			w.Write([]byte("\n\n"))

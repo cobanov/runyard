@@ -209,7 +209,11 @@ func (s *srv) pushRoutes(mux *http.ServeMux) {
 		var id int64
 		err = tx.QueryRow(r.Context(), `SELECT id FROM channels WHERE kind = 'webpush' AND config->>'url' = $1`, sub.Endpoint).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
-			if err := tx.QueryRow(r.Context(), `INSERT INTO channels (kind, config) VALUES ('webpush', $1) RETURNING id`, cfg).Scan(&id); err != nil {
+			var user *int64 // logged in: the subscription gets only what this user may see
+			if p := principalOf(r.Context()); p != nil && p.user != 0 {
+				user = &p.user
+			}
+			if err := tx.QueryRow(r.Context(), `INSERT INTO channels (kind, config, user_id) VALUES ('webpush', $1, $2) RETURNING id`, cfg, user).Scan(&id); err != nil {
 				return nil, err
 			}
 			if _, err := tx.Exec(r.Context(), `INSERT INTO rules (channel_id, event) SELECT $1, unnest($2::text[])`,

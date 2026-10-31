@@ -1,16 +1,16 @@
 // Command runyard-server is the runyard tracking server: REST API, web UI, SSE and MCP in one binary.
 //
 //	runyard-server                  serve (default)
-//	runyard-server key create NAME  print a new write API key
+//	runyard-server key create [-user U] NAME  print a new write API key (acting as user U)
 //	runyard-server channel ...      manage notification channels, see channelCmd
 //	runyard-server check ...        manage the checks that raise alerts (NaN, threshold, stall), see checkCmd
+//	runyard-server user|team|project ...  users, teams and which team owns a project (RUNYARD_AUTH=1), see usersUsage
 package main
 
 import (
 	"context"
 	"embed"
 	"fmt"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -28,6 +28,10 @@ func env(key, def string) string {
 		return v
 	}
 	return def
+}
+
+var cmds = map[string]func(context.Context, *pgxpool.Pool, []string) error{
+	"key": keyCmd, "channel": channelCmd, "check": checkCmd, "user": userCmd, "team": teamCmd, "project": projectCmd,
 }
 
 func main() {
@@ -49,25 +53,14 @@ func main() {
 	args := os.Args[1:]
 	switch {
 	case len(args) == 0 || args[0] == "serve":
-	case len(args) == 3 && args[0] == "key" && args[1] == "create":
-		key, err := createKey(ctx, db, args[2])
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Println(key)
-		return
-	case args[0] == "channel" || args[0] == "check":
-		cmd := channelCmd
-		if args[0] == "check" {
-			cmd = checkCmd
-		}
-		if err := cmd(ctx, db, args[1:]); err != nil {
+	case cmds[args[0]] != nil:
+		if err := cmds[args[0]](ctx, db, args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
 		}
 		return
 	default:
-		fmt.Fprintln(os.Stderr, "usage: runyard-server [serve] | key create NAME | channel add|ls|rm|test | check add|ls|rm")
+		fmt.Fprintln(os.Stderr, "usage: runyard-server [serve] | key create [-user U] NAME | channel add|ls|rm|test | check add|ls|rm | user | team | project")
 		os.Exit(2)
 	}
 
@@ -75,15 +68,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	s := &srv{db: db, store: store, url: strings.TrimRight(os.Getenv("RUNYARD_URL"), "/"), hub: newHub()}
+	auth := os.Getenv("RUNYARD_AUTH")
+	s := &srv{db: db, store: store, url: strings.TrimRight(os.Getenv("RUNYARD_URL"), "/"), hub: newHub(), auth: auth != "" && auth != "0" && auth != "false"}
 	go s.watchCrashes(ctx)
-	mux := s.routes()
-	static, _ := fs.Sub(webdist, "webdist/dist")
-	mux.Handle("/", http.FileServerFS(static))
 
 	addr := env("ADDR", ":8080")
 	log.Printf("runyard listening on %s", addr)
-	hs := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second} // no WriteTimeout: SSE streams stay open
+	hs := &http.Server{Addr: addr, Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second} // no WriteTimeout: SSE streams stay open
 	log.Fatal(hs.ListenAndServe())
 }
 

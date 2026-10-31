@@ -30,8 +30,19 @@ def server():
     return (os.environ.get("RUNYARD_SERVER") or "http://localhost:8080").rstrip("/")
 
 
+def key():
+    return os.environ.get("RUNYARD_API_KEY", "")  # reads need it only when the server runs with RUNYARD_AUTH
+
+
 def api(path):
-    return request("GET", server() + "/api/v1" + path)
+    return request("GET", server() + "/api/v1" + path, key())
+
+
+def download(path, dst):
+    req = urllib.request.Request(server() + path, headers={"Authorization": "Bearer " + key()} if key() else {})
+    with urllib.request.urlopen(req, timeout=300) as r, open(dst, "wb") as f:
+        while chunk := r.read(1 << 20):
+            f.write(chunk)
 
 
 def dump(v):
@@ -99,7 +110,7 @@ def cmd_samples(a):
     out.mkdir(parents=True, exist_ok=True)
     for m in media:
         dst = out / f"{m['key'].replace('/', '_')}_{m['step']}_{m['id'][:8]}{Path(m['url']).suffix}"
-        urllib.request.urlretrieve(server() + m["url"], dst)
+        download(m["url"], dst)
         m["file"] = str(dst)
         if not a.json:
             print(dst)
@@ -118,7 +129,7 @@ def cmd_artifacts(a):
         out = Path(a.out or ".")
         out.mkdir(parents=True, exist_ok=True)
         dst = out / Path(arts[0]["name"]).name
-        urllib.request.urlretrieve(server() + arts[0]["url"], dst)
+        download(arts[0]["url"], dst)
         return print(dst)
     if a.json:
         return dump(arts)

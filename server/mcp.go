@@ -182,8 +182,9 @@ func jsonResult(v any, err error) (*mcp.CallToolResult, any, error) {
 // resolveRun accepts a run id, a prefix of one, or a run name (the newest run with that name wins).
 func (s *srv) resolveRun(ctx context.Context, ref string) (string, error) {
 	var id string
-	err := s.db.QueryRow(ctx, `SELECT id::text FROM runs WHERE id::text LIKE $1 || '%' OR name = $1 ORDER BY (id::text = $1) DESC, started_at DESC LIMIT 1`,
-		strings.ToLower(strings.TrimSpace(ref))).Scan(&id)
+	err := s.db.QueryRow(ctx, `SELECT r.id::text FROM runs r JOIN projects p ON p.id = r.project_id
+		WHERE (r.id::text LIKE $1 || '%' OR r.name = $1) AND ($2::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($2))
+		ORDER BY (r.id::text = $1) DESC, r.started_at DESC LIMIT 1`, strings.ToLower(strings.TrimSpace(ref)), vis(ctx)).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) || ref == "" {
 		return "", fmt.Errorf("no run matches %q; list_runs shows the runs: %w", ref, pgx.ErrNoRows)
 	}

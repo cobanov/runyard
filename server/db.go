@@ -121,7 +121,8 @@ type Project struct {
 
 func listProjects(ctx context.Context, db *pgxpool.Pool) ([]Project, error) {
 	rows, _ := db.Query(ctx, `SELECT p.name, p.created_at, count(r.id), count(r.id) FILTER (WHERE r.status = 'running'), max(r.started_at)
-		FROM projects p LEFT JOIN runs r ON r.project_id = p.id GROUP BY p.id ORDER BY max(r.started_at) DESC NULLS LAST, p.name`)
+		FROM projects p LEFT JOIN runs r ON r.project_id = p.id WHERE ($1::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($1))
+		GROUP BY p.id ORDER BY max(r.started_at) DESC NULLS LAST, p.name`, vis(ctx))
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (p Project, err error) {
 		err = row.Scan(&p.Name, &p.CreatedAt, &p.Runs, &p.Running, &p.LastRunAt)
 		return
@@ -131,7 +132,7 @@ func listProjects(ctx context.Context, db *pgxpool.Pool) ([]Project, error) {
 // listRuns filters by project, status and tag; empty filters match everything.
 func listRuns(ctx context.Context, db *pgxpool.Pool, project, status, tag string, limit int) ([]Run, error) {
 	rows, _ := db.Query(ctx, runSelect+`WHERE ($1 = '' OR p.name = $1) AND ($2 = '' OR r.status = $2) AND ($3 = '' OR $3 = ANY(r.tags))
-		ORDER BY r.started_at DESC LIMIT $4`, project, status, tag, limit)
+		AND ($5::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($5)) ORDER BY r.started_at DESC LIMIT $4`, project, status, tag, limit, vis(ctx))
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Run, error) { return scanRun(row) })
 }
 
@@ -245,7 +246,8 @@ type Alert struct {
 func listAlerts(ctx context.Context, db *pgxpool.Pool, run, project string, limit int) ([]Alert, error) {
 	rows, _ := db.Query(ctx, `SELECT a.id, r.id::text, r.name, p.name, a.ts, a.level, a.title, a.body
 		FROM alerts a JOIN runs r ON r.id = a.run_id JOIN projects p ON p.id = r.project_id
-		WHERE ($1 = '' OR r.id::text = $1) AND ($2 = '' OR p.name = $2) ORDER BY a.ts DESC LIMIT $3`, run, project, limit)
+		WHERE ($1 = '' OR r.id::text = $1) AND ($2 = '' OR p.name = $2) AND ($4::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($4))
+		ORDER BY a.ts DESC LIMIT $3`, run, project, limit, vis(ctx))
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Alert])
 }
 
@@ -289,11 +291,16 @@ func keyHash(key string) string {
 }
 
 // createKey stores a new write key and returns it; only its hash is kept.
-func createKey(ctx context.Context, db *pgxpool.Pool, name string) (string, error) {
+// createKey makes a write API key; with a user name it acts as that user (empty: a server key that sees everything).
+func createKey(ctx context.Context, db *pgxpool.Pool, name, user string) (string, error) {
 	b := make([]byte, 24)
 	rand.Read(b)
 	key := "ry_" + hex.EncodeToString(b)
-	_, err := db.Exec(ctx, `INSERT INTO api_keys (name, hash) VALUES ($1, $2)`, name, keyHash(key))
+	tag, err := db.Exec(ctx, `INSERT INTO api_keys (name, hash, user_id) SELECT $1, $2, (SELECT id FROM users WHERE name = $3)
+		WHERE $3 = '' OR EXISTS (SELECT 1 FROM users WHERE name = $3)`, name, keyHash(key), user)
+	if err == nil && tag.RowsAffected() == 0 {
+		return "", errors.New("no such user " + user)
+	}
 	return key, err
 }
 

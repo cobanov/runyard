@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"log"
 	"net/http"
 	"path/filepath"
@@ -24,9 +25,10 @@ type srv struct {
 	store blobs  // media and artifact files
 	url   string // public base URL for links in notifications, may be empty
 	hub   *hub
+	auth  bool // RUNYARD_AUTH: users log in, teams see their own projects
 }
 
-func (s *srv) routes() *http.ServeMux {
+func (s *srv) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"ok":true}`)) })
 
@@ -74,10 +76,11 @@ func (s *srv) routes() *http.ServeMux {
 		q := r.URL.Query()
 		return listAlerts(r.Context(), s.db, q.Get("run"), q.Get("project"), intParam(r, "limit", 100))
 	}))
-	mux.HandleFunc("GET /api/v1/events", s.hub.serve)
+	mux.HandleFunc("GET /api/v1/events", func(w http.ResponseWriter, r *http.Request) { s.hub.serve(w, r, s.runFilter(r.Context())) })
 	mux.Handle("/mcp", s.mcpHandler())
 	s.mlflowRoutes(mux)
 	s.pushRoutes(mux)
+	s.authRoutes(mux)
 
 	mux.HandleFunc("GET /media/{key...}", func(w http.ResponseWriter, r *http.Request) {
 		key := r.PathValue("key")
@@ -88,7 +91,9 @@ func (s *srv) routes() *http.ServeMux {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable") // media files never change
 		s.store.serve(w, r, key)
 	})
-	return mux
+	static, _ := fs.Sub(webdist, "webdist/dist")
+	mux.Handle("/", http.FileServerFS(static))
+	return s.guard(mux)
 }
 
 func intParam(r *http.Request, name string, def int) int {
@@ -112,7 +117,7 @@ func httpError(w http.ResponseWriter, code int, msg string) {
 func errStatus(err error) int {
 	var pe *pgconn.PgError
 	switch {
-	case errors.Is(err, pgx.ErrNoRows):
+	case errors.Is(err, pgx.ErrNoRows), errors.Is(err, errHidden):
 		return http.StatusNotFound
 	case errors.As(err, &pe) && pe.Code == "23503": // foreign key: the run does not exist
 		return http.StatusNotFound
@@ -199,18 +204,30 @@ func (s *srv) createRun(r *http.Request) (any, error) {
 	if in.Tags == nil {
 		in.Tags = []string{}
 	}
+	project, err := s.project(r.Context(), in.Project)
+	if err != nil {
+		return nil, err
+	}
 	// ON CONFLICT DO NOTHING: a client retrying a create it already sent gets the same run back.
-	_, err := s.db.Exec(r.Context(), `WITH p AS (
-			INSERT INTO projects (name) VALUES ($2) ON CONFLICT (name) DO UPDATE SET name = excluded.name RETURNING id)
-		INSERT INTO runs (id, project_id, name, config, tags, notes, host, git, started_at)
-		SELECT $1::uuid, p.id, $3, coalesce($4::jsonb, '{}'), $5, $6, $7, $8::jsonb, coalesce($9, now()) FROM p
-		ON CONFLICT (id) DO NOTHING`,
-		in.ID, in.Project, in.Name, nullJSON(in.Config), in.Tags, in.Notes, in.Host, nullJSON(in.Git), in.StartedAt)
+	_, err = s.db.Exec(r.Context(), `INSERT INTO runs (id, project_id, name, config, tags, notes, host, git, started_at)
+		VALUES ($1::uuid, $2, $3, coalesce($4::jsonb, '{}'), $5, $6, $7, $8::jsonb, coalesce($9, now())) ON CONFLICT (id) DO NOTHING`,
+		in.ID, project, in.Name, nullJSON(in.Config), in.Tags, in.Notes, in.Host, nullJSON(in.Git), in.StartedAt)
 	if err != nil {
 		return nil, err
 	}
 	s.hub.publish(event{Type: "run", Run: in.ID})
 	return map[string]string{"id": in.ID}, nil
+}
+
+// project returns the id of the named project, made on first use (in the writer's first team, with auth on).
+func (s *srv) project(ctx context.Context, name string) (int64, error) {
+	var id int64
+	err := s.db.QueryRow(ctx, `INSERT INTO projects (name, team_id) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name = excluded.name RETURNING id`,
+		name, projectTeam(ctx)).Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+	return id, s.seesProject(ctx, id)
 }
 
 func (s *srv) updateRun(r *http.Request) (any, error) {

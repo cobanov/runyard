@@ -67,16 +67,17 @@ func (s *srv) mlflowRoutes(mux *http.ServeMux) {
 			return nil, mlErr{400, "INVALID_PARAMETER_VALUE", "an experiment needs a name"}
 		}
 		var id int64
-		err := s.db.QueryRow(r.Context(), `INSERT INTO projects (name) VALUES ($1) ON CONFLICT DO NOTHING RETURNING id`, in.Name).Scan(&id)
+		err := s.db.QueryRow(r.Context(), `INSERT INTO projects (name, team_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id`,
+			in.Name, projectTeam(r.Context())).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, mlErr{400, "RESOURCE_ALREADY_EXISTS", "experiment " + in.Name + " already exists"}
 		}
 		return map[string]string{"experiment_id": strconv.FormatInt(id, 10)}, err
 	})
 	h("POST "+p+"experiments/search", false, func(r *http.Request) (any, error) {
-		rows, _ := s.db.Query(r.Context(), `SELECT id FROM projects ORDER BY id`)
+		rows, _ := s.db.Query(r.Context(), `SELECT id FROM projects p WHERE $1::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($1) ORDER BY id`, vis(r.Context()))
 		ids, err := pgx.CollectRows(rows, pgx.RowTo[int64])
-		var out []mlExp
+		out := []mlExp{}
 		for _, id := range ids {
 			e, _ := s.mlExperiment(r.Context(), `id = $1`, id)
 			out = append(out, e)
@@ -93,6 +94,9 @@ func (s *srv) mlflowRoutes(mux *http.ServeMux) {
 			EndTime int64  `json:"end_time"`
 		}
 		if err := mlDecode(r, &in); err != nil {
+			return nil, err
+		}
+		if err := s.mlSees(r.Context(), in.RunID); err != nil {
 			return nil, err
 		}
 		var p runPatch
@@ -169,6 +173,9 @@ func (s *srv) mlflowRoutes(mux *http.ServeMux) {
 		if err := mlDecode(r, &in); err != nil {
 			return nil, err
 		}
+		if err := s.mlSees(r.Context(), in.RunID); err != nil {
+			return nil, err
+		}
 		_, err := s.db.Exec(r.Context(), `UPDATE runs SET tags = ARRAY(SELECT t FROM unnest(tags) t WHERE split_part(t, '=', 1) <> $2) WHERE id = $1::uuid`, in.RunID, in.Key)
 		return struct{}{}, err
 	})
@@ -189,6 +196,9 @@ func (s *srv) mlflowRoutes(mux *http.ServeMux) {
 	}
 	h("GET "+p+"metrics/get-history", false, func(r *http.Request) (any, error) {
 		q := r.URL.Query()
+		if err := s.mlSees(r.Context(), q.Get("run_id")); err != nil {
+			return nil, err
+		}
 		rows, _ := s.db.Query(r.Context(), `SELECT k.name, m.value, (extract(epoch FROM m.ts) * 1000)::bigint, m.step
 			FROM metrics m JOIN metric_keys k ON k.id = m.key_id WHERE m.run_id = $1::uuid AND k.name = $2 ORDER BY m.step`, q.Get("run_id"), q.Get("metric_key"))
 		ms, err := pgx.CollectRows(rows, pgx.RowToStructByPos[mlMetric])
@@ -218,7 +228,7 @@ func (s *srv) mlflowRoutes(mux *http.ServeMux) {
 	const a = "/api/2.0/mlflow-artifacts/artifacts"
 	h("PUT "+a+"/{path...}", true, s.mlPutArtifact)
 	mux.HandleFunc("GET "+a+"/{path...}", func(w http.ResponseWriter, r *http.Request) {
-		runID, name, ok := mlArtifactPath(r.PathValue("path"))
+		runID, name, ok := s.mlArtifactPath(r.Context(), r.PathValue("path"))
 		var key *string
 		if !ok || s.db.QueryRow(r.Context(), `SELECT path FROM artifacts WHERE run_id = $1::uuid AND name = $2 AND kind = 'mlflow'`, runID, name).Scan(&key) != nil || key == nil {
 			mlError(w, notFound("artifact"))
@@ -228,7 +238,7 @@ func (s *srv) mlflowRoutes(mux *http.ServeMux) {
 	})
 	h("GET "+a, false, s.mlListArtifacts)
 	h("DELETE "+a+"/{path...}", true, func(r *http.Request) (any, error) {
-		runID, name, ok := mlArtifactPath(r.PathValue("path"))
+		runID, name, ok := s.mlArtifactPath(r.Context(), r.PathValue("path"))
 		if ok {
 			s.mlRemoveArtifact(r.Context(), runID, name)
 		}
@@ -307,7 +317,8 @@ func (s *srv) mlExperiment(ctx context.Context, where string, arg any) (mlExp, e
 	var id int64
 	var e mlExp
 	var created time.Time
-	err := s.db.QueryRow(ctx, `SELECT id, name, created_at FROM projects WHERE `+where, arg).Scan(&id, &e.Name, &created)
+	err := s.db.QueryRow(ctx, `SELECT id, name, created_at FROM projects p WHERE (`+where+`) AND ($2::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($2))`,
+		arg, vis(ctx)).Scan(&id, &e.Name, &created)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return e, notFound("experiment")
 	}
@@ -320,12 +331,13 @@ func (s *srv) mlExperiment(ctx context.Context, where string, arg any) (mlExp, e
 // mlProject turns an experiment id into a project id. MLflow's default experiment "0" is the project "default".
 func (s *srv) mlProject(ctx context.Context, expID string) (int64, error) {
 	if expID == "0" || expID == "" {
-		var id int64
-		err := s.db.QueryRow(ctx, `INSERT INTO projects (name) VALUES ('default') ON CONFLICT (name) DO UPDATE SET name = excluded.name RETURNING id`).Scan(&id)
-		return id, err
+		return s.project(ctx, "default")
 	}
 	id, err := strconv.ParseInt(expID, 10, 64)
 	if err != nil {
+		return 0, notFound("experiment " + expID)
+	}
+	if err := s.seesProject(ctx, id); err != nil {
 		return 0, notFound("experiment " + expID)
 	}
 	return id, nil
@@ -368,6 +380,9 @@ func (s *srv) mlCreateRun(r *http.Request) (any, error) {
 
 // mlLog writes metrics, params (into the config) and tags, and counts as a heartbeat.
 func (s *srv) mlLog(ctx context.Context, runID string, metrics []mlMetric, params, tags []kv) error {
+	if err := s.mlSees(ctx, runID); err != nil {
+		return err
+	}
 	if _, err := s.beat(ctx, runID); err != nil {
 		return err
 	}
@@ -424,6 +439,9 @@ func mlStatus(status string) string {
 
 // mlRun is a run in MLflow's shape: info, and data with the latest metrics, the config as params, and the tags.
 func (s *srv) mlRun(ctx context.Context, id string) (map[string]any, error) {
+	if err := s.mlSees(ctx, id); err != nil {
+		return nil, err
+	}
 	run, err := getRun(ctx, s.db, id)
 	if errors.Is(err, pgx.ErrNoRows) || errStatus(err) == http.StatusBadRequest {
 		return nil, notFound("run " + id)
@@ -467,6 +485,14 @@ func (s *srv) mlRun(ctx context.Context, id string) (map[string]any, error) {
 	return map[string]any{"info": info, "data": map[string]any{"metrics": metrics, "params": params, "tags": tags}}, nil
 }
 
+// mlSees is notFound unless runID is a run the request may see.
+func (s *srv) mlSees(ctx context.Context, runID string) error {
+	if !uuidRe.MatchString(runID) || !s.canSee(ctx, runID) {
+		return notFound("run " + runID)
+	}
+	return nil
+}
+
 // beat records a sign of life; a run marked crashed comes back to running. Returns the status.
 func (s *srv) beat(ctx context.Context, id string) (string, error) {
 	var status string
@@ -507,6 +533,9 @@ func (s *srv) mlCreateModel(r *http.Request) (any, error) {
 	if !uuidRe.MatchString(in.SourceRunID) {
 		return nil, mlErr{400, "INVALID_PARAMETER_VALUE", "runyard keeps a model with its run: log it inside a run"}
 	}
+	if err := s.mlSees(r.Context(), in.SourceRunID); err != nil {
+		return nil, err
+	}
 	id := "m-" + strings.ReplaceAll(in.SourceRunID, "-", "") + "-" + newUUID()[:8]
 	meta, _ := json.Marshal(map[string]any{"model_id": id, "experiment_id": in.ExperimentID, "name": in.Name, "model_type": in.ModelType,
 		"status": "LOGGED_MODEL_PENDING", "params": in.Params, "tags": in.Tags})
@@ -520,7 +549,7 @@ func (s *srv) mlCreateModel(r *http.Request) (any, error) {
 // mlModel returns a logged model, after merging change (status, tags, params) into it when given.
 func (s *srv) mlModel(ctx context.Context, id string, change map[string]any) (any, error) {
 	runID, ok := modelRun(id)
-	if !ok {
+	if !ok || s.mlSees(ctx, runID) != nil {
 		return nil, notFound("model " + id)
 	}
 	var meta map[string]any
@@ -561,7 +590,12 @@ func (s *srv) mlModel(ctx context.Context, id string, change map[string]any) (an
 
 // mlArtifactPath maps an artifact path to its run and the artifact's name:
 // <exp>/<run id>/artifacts/<rel> is rel of that run, <exp>/models/<model id>/artifacts/<rel> is models/<model id>/rel.
-func mlArtifactPath(p string) (runID, name string, ok bool) {
+func (s *srv) mlArtifactPath(ctx context.Context, p string) (runID, name string, ok bool) {
+	runID, name, ok = mlArtifactName(p)
+	return runID, name, ok && s.mlSees(ctx, runID) == nil
+}
+
+func mlArtifactName(p string) (runID, name string, ok bool) {
 	parts := strings.SplitN(strings.Trim(p, "/"), "/", 5)
 	switch {
 	case len(parts) >= 3 && parts[1] != "models" && parts[2] == "artifacts" && uuidRe.MatchString(parts[1]):
@@ -582,7 +616,7 @@ func (s *srv) mlRemoveArtifact(ctx context.Context, runID, name string) {
 }
 
 func (s *srv) mlPutArtifact(r *http.Request) (any, error) {
-	runID, name, ok := mlArtifactPath(r.PathValue("path"))
+	runID, name, ok := s.mlArtifactPath(r.Context(), r.PathValue("path"))
 	if !ok || name == "" || strings.HasSuffix(name, "/") {
 		return nil, mlErr{400, "INVALID_PARAMETER_VALUE", "not an artifact path of a run: " + r.PathValue("path")}
 	}
@@ -592,7 +626,7 @@ func (s *srv) mlPutArtifact(r *http.Request) (any, error) {
 }
 
 func (s *srv) mlListArtifacts(r *http.Request) (any, error) {
-	runID, dir, ok := mlArtifactPath(r.URL.Query().Get("path"))
+	runID, dir, ok := s.mlArtifactPath(r.Context(), r.URL.Query().Get("path"))
 	if !ok {
 		return map[string]any{"files": []any{}}, nil
 	}

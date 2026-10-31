@@ -41,7 +41,7 @@ func testServer(t *testing.T) (*httptest.Server, string, *srv) {
 	if err := loadVAPID(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	key, err := createKey(ctx, db, "test")
+	key, err := createKey(ctx, db, "test", "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -54,7 +54,9 @@ func (s *srv) notify(runID, event string, a *Alert) {
 		return
 	}
 	rows, _ := s.db.Query(ctx, `SELECT DISTINCT c.id, c.kind, c.config FROM rules r JOIN channels c ON c.id = r.channel_id
-		LEFT JOIN projects p ON p.id = r.project_id WHERE r.event = $1 AND (r.project_id IS NULL OR p.name = $2)`, event, run.Project)
+		LEFT JOIN projects p ON p.id = r.project_id WHERE r.event = $1 AND (r.project_id IS NULL OR p.name = $2)
+		AND (c.user_id IS NULL OR EXISTS (SELECT 1 FROM users u JOIN projects rp ON rp.name = $2 WHERE u.id = c.user_id
+			AND (u.admin OR rp.team_id IS NULL OR rp.team_id IN (SELECT team_id FROM members WHERE user_id = u.id))))`, event, run.Project)
 	chans, err := pgx.CollectRows(rows, pgx.RowToStructByPos[channel])
 	if err != nil {
 		log.Printf("notify %s: %v", runID, err)
