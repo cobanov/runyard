@@ -81,6 +81,7 @@
     .copy { margin-left: auto; font: inherit; font-size: 0.8125rem; padding: 4px 10px; border: 1px solid var(--rule); border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
     .copy:hover { color: var(--ink); border-color: var(--muted); }
     .code pre { margin: 0; padding: 14px 16px; font: 0.875rem/1.65 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+    @media (max-width: 480px) { .code pre { font-size: 0.75rem; padding: 12px; } } /* the 44-character lines fit a phone */
     .ln { display: block; padding-left: 2ch; text-indent: -2ch; }
     .code .c { color: var(--muted); }
     .code .k { color: var(--hl-key); }
@@ -166,11 +167,11 @@
       <div class="steps">
         <div class="code">
           <div class="code-head"><span class="num">1</span>Start the server<button class="copy" type="button">Copy</button></div>
-<pre><code><span class="ln"><span class="f">git</span> clone <span class="s">https://github.com/cobanov/runyard</span> &amp;&amp; <span class="f">cd</span> runyard</span><span class="ln"><span class="f">docker</span> compose up <span class="k">-d --build</span></span><span class="ln"> </span><span class="ln"><span class="c"># an API key for your scripts</span></span><span class="ln"><span class="f">docker</span> compose exec app /runyard-server key create <span class="nw">my-laptop</span></span></code></pre>
+<pre><code><span class="ln"><span class="f">git</span> clone <span class="s">https://github.com/cobanov/runyard</span></span><span class="ln"><span class="f">cd</span> runyard</span><span class="ln"><span class="f">docker</span> compose up <span class="k">-d --build</span></span><span class="ln"> </span><span class="ln"><span class="c"># an API key for your scripts</span></span><span class="ln"><span class="f">docker</span> compose exec app \</span><span class="ln">  /runyard-server key create <span class="nw">my-laptop</span></span></code></pre>
         </div>
         <div class="code">
           <div class="code-head"><span class="num">2</span>Log a run <span class="file">train.py</span><button class="copy" type="button">Copy</button></div>
-<pre><code><span class="ln"><span class="c"># pip install runyard</span></span><span class="ln"><span class="k">import</span> runyard <span class="k">as</span> ry</span><span class="ln"> </span><span class="ln">run = ry.<span class="f">init</span>(project=<span class="s">"my-project"</span>, config={<span class="s">"lr"</span>: <span class="n">3e-4</span>})</span><span class="ln">run.<span class="f">log</span>({<span class="s">"loss"</span>: loss.<span class="f">item</span>()}, step=step)</span><span class="ln">run.<span class="f">alert</span>(<span class="s">"loss is NaN"</span>, level=<span class="s">"error"</span>)</span></code></pre>
+<pre><code><span class="ln"><span class="c"># pip install runyard</span></span><span class="ln"><span class="k">import</span> runyard <span class="k">as</span> ry</span><span class="ln"> </span><span class="ln">run = ry.<span class="f">init</span>(project=<span class="s">&quot;my-project&quot;</span>,</span><span class="ln">              config={<span class="s">&quot;lr&quot;</span>: <span class="n">3e-4</span>})</span><span class="ln">run.<span class="f">log</span>({<span class="s">&quot;loss&quot;</span>: loss.<span class="f">item</span>()}, step=step)</span><span class="ln">run.<span class="f">alert</span>(<span class="s">&quot;loss is NaN&quot;</span>, level=<span class="s">&quot;error&quot;</span>)</span></code></pre>
         </div>
       </div>
     </section>
