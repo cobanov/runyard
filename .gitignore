@@ -20,3 +20,5 @@ build/
 /ops-notes.md
 /server/server
 .wrangler/
+# the demo, built into the website by wrangler (web/demo)
+/www/demo/

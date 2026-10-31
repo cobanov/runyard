@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="#try-it"><strong>Get started</strong></a> ·
+  <a href="https://runyard.cobanov.dev/demo/">Live demo</a> ·
   <a href="https://cobanov.github.io/runyard/">Docs</a> ·
   <a href="https://runyard.cobanov.dev">Website</a> ·
   <a href="https://pypi.org/project/runyard/">PyPI</a> ·
@@ -110,7 +111,7 @@ against a PostgreSQL in Docker.
 | `web/` | Svelte + Vite web UI (built into `server/webdist/dist`) |
 | `sdk/python/` | Python library, CLI and framework integrations |
 | `ios/` | SwiftUI iPhone app (an XcodeGen project) |
-| `www/` | the website at runyard.cobanov.dev |
+| `www/` | the website at runyard.cobanov.dev; `web/demo/` builds its live demo |
 
 ---
 

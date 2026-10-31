@@ -14,7 +14,7 @@
 
   const last = $derived(lines.length === 1 ? lines[0].y.findLast((v) => v != null) : undefined)
   const xFmt = (x) =>
-    time ? new Date(x * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : elapsed ? duration(x * 1000) : fmt(x)
+    time ? new Date(x * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : elapsed ? duration(x * 1000) : fmt(x)
 
   // TensorBoard's debiased EMA, so the start isn't dragged towards zero; gaps (null) pass through.
   function ema(ys, w) {

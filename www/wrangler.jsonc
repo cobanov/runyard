@@ -2,6 +2,8 @@
   // The project website: static files only, served from Cloudflare Workers at runyard.cobanov.dev.
   "name": "runyard-www",
   "compatibility_date": "2026-10-01",
+  // /demo/ is the web UI with a server inside the page (web/demo), built here before every deploy.
+  "build": { "command": "npm --prefix ../web install --silent && npm --prefix ../web run build:demo" },
   "assets": { "directory": "./", "not_found_handling": "404-page" },
   "routes": [{ "pattern": "runyard.cobanov.dev", "custom_domain": true }]
 }
