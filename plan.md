@@ -232,6 +232,12 @@ izleyicisi; NaN/eşik/sessizlik kuralları; PWA push; video oynatıcı.
 **v0.3:** checkpoint/artifact kayıtları; çok kullanıcı ve ekipler; S3/R2 medya; upstream PR'lar
 (transformers `report_to="runyard"`, Accelerate'e hazır tracker); herkese açık sürüm ve doküman sitesi.
 
+**Durum (2026-10-31):** sürüm altyapısı hazır, henüz tetiklenmedi. `.github/workflows/ci.yml` her push'ta
+`make test`'in yaptığını yapar; `release.yml` bir `v*` etiketiyle ghcr'a amd64+arm64 imaj, PyPI'a (trusted
+publishing) paket ve GitHub release çıkarır, sürüm etiketten gelir. Tek seferlik ayarlar ve adımlar
+`RELEASING.md`'de. Upstream PR taslakları `upstream/`'da (yama + PR metni), yerelde gerçek sunucuya karşı
+denendi; runyard PyPI'a çıkmadan gönderilmez.
+
 ## 14. Riskler
 
 - **W&B köprüsü büyüyebilir:** HF'in WandbCallback'i `define_metric`, `config.update`, `Table` gibi şeyleri de

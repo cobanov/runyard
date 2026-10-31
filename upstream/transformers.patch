@@ -1,0 +1,297 @@
+diff --git a/docs/source/en/main_classes/callback.md b/docs/source/en/main_classes/callback.md
+index d6d56b8..56bce3c 100644
+--- a/docs/source/en/main_classes/callback.md
++++ b/docs/source/en/main_classes/callback.md
+@@ -75,6 +75,9 @@ Here is the list of the available [`TrainerCallback`] in the library:
+ [[autodoc]] integrations.SwanLabCallback
+     - setup
+ 
++[[autodoc]] integrations.RunyardCallback
++    - setup
++
+ ## TrainerCallback
+ 
+ [[autodoc]] TrainerCallback
+diff --git a/src/transformers/__init__.py b/src/transformers/__init__.py
+index b02fb2b..4f6736a 100755
+--- a/src/transformers/__init__.py
++++ b/src/transformers/__init__.py
+@@ -108,6 +108,7 @@ _import_structure = {
+         "is_optuna_available",
+         "is_ray_available",
+         "is_ray_tune_available",
++        "is_runyard_available",
+         "is_swanlab_available",
+         "is_tensorboard_available",
+         "is_trackio_available",
+@@ -584,6 +585,7 @@ if TYPE_CHECKING:
+     from .integrations import is_optuna_available as is_optuna_available
+     from .integrations import is_ray_available as is_ray_available
+     from .integrations import is_ray_tune_available as is_ray_tune_available
++    from .integrations import is_runyard_available as is_runyard_available
+     from .integrations import is_swanlab_available as is_swanlab_available
+     from .integrations import is_tensorboard_available as is_tensorboard_available
+     from .integrations import is_trackio_available as is_trackio_available
+diff --git a/src/transformers/integrations/__init__.py b/src/transformers/integrations/__init__.py
+index 1cb6e03..6029943 100755
+--- a/src/transformers/integrations/__init__.py
++++ b/src/transformers/integrations/__init__.py
+@@ -94,6 +94,7 @@ _import_structure = {
+         "MLflowCallback",
+         "NeptuneCallback",
+         "NeptuneMissingConfiguration",
++        "RunyardCallback",
+         "SwanLabCallback",
+         "TensorBoardCallback",
+         "TrackioCallback",
+@@ -115,6 +116,7 @@ _import_structure = {
+         "is_optuna_available",
+         "is_ray_available",
+         "is_ray_tune_available",
++        "is_runyard_available",
+         "is_swanlab_available",
+         "is_tensorboard_available",
+         "is_trackio_available",
+@@ -246,6 +248,7 @@ if TYPE_CHECKING:
+         MLflowCallback,
+         NeptuneCallback,
+         NeptuneMissingConfiguration,
++        RunyardCallback,
+         SwanLabCallback,
+         TensorBoardCallback,
+         TrackioCallback,
+@@ -267,6 +270,7 @@ if TYPE_CHECKING:
+         is_optuna_available,
+         is_ray_available,
+         is_ray_tune_available,
++        is_runyard_available,
+         is_swanlab_available,
+         is_tensorboard_available,
+         is_trackio_available,
+diff --git a/src/transformers/integrations/integration_utils.py b/src/transformers/integrations/integration_utils.py
+index 7483a0d..810ca85 100755
+--- a/src/transformers/integrations/integration_utils.py
++++ b/src/transformers/integrations/integration_utils.py
+@@ -116,6 +116,10 @@ def is_trackio_available():
+     return importlib.util.find_spec("trackio") is not None
+ 
+ 
++def is_runyard_available():
++    return importlib.util.find_spec("runyard") is not None
++
++
+ def is_clearml_available():
+     return importlib.util.find_spec("clearml") is not None
+ 
+@@ -542,6 +546,8 @@ def get_available_reporting_integrations():
+         integrations.append("swanlab")
+     if is_trackio_available():
+         integrations.append("trackio")
++    if is_runyard_available():
++        integrations.append("runyard")
+     if is_kubeflow_available():
+         integrations.append("kubeflow")
+     return integrations
+@@ -2640,11 +2646,70 @@ class KubeflowCallback(TrainerCallback):
+         )
+ 
+ 
++class RunyardCallback(TrainerCallback):
++    """
++    A [`TrainerCallback`] that logs metrics to [runyard](https://github.com/cobanov/runyard), a lightweight
++    self-hosted training tracker. One run per training: its config is the [`TrainingArguments`] plus the model
++    config, its name is `run_name`, and metrics are keyed by the global step. Run status, stdout/stderr and GPU usage
++    are recorded by runyard itself.
++
++    Environment:
++    - **RUNYARD_SERVER** (`str`, *optional*, defaults to `"http://localhost:8080"`):
++        Address of the runyard server.
++    - **RUNYARD_API_KEY** (`str`):
++        API key that lets this process write runs, created on the server with `runyard-server key create <name>`.
++    - **RUNYARD_PROJECT** (`str`, *optional*):
++        Project the run belongs to.
++    """
++
++    # logged once at the end of training; they go to the run's summary instead of its charts
++    single_value_scalars = (
++        "train_runtime",
++        "train_samples_per_second",
++        "train_steps_per_second",
++        "train_loss",
++        "total_flos",
++    )
++
++    def __init__(self):
++        if not is_runyard_available():
++            raise RuntimeError("RunyardCallback requires runyard to be installed. Run `pip install runyard`.")
++        import runyard
++
++        self._runyard = runyard
++        self._run = None
++
++    def setup(self, args, state, model):
++        """
++        Starts the run on the main process. Configure the server, API key and project through the environment
++        variables above.
++        """
++        if self._run is not None or not state.is_world_process_zero:
++            return
++        config = args.to_dict()
++        model_config = getattr(model, "config", None)
++        if model_config is not None:
++            config["model"] = model_config if isinstance(model_config, dict) else model_config.to_dict()
++        self._run = self._runyard.init(name=args.run_name, config=config)
++
++    def on_train_begin(self, args, state, control, model=None, **kwargs):
++        self.setup(args, state, model)
++
++    def on_log(self, args, state, control, logs=None, **kwargs):
++        if self._run is None or not logs:
++            return
++        self._run.summary.update({k: v for k, v in logs.items() if k in self.single_value_scalars})
++        values = rewrite_logs({k: v for k, v in logs.items() if k not in self.single_value_scalars})
++        if values:
++            self._run.log(values, step=state.global_step)
++
++
+ INTEGRATION_TO_CALLBACK = {
+     "azure_ml": AzureMLCallback,
+     "comet_ml": CometCallback,
+     "mlflow": MLflowCallback,
+     "neptune": NeptuneCallback,
++    "runyard": RunyardCallback,
+     "tensorboard": TensorBoardCallback,
+     "trackio": TrackioCallback,
+     "wandb": WandbCallback,
+diff --git a/src/transformers/testing_utils.py b/src/transformers/testing_utils.py
+index 5801ff7..5dacdfe 100644
+--- a/src/transformers/testing_utils.py
++++ b/src/transformers/testing_utils.py
+@@ -63,6 +63,7 @@ from .integrations import (
+     is_clearml_available,
+     is_optuna_available,
+     is_ray_available,
++    is_runyard_available,
+     is_swanlab_available,
+     is_tensorboard_available,
+     is_trackio_available,
+@@ -1590,6 +1591,15 @@ def require_swanlab(test_case):
+     return unittest.skipUnless(is_swanlab_available(), "test requires swanlab")(test_case)
+ 
+ 
++def require_runyard(test_case):
++    """
++    Decorator marking a test that requires runyard.
++
++    These tests are skipped when runyard isn't installed.
++    """
++    return unittest.skipUnless(is_runyard_available(), "test requires runyard")(test_case)
++
++
+ def require_trackio(test_case):
+     """
+     Decorator marking a test that requires trackio.
+diff --git a/src/transformers/training_args.py b/src/transformers/training_args.py
+index 6d4596e..0e743a5 100644
+--- a/src/transformers/training_args.py
++++ b/src/transformers/training_args.py
+@@ -389,13 +389,13 @@ class TrainingArguments:
+ 
+         report_to (`str` or `list[str]`, *optional*, defaults to `"none"`):
+             The list of integrations to report the results and logs to. Supported platforms are `"azure_ml"`,
+-            `"clearml"`, `"codecarbon"`, `"comet_ml"`, `"dagshub"`, `"dvclive"`, `"flyte"`, `"mlflow"`, `"swanlab"`,
+-            `"tensorboard"`, `"trackio"` and `"wandb"`. Use `"all"` to report to all integrations installed, `"none"`
+-            for no integrations.
++            `"clearml"`, `"codecarbon"`, `"comet_ml"`, `"dagshub"`, `"dvclive"`, `"flyte"`, `"mlflow"`, `"runyard"`,
++            `"swanlab"`, `"tensorboard"`, `"trackio"` and `"wandb"`. Use `"all"` to report to all integrations
++            installed, `"none"` for no integrations.
+         run_name (`str`, *optional*):
+             A descriptor for the run. Typically used for [trackio](https://github.com/gradio-app/trackio),
+-            [wandb](https://www.wandb.com/), [mlflow](https://www.mlflow.org/), [comet](https://www.comet.com/site) and
+-            [swanlab](https://swanlab.cn) logging.
++            [wandb](https://www.wandb.com/), [mlflow](https://www.mlflow.org/), [comet](https://www.comet.com/site),
++            [swanlab](https://swanlab.cn) and [runyard](https://github.com/cobanov/runyard) logging.
+         project (`str`, *optional*, defaults to `"huggingface"`):
+             The name of the project to use for logging. Currently, only used by Trackio.
+         trackio_space_id (`str` or `None`, *optional*, defaults to `None`):
+@@ -1044,8 +1044,8 @@ class TrainingArguments:
+         default=None,
+         metadata={
+             "help": (
+-                "An optional descriptor for the run. Notably used for trackio, wandb, mlflow comet and swanlab "
+-                "logging."
++                "An optional descriptor for the run. Notably used for trackio, wandb, mlflow comet, swanlab and "
++                "runyard logging."
+             )
+         },
+     )
+@@ -2436,7 +2436,7 @@ class TrainingArguments:
+             report_to (`str` or `list[str]`, *optional*, defaults to `"none"`):
+                 The list of integrations to report the results and logs to. Supported platforms are `"azure_ml"`,
+                 `"clearml"`, `"codecarbon"`, `"comet_ml"`, `"dagshub"`, `"dvclive"`, `"flyte"`, `"mlflow"`,
+-                `"swanlab"`, `"tensorboard"`, `"trackio"` and `"wandb"`. Use `"all"` to report to all integrations
++                `"runyard"`, `"swanlab"`, `"tensorboard"`, `"trackio"` and `"wandb"`. Use `"all"` to report to all integrations
+                 installed, `"none"` for no integrations.
+             first_step (`bool`, *optional*, defaults to `False`):
+                 Whether to log and evaluate the first `global_step` or not.
+diff --git a/tests/trainer/test_trainer_callback.py b/tests/trainer/test_trainer_callback.py
+index ac23411..2fe9e4c 100644
+--- a/tests/trainer/test_trainer_callback.py
++++ b/tests/trainer/test_trainer_callback.py
+@@ -42,7 +42,12 @@ from transformers import (
+     TrainingArguments,
+     is_torch_available,
+ )
+-from transformers.integrations.integration_utils import KubeflowCallback, SwanLabCallback, TrackioCallback
++from transformers.integrations.integration_utils import (
++    KubeflowCallback,
++    RunyardCallback,
++    SwanLabCallback,
++    TrackioCallback,
++)
+ from transformers.testing_utils import require_ipython, require_torch
+ from transformers.trainer_callback import CallbackHandler, ExportableState, TrainerControl
+ 
+@@ -808,6 +813,42 @@ class SwanLabCallbackTest(unittest.TestCase):
+         self.assertEqual(init_kwargs["resume"], "must")
+ 
+ 
++class RunyardCallbackTest(unittest.TestCase):
++    def _create_callback(self, fake_runyard):
++        with patch("transformers.integrations.integration_utils.is_runyard_available", return_value=True):
++            with patch.dict("sys.modules", {"runyard": fake_runyard}):
++                return RunyardCallback()
++
++    def test_logs_metrics_by_step_and_end_of_training_scalars_to_summary(self):
++        fake_runyard = Mock()
++        run = fake_runyard.init.return_value
++        run.summary = {}
++        callback = self._create_callback(fake_runyard)
++        args = SimpleNamespace(run_name="runyard-run", to_dict=lambda: {"learning_rate": 1e-3})
++        model = SimpleNamespace(config=SimpleNamespace(to_dict=lambda: {"hidden_size": 8}))
++
++        callback.on_train_begin(args, SimpleNamespace(is_world_process_zero=True), None, model=model)
++        state = SimpleNamespace(is_world_process_zero=True, global_step=10)
++        callback.on_log(args, state, None, logs={"loss": 0.5, "eval_loss": 0.4})
++        callback.on_log(args, state, None, logs={"train_runtime": 1.5, "train_loss": 0.45})
++
++        fake_runyard.init.assert_called_once_with(
++            name="runyard-run", config={"learning_rate": 1e-3, "model": {"hidden_size": 8}}
++        )
++        run.log.assert_called_once_with({"train/loss": 0.5, "eval/loss": 0.4}, step=10)
++        self.assertEqual(run.summary, {"train_runtime": 1.5, "train_loss": 0.45})
++
++    def test_only_main_process_starts_a_run(self):
++        fake_runyard = Mock()
++        callback = self._create_callback(fake_runyard)
++        args = SimpleNamespace(run_name=None, to_dict=lambda: {})
++
++        callback.on_train_begin(args, SimpleNamespace(is_world_process_zero=False), None, model=None)
++        callback.on_log(args, SimpleNamespace(is_world_process_zero=False, global_step=1), None, logs={"loss": 1.0})
++
++        fake_runyard.init.assert_not_called()
++
++
+ class TrackioCallbackTest(unittest.TestCase):
+     """Tests for TrackioCallback functionality."""
+ 

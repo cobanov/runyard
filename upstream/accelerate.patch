@@ -1,0 +1,326 @@
+diff --git a/docs/source/package_reference/tracking.md b/docs/source/package_reference/tracking.md
+index ce609b4..ff73dd0 100644
+--- a/docs/source/package_reference/tracking.md
++++ b/docs/source/package_reference/tracking.md
+@@ -38,6 +38,11 @@ rendered properly in your Markdown viewer.
+ [[autodoc]] tracking.TrackioTracker
+     - __init__
+ 
++## RunyardTracker
++
++[[autodoc]] tracking.RunyardTracker
++    - __init__
++
+ ## CometMLTracker
+ 
+ [[autodoc]] tracking.CometMLTracker
+diff --git a/docs/source/usage_guides/tracking.md b/docs/source/usage_guides/tracking.md
+index 2604b3d..8052cec 100644
+--- a/docs/source/usage_guides/tracking.md
++++ b/docs/source/usage_guides/tracking.md
+@@ -20,7 +20,7 @@ Accelerate provides a general tracking API that can be used to log useful items
+ 
+ ## Integrated Trackers
+ 
+-Currently `Accelerate` supports eight trackers out-of-the-box:
++Currently `Accelerate` supports nine trackers out-of-the-box:
+ 
+ - TensorBoard
+ - WandB 
+@@ -30,6 +30,7 @@ Currently `Accelerate` supports eight trackers out-of-the-box:
+ - MLFlow
+ - ClearML
+ - DVCLive
++- Runyard
+ 
+ To use any of them, pass in the selected type(s) to the `log_with` parameter in [`Accelerate`]:
+ ```python
+diff --git a/setup.py b/setup.py
+index 68c6a5c..3920309 100644
+--- a/setup.py
++++ b/setup.py
+@@ -46,6 +46,7 @@ extras["test_trackers"] = [
+     "matplotlib",
+     "swanlab[dashboard]",  # dashboard required for local use
+     "trackio",
++    "runyard",
+ ]
+ extras["dev"] = extras["quality"] + extras["testing"] + extras["rich"]
+ 
+diff --git a/src/accelerate/accelerator.py b/src/accelerate/accelerator.py
+index 9a80c24..95e9da5 100755
+--- a/src/accelerate/accelerator.py
++++ b/src/accelerate/accelerator.py
+@@ -231,6 +231,7 @@ class Accelerator:
+             - `"mlflow"`
+             - `"dvclive"`
+             - `"swanlab"`
++            - `"runyard"`
+             If `"all"` is selected, will pick up all available trackers in the environment and initialize them. Can
+             also accept implementations of `GeneralTracker` for custom trackers, and can be combined with `"all"`.
+         project_config ([`~utils.ProjectConfiguration`], *optional*):
+diff --git a/src/accelerate/test_utils/testing.py b/src/accelerate/test_utils/testing.py
+index 94fe45e..8ed44bd 100644
+--- a/src/accelerate/test_utils/testing.py
++++ b/src/accelerate/test_utils/testing.py
+@@ -60,6 +60,7 @@ from ..utils import (
+     is_pandas_available,
+     is_peft_available,
+     is_pytest_available,
++    is_runyard_available,
+     is_schedulefree_available,
+     is_sdaa_available,
+     is_swanlab_available,
+@@ -487,6 +488,13 @@ def require_trackio(test_case):
+     return unittest.skipUnless(is_trackio_available(), "test requires trackio")(test_case)
+ 
+ 
++def require_runyard(test_case):
++    """
++    Decorator marking a test that requires runyard installed. These tests are skipped when runyard isn't installed
++    """
++    return unittest.skipUnless(is_runyard_available(), "test requires runyard")(test_case)
++
++
+ def require_comet_ml(test_case):
+     """
+     Decorator marking a test that requires comet_ml installed. These tests are skipped when comet_ml isn't installed
+diff --git a/src/accelerate/tracking.py b/src/accelerate/tracking.py
+index ac9f86a..0f6dcbe 100644
+--- a/src/accelerate/tracking.py
++++ b/src/accelerate/tracking.py
+@@ -35,6 +35,7 @@ from .utils import (
+     is_comet_ml_available,
+     is_dvclive_available,
+     is_mlflow_available,
++    is_runyard_available,
+     is_swanlab_available,
+     is_tensorboard_available,
+     is_trackio_available,
+@@ -73,6 +74,9 @@ if is_swanlab_available():
+ if is_trackio_available():
+     _available_trackers.append(LoggerType.TRACKIO)
+ 
++if is_runyard_available():
++    _available_trackers.append(LoggerType.RUNYARD)
++
+ logger = get_logger(__name__)
+ 
+ 
+@@ -1248,6 +1252,94 @@ class SwanLabTracker(GeneralTracker):
+         logger.debug("SwanLab run closed")
+ 
+ 
++class RunyardTracker(GeneralTracker):
++    """
++    A `Tracker` class that supports [runyard](https://github.com/cobanov/runyard), a lightweight self-hosted training
++    tracker. Should be initialized at the start of your script. The server address and API key come from the
++    `RUNYARD_SERVER` and `RUNYARD_API_KEY` environment variables.
++
++    Args:
++        run_name (`str`):
++            The name of the experiment run. Will be used as the `project` name when instantiating runyard.
++        **kwargs (additional keyword arguments, *optional*):
++            Additional key word arguments passed along to the `runyard.init` method, such as `name`, `tags` or
++            `notes`.
++    """
++
++    name = "runyard"
++    requires_logging_directory = False
++    main_process_only = False
++
++    def __init__(self, run_name: str, **kwargs):
++        super().__init__()
++        self.run_name = run_name
++        self.init_kwargs = kwargs
++
++    @on_main_process
++    def start(self):
++        import runyard
++
++        self.run = runyard.init(project=self.run_name, **self.init_kwargs)
++        logger.debug(f"Initialized runyard project {self.run_name}")
++        logger.debug(
++            "Make sure to log any initial configurations with `self.store_init_configuration` before training!"
++        )
++
++    @property
++    def tracker(self):
++        return self.run
++
++    @on_main_process
++    def store_init_configuration(self, values: dict):
++        """
++        Logs `values` as hyperparameters for the run. Should be run at the beginning of your experiment.
++
++        Args:
++            values (Dictionary `str` to `bool`, `str`, `float` or `int`):
++                Values to be stored as initial hyperparameters as key-value pairs. The values need to have type `bool`,
++                `str`, `float`, `int`, or `None`.
++        """
++        self.run.config.update(values)
++        logger.debug("Stored initial configuration hyperparameters to runyard")
++
++    @on_main_process
++    def log(self, values: dict, step: Optional[int] = None, **kwargs):
++        """
++        Logs `values` to the current run.
++
++        Args:
++            values (Dictionary `str` to `float` or `int`):
++                Values to be logged as key-value pairs. Values that are not numbers are skipped with a warning.
++            step (`int`, *optional*):
++                The run step. If included, the log will be affiliated with this step.
++        """
++        self.run.log(values, step=step)
++        logger.debug("Successfully logged to runyard")
++
++    @on_main_process
++    def log_images(self, values: dict, step: Optional[int] = None, **kwargs):
++        """
++        Logs `images` to the current run.
++
++        Args:
++            values (Dictionary `str` to `List` of `np.ndarray`, `PIL.Image` or `torch.Tensor`):
++                Values to be logged as key-value pairs. Each list is stored as one group of samples at that step.
++            step (`int`, *optional*):
++                The run step. If included, the log will be affiliated with this step.
++        """
++        for k, images in values.items():
++            self.run.image(k, list(images) if isinstance(images, (list, tuple)) else images, step=step)
++        logger.debug("Successfully logged images to runyard")
++
++    @on_main_process
++    def finish(self):
++        """
++        Closes `runyard` run
++        """
++        self.run.finish()
++        logger.debug("runyard run closed")
++
++
+ LOGGER_TYPE_TO_CLASS = {
+     "aim": AimTracker,
+     "comet_ml": CometMLTracker,
+@@ -1258,6 +1350,7 @@ LOGGER_TYPE_TO_CLASS = {
+     "dvclive": DVCLiveTracker,
+     "swanlab": SwanLabTracker,
+     "trackio": TrackioTracker,
++    "runyard": RunyardTracker,
+ }
+ 
+ 
+@@ -1335,6 +1428,7 @@ def filter_trackers(
+             - `"mlflow"`
+             - `"dvclive"`
+             - `"swanlab"`
++            - `"runyard"`
+             If `"all"` is selected, will pick up all available trackers in the environment and initialize them. Can
+             also accept implementations of `GeneralTracker` for custom trackers, and can be combined with `"all"`.
+         logging_dir (`str`, `os.PathLike`, *optional*):
+diff --git a/src/accelerate/utils/__init__.py b/src/accelerate/utils/__init__.py
+index b0773f6..529e216 100644
+--- a/src/accelerate/utils/__init__.py
++++ b/src/accelerate/utils/__init__.py
+@@ -117,6 +117,7 @@ from .imports import (
+     is_pytest_available,
+     is_rich_available,
+     is_rocm_available,
++    is_runyard_available,
+     is_sagemaker_available,
+     is_schedulefree_available,
+     is_sdaa_available,
+diff --git a/src/accelerate/utils/dataclasses.py b/src/accelerate/utils/dataclasses.py
+index 31048b9..b852644 100644
+--- a/src/accelerate/utils/dataclasses.py
++++ b/src/accelerate/utils/dataclasses.py
+@@ -681,6 +681,7 @@ class LoggerType(BaseEnum):
+         - **CLEARML** -- clearml as an experiment tracker
+         - **DVCLIVE** -- dvclive as an experiment tracker
+         - **SWANLAB** -- swanlab as an experiment tracker
++        - **RUNYARD** -- runyard as an experiment tracker
+     """
+ 
+     ALL = "all"
+@@ -693,6 +694,7 @@ class LoggerType(BaseEnum):
+     CLEARML = "clearml"
+     DVCLIVE = "dvclive"
+     SWANLAB = "swanlab"
++    RUNYARD = "runyard"
+ 
+ 
+ class PrecisionType(str, BaseEnum):
+diff --git a/src/accelerate/utils/imports.py b/src/accelerate/utils/imports.py
+index 1b9b27c..2d79a69 100644
+--- a/src/accelerate/utils/imports.py
++++ b/src/accelerate/utils/imports.py
+@@ -276,6 +276,10 @@ def is_swanlab_available():
+     return _is_package_available("swanlab")
+ 
+ 
++def is_runyard_available():
++    return _is_package_available("runyard")
++
++
+ def is_trackio_available():
+     return sys.version_info >= (3, 10) and _is_package_available("trackio")
+ 
+diff --git a/tests/test_tracking.py b/tests/test_tracking.py
+index c2bf9f1..285bc2b 100644
+--- a/tests/test_tracking.py
++++ b/tests/test_tracking.py
+@@ -43,6 +43,7 @@ from accelerate.test_utils.testing import (
+     require_matplotlib,
+     require_mlflow,
+     require_pandas,
++    require_runyard,
+     require_swanlab,
+     require_tensorboard,
+     require_trackio,
+@@ -57,6 +58,7 @@ from accelerate.tracking import (
+     DVCLiveTracker,
+     GeneralTracker,
+     MLflowTracker,
++    RunyardTracker,
+     SwanLabTracker,
+     TensorBoardTracker,
+     TrackioTracker,
+@@ -714,6 +716,22 @@ class SwanLabTrackingTest(TempDirTestCase, MockingTestCase):
+         assert len(backup_images) == record_images_count, "Total images count does not match"
+ 
+ 
++class RunyardTrackingTest(unittest.TestCase):
++    def test_init_log_and_finish(self):
++        fake_runyard = mock.MagicMock()
++        run = fake_runyard.init.return_value
++        with mock.patch.dict("sys.modules", {"runyard": fake_runyard}):
++            accelerator = Accelerator(log_with=RunyardTracker("test_project", name="run1"))
++            accelerator.init_trackers("test_project", config={"learning_rate": 1e-3})
++            accelerator.log({"loss": 0.5}, step=1)
++            accelerator.end_training()
++
++        fake_runyard.init.assert_called_once_with(project="test_project", name="run1")
++        run.config.update.assert_called_once_with({"learning_rate": 1e-3})
++        run.log.assert_called_once_with({"loss": 0.5}, step=1)
++        run.finish.assert_called_once()
++
++
+ class MyCustomTracker(GeneralTracker):
+     "Basic tracker that writes to a csv for testing"
+ 
+@@ -1057,6 +1075,15 @@ class TrackerDeferredInitializationTest(unittest.TestCase):
+             _ = Accelerator(log_with=tracker)
+             self.assertNotEqual(PartialState._shared_state, {})
+ 
++    @require_runyard
++    def test_runyard_deferred_init(self):
++        """Test that runyard tracker initialization doesn't initialize distributed"""
++        PartialState._reset_state()
++        tracker = RunyardTracker(run_name="test_runyard")
++        self.assertEqual(PartialState._shared_state, {})
++        _ = Accelerator(log_with=tracker)
++        self.assertNotEqual(PartialState._shared_state, {})
++
+     @require_swanlab
+     def test_swanlab_deferred_init(self):
+         """Test that SwanLab tracker initialization doesn't initialize distributed"""
