@@ -1,0 +1,17 @@
+/* The app's look (DESIGN.md): a neutral ink header, and the running teal as the only accent. */
+:root, [data-md-color-scheme="default"] {
+  --md-primary-fg-color: #18181b;
+  --md-primary-fg-color--light: #27272a;
+  --md-primary-fg-color--dark: #09090b;
+  --md-accent-fg-color: #0f9488;
+  --md-typeset-a-color: #0f9488;
+}
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #09090b;
+  --md-primary-fg-color--light: #18181b;
+  --md-primary-fg-color--dark: #000000;
+  --md-accent-fg-color: #2dd4bf;
+  --md-typeset-a-color: #2dd4bf;
+  --md-default-bg-color: #09090b;
+}
+.md-header__button.md-logo img { height: 1.6rem; }

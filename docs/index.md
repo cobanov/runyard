@@ -15,7 +15,7 @@ docker compose exec app /runyard-server key create my-laptop     # prints an API
 Or make the key on the web UI's Settings page (as an admin, with `RUNYARD_AUTH` on), which shows these commands.
 
 ```sh
-pip install "runyard[images,system] @ git+https://github.com/cobanov/runyard#subdirectory=sdk/python"
+pip install "runyard[images,system]"
 export RUNYARD_SERVER=http://localhost:8080 RUNYARD_API_KEY=ry_...
 ```
 
