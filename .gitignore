@@ -18,4 +18,4 @@ build/
 
 # private environment notes, see plan.md §16
 /ops-notes.md
-server/server
+/server/server

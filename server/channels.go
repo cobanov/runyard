@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,8 +16,13 @@ import (
 )
 
 const channelUsage = `usage:
-  runyard-server channel add [-token T] [-project P] [-events finished,failed,crashed,alert] ntfy|webhook URL
-    (-token defaults to $NTFY_TOKEN, which keeps it out of the process list)
+  runyard-server channel add [-token T] [-project P] [-events finished,failed,crashed,alert] KIND TARGET
+    ntfy URL             server URL with topic; -token defaults to $NTFY_TOKEN
+    webhook URL          JSON POST of every event
+    slack URL            an incoming webhook URL
+    discord URL          a channel webhook URL
+    telegram CHAT_ID     -token defaults to $TELEGRAM_TOKEN (the bot token)
+    (tokens from the environment stay out of the process list)
   runyard-server channel ls
   runyard-server channel rm ID
   runyard-server channel test ID`
@@ -29,19 +35,30 @@ func channelCmd(ctx context.Context, db *pgxpool.Pool, args []string) error {
 	switch args[0] {
 	case "add":
 		fs := flag.NewFlagSet("add", flag.ContinueOnError)
-		token := fs.String("token", os.Getenv("NTFY_TOKEN"), "ntfy access token")
+		token := fs.String("token", "", "ntfy access token or telegram bot token")
 		project := fs.String("project", "", "only this project (default: every project)")
 		events := fs.String("events", "finished,failed,crashed,alert", "events to send")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		if fs.NArg() != 2 || (fs.Arg(0) != "ntfy" && fs.Arg(0) != "webhook") {
+		kind := fs.Arg(0)
+		if fs.NArg() != 2 || !slices.Contains([]string{"ntfy", "webhook", "slack", "discord", "telegram"}, kind) {
 			return errors.New(channelUsage)
 		}
-		cfg, _ := json.Marshal(channelConfig{URL: fs.Arg(1), Token: *token})
+		if *token == "" {
+			*token = os.Getenv(map[string]string{"ntfy": "NTFY_TOKEN", "telegram": "TELEGRAM_TOKEN"}[kind])
+		}
+		c := channelConfig{URL: fs.Arg(1), Token: *token}
+		if kind == "telegram" {
+			if c.Token == "" {
+				return errors.New("telegram needs the bot token: -token or $TELEGRAM_TOKEN")
+			}
+			c = channelConfig{Token: *token, Chat: fs.Arg(1)}
+		}
+		cfg, _ := json.Marshal(c)
 		var id int64
 		err := pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
-			if err := tx.QueryRow(ctx, `INSERT INTO channels (kind, config) VALUES ($1, $2) RETURNING id`, fs.Arg(0), cfg).Scan(&id); err != nil {
+			if err := tx.QueryRow(ctx, `INSERT INTO channels (kind, config) VALUES ($1, $2) RETURNING id`, kind, cfg).Scan(&id); err != nil {
 				return err
 			}
 			var pid *int64
@@ -59,7 +76,7 @@ func channelCmd(ctx context.Context, db *pgxpool.Pool, args []string) error {
 		}
 		fmt.Println("added channel", id)
 	case "ls":
-		rows, _ := db.Query(ctx, `SELECT c.id, c.kind, c.config->>'url', coalesce(p.name, '*'), string_agg(r.event, ',' ORDER BY r.event)
+		rows, _ := db.Query(ctx, `SELECT c.id, c.kind, coalesce(nullif(c.config->>'chat', ''), c.config->>'url', ''), coalesce(p.name, '*'), string_agg(r.event, ',' ORDER BY r.event)
 			FROM channels c LEFT JOIN rules r ON r.channel_id = c.id LEFT JOIN projects p ON p.id = r.project_id
 			GROUP BY 1, 2, 3, 4 ORDER BY 1`)
 		var id int64

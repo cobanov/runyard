@@ -22,8 +22,9 @@ import (
 const crashAfter = 5 * time.Minute
 
 type channelConfig struct {
-	URL   string `json:"url"`   // ntfy: server URL with topic, e.g. https://ntfy.sh/my-runs
-	Token string `json:"token"` // ntfy access token, optional
+	URL   string `json:"url"`            // ntfy: server URL with topic; webhook, slack, discord: the webhook URL; telegram: Bot API base, empty for the official one
+	Token string `json:"token"`          // ntfy access token (optional), telegram bot token
+	Chat  string `json:"chat,omitempty"` // telegram chat id
 }
 
 type message struct {
@@ -174,9 +175,16 @@ func fmtDuration(d time.Duration) string {
 }
 
 func (c channel) send(ctx context.Context, m message) error {
-	if c.Kind == "webhook" {
+	switch c.Kind {
+	case "webhook":
 		b, _ := json.Marshal(m)
 		return post(ctx, "POST", c.Config.URL, "", bytes.NewReader(b), "application/json")
+	case "slack":
+		return sendSlack(ctx, c.Config.URL, m)
+	case "discord":
+		return sendDiscord(ctx, c.Config.URL, m)
+	case "telegram":
+		return sendTelegram(ctx, c.Config.URL, c.Config.Token, c.Config.Chat, m)
 	}
 	q := url.Values{"title": {m.Title}, "message": {m.Body}, "priority": {m.priority}}
 	if m.tags != "" {

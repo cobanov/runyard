@@ -62,7 +62,9 @@ func (d localBlobs) put(_ context.Context, key string, r io.Reader, _ int64) err
 	return err
 }
 
-func (d localBlobs) open(_ context.Context, key string) (io.ReadCloser, error) { return os.Open(d.path(key)) }
+func (d localBlobs) open(_ context.Context, key string) (io.ReadCloser, error) {
+	return os.Open(d.path(key))
+}
 
 func (d localBlobs) remove(_ context.Context, key string) error { return os.Remove(d.path(key)) }
 
