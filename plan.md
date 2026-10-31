@@ -207,6 +207,13 @@ MCP'den okuyup örnek resimlere bakabiliyor:
 - bir ai-toolkit LoRA koşusu (W&B köprüsüyle, kod değişmeden)
 - bir diffusers örnek betiği
 
+**Durum (2026-10-31):** v0.1'in sekiz adımı bitti, kabul ölçütü toji'de geçti. Kelebek taramasının 10 koşusu
+(kayıp, lr, 10 bin adımda bir EMA örnek ızgarası), TRL SFT (`RunyardCallback` ve `report_to="wandb"` + köprü),
+Accelerate `RunyardTracker`, diffusers `train_unconditional.py --logger wandb` ve ai-toolkit FLUX LoRA (köprüyle,
+ai-toolkit kodu değişmeden) yazdı. ntfy'ye bitti, hata verdi (traceback'li) ve çöktü (`kill -9` sonrası 5 dk)
+bildirimleri örnek resimle geldi. MCP'den `compare_runs` + `get_samples` ile resimlere bakılıp `add_note` ile
+yargı yazıldı. Arayüz 390 px genişlikte denendi.
+
 **v0.2:** Lightning, Keras, XGBoost, LightGBM, sklearn, torchtune adaptörleri; MLflow uyumlu uç; TensorBoard
 izleyicisi; NaN/eşik/sessizlik kuralları; PWA push; video oynatıcı.
 
