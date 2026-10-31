@@ -124,7 +124,13 @@ func results(run Run) string {
 	for k := range vals {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	sort.Slice(keys, func(i, j int) bool { // losses first: the phone shows only the first few
+		li, lj := strings.Contains(keys[i], "loss"), strings.Contains(keys[j], "loss")
+		if li != lj {
+			return li
+		}
+		return keys[i] < keys[j]
+	})
 	var b strings.Builder
 	for i, k := range keys {
 		if i == 8 {
