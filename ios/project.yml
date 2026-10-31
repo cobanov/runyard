@@ -28,6 +28,9 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
+        # App Store Connect rejects a bundle without this key; these are the iPhone defaults the app already had.
+        UISupportedInterfaceOrientations:
+          [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         # Self-hosted servers are often plain http on a LAN or tailnet address, as with Jellyfin.
