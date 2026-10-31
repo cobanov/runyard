@@ -33,10 +33,10 @@
         series,
         legend: { show: false },
         scales: { x: { time: false } },
-        bands: band ? [{ series: [3, 2], fill: withAlpha(color(lines[0]), 0.18) }] : [],
+        bands: band ? [{ series: [3, 2], fill: withAlpha(color(lines[0]), 0.14) }] : [],
         axes: [
-          { stroke: muted, grid, ticks: { show: false }, font, size: 28 },
-          { stroke: muted, grid, ticks: { show: false }, font, size: 52, values: (u, vals) => vals.map(fmt) },
+          { stroke: muted, grid, ticks: { show: false }, border: { show: false }, font, size: 28 },
+          { stroke: muted, grid, ticks: { show: false }, border: { show: false }, font, size: 52, values: (u, vals) => vals.map(fmt) },
         ],
         cursor: { points: { size: 6 } },
         hooks: {
@@ -83,7 +83,6 @@
     background: var(--panel);
     border: 1px solid var(--rule);
     border-radius: var(--radius);
-    box-shadow: var(--shadow);
     padding: 12px 12px 6px;
     min-width: 0;
   }

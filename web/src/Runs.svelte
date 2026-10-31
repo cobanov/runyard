@@ -130,7 +130,7 @@
   .go {
     background: var(--ink);
     color: var(--paper);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     padding: 8px 16px;
     text-decoration: none;
     font-weight: 600;

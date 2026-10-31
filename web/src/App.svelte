@@ -180,13 +180,13 @@
     align-items: center;
     gap: 10px;
     width: 100%;
-    padding: 8px 10px;
+    padding: 6px 10px;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     background: none;
     color: var(--ink);
-    font-size: 0.9375rem;
-    font-weight: 500;
+    font-size: 0.875rem;
+    font-weight: 400;
     text-decoration: none;
     text-align: left;
     cursor: pointer;
@@ -195,8 +195,8 @@
     background: var(--soft);
   }
   .item[aria-current] {
-    background: var(--panel);
-    box-shadow: inset 0 0 0 1px var(--rule), var(--shadow);
+    background: var(--soft);
+    font-weight: 500;
   }
   .item svg {
     width: 18px;
@@ -220,7 +220,6 @@
   }
   .sub {
     padding: 5px 10px;
-    font-weight: 400;
     font-size: 0.875rem;
     color: var(--muted);
   }
@@ -260,6 +259,7 @@
   @media (max-width: 767px) {
     .shell {
       grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto 1fr; /* the top bar keeps its height; main takes the rest */
     }
     main {
       padding: 16px 16px 48px;

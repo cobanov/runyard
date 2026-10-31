@@ -2,12 +2,12 @@
    light-dark() picks per colour-scheme; data-theme="light|dark" on <html> overrides the OS setting. */
 :root {
   color-scheme: light dark;
-  --paper: light-dark(#f6f6f7, #09090b);
+  --paper: light-dark(#f9fafb, #09090b);
   --panel: light-dark(#ffffff, #121214);
   --ink: light-dark(#18181b, #fafafa);
-  --muted: light-dark(#71717a, #a1a1aa);
-  --rule: light-dark(#e4e4e7, #27272a);
-  --soft: light-dark(#f4f4f5, #1c1c1f);
+  --muted: light-dark(#6b7280, #a1a1aa);
+  --rule: light-dark(#e5e7eb, #27272a);
+  --soft: light-dark(#f3f4f6, #1c1c1f);
   --running: light-dark(#0f9488, #2dd4bf);
   --finished: light-dark(#52525b, #a1a1aa);
   --failed: light-dark(#dc2626, #f87171);
@@ -18,8 +18,8 @@
   --c4: light-dark(#7c3aed, #a78bfa);
   --c5: light-dark(#d97706, #fbbf24);
   --c6: light-dark(#16a34a, #4ade80);
-  --radius: 10px;
-  --shadow: light-dark(0 1px 2px rgb(0 0 0 / 0.04), none);
+  --radius: 8px;
+  --radius-sm: 6px;
   --sans: "Atkinson Hyperlegible Next Variable", system-ui, sans-serif;
   --mono: "Atkinson Hyperlegible Mono Variable", ui-monospace, monospace;
 }
@@ -40,7 +40,7 @@ button, input, select { font: inherit; color: inherit; }
 button {
   background: var(--panel);
   border: 1px solid var(--rule);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 6px 12px;
   font-size: 0.875rem;
   font-weight: 500;
@@ -50,14 +50,14 @@ button:hover { background: var(--soft); }
 button[aria-pressed="true"], button[aria-selected="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 :focus-visible { outline: 2px solid var(--c1); outline-offset: 2px; }
 h1 { font-size: 1.5rem; line-height: 1.2; margin: 0; font-weight: 700; letter-spacing: -0.02em; overflow-wrap: anywhere; }
-h2 { font-size: 0.875rem; margin: 0 0 10px; font-weight: 600; color: var(--muted); letter-spacing: 0.02em; text-transform: uppercase; }
+h2 { font-size: 0.8125rem; margin: 0 0 10px; font-weight: 500; color: var(--muted); }
 .muted { color: var(--muted); }
 .small { font-size: 0.8125rem; }
 .empty { padding: 28px 0; color: var(--muted); max-width: 60ch; }
 .empty code, pre { font-family: var(--mono); font-size: 0.875rem; }
 
 /* Cards and tables: every surface is a panel with one hairline and a soft radius. */
-.card { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius); box-shadow: var(--shadow); }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius); }
 .card-pad { padding: 16px 18px; }
 .row-list { list-style: none; margin: 0; padding: 0; }
 .row-list > li { border-top: 1px solid var(--rule); }
@@ -65,14 +65,14 @@ h2 { font-size: 0.875rem; margin: 0 0 10px; font-weight: 600; color: var(--muted
 .table { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 0.875rem; }
 th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule); white-space: nowrap; vertical-align: middle; }
-thead th { color: var(--muted); font-weight: 500; font-size: 0.8125rem; }
+thead th { color: var(--muted); font-weight: 400; font-size: 0.8125rem; }
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover { background: var(--soft); }
 .crumb { margin: 0 0 4px; font-size: 0.8125rem; color: var(--muted); }
 .crumb a { text-decoration: none; }
 .crumb a:hover { text-decoration: underline; }
 .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; margin: 0 0 20px; }
-.tag { display: inline-block; border: 1px solid var(--rule); border-radius: 999px; padding: 0 8px; font-size: 0.75rem; line-height: 1.6; color: var(--muted); }
+.tag { display: inline-block; border: 1px solid var(--rule); border-radius: var(--radius-sm); padding: 0 6px; font-size: 0.75rem; line-height: 1.6; color: var(--muted); }
 .btn-primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .btn-primary:hover { background: var(--ink); opacity: 0.9; }
 

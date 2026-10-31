@@ -215,7 +215,10 @@
     margin-top: 32px;
   }
   section .empty {
-    padding: 4px 0 0;
+    padding: 8px 14px;
+    border: 1px dashed var(--rule);
+    border-radius: var(--radius);
+    max-width: none;
   }
   .hosts {
     display: grid;

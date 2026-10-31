@@ -47,7 +47,7 @@
   input {
     padding: 10px 12px;
     border: 1px solid var(--rule);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     background: var(--paper);
     font-weight: 400;
   }

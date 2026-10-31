@@ -123,7 +123,10 @@ export function cssColor(name) {
   probe.style.color = `var(${name})`
   return getComputedStyle(probe).color
 }
-export const withAlpha = (rgb, a) => rgb.replace(/^rgba?\((.+?)(?:\s*[,/]\s*[\d.]+)?\)$/, `rgba($1, ${a})`)
+export function withAlpha(rgb, a) {
+  const [r, g, b] = rgb.match(/[\d.]+/g)
+  return `rgba(${r}, ${g}, ${b}, ${a})`
+}
 
 // theme.dark flips with the OS setting or a data-theme attribute on <html>; charts redraw on it.
 const dark = matchMedia('(prefers-color-scheme: dark)')
