@@ -3,7 +3,9 @@
 A native iPhone app for a runyard server, the way the Jellyfin app works: type the server's address, sign in
 if the server has `RUNYARD_AUTH` on, and read your runs.
 
-- **Projects:** what is running now, with each run's main metric, then every project and its runs.
+- **Projects:** a card per running run (its main metric with a sparkline, progress and a time-left guess when
+  the config names a total such as `max_steps` or `num_train_epochs`, heartbeat, and the machine's CPU and per-GPU
+  load), then every project and its runs.
 - **A run:** status, duration, heartbeat and alerts, then tabs for charts (touch a chart for a value), system load
   (CPU, RAM, and a row per GPU: utilisation, memory, temperature, power), samples (images, videos, text tables,
   with a slider through the steps), logs, config and summary, and artifacts.
@@ -33,7 +35,16 @@ open Runyard.xcodeproj   # pick your team under Signing, then Run on your iPhone
 
 `DEVELOPMENT_TEAM` in `project.yml` is the author's; change it to yours (or pick yours in Xcode).
 
+### TestFlight
+
+`scripts/testflight.sh` archives, signs for the App Store and uploads with an App Store Connect API key;
+`scripts/asc.swift` registers the bundle id, makes the App Store profile, and adds a tester to an internal group.
+Once: create the app record in App Store Connect (the API cannot), then `swift scripts/asc.swift profile <sha1>`.
+Each upload needs a new commit, since the build number counts them. The variables are in the script's header.
+
 ## Tests
+
+`Tests/` holds unit tests for what the screens derive from a run (progress, machine load).
 
 `UITests/TourTests.swift` walks every screen against a real server and keeps a screenshot of each in the
 result bundle:

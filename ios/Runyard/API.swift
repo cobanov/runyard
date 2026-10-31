@@ -50,6 +50,52 @@ nonisolated struct Run: Decodable, Identifiable, Hashable, Sendable {
     func duration(now: Date = .now) -> TimeInterval {
         (endedAt ?? (running ? now : lastHeartbeatAt ?? startedAt)).timeIntervalSince(startedAt)
     }
+
+    /// How far it is, when the config names a total: steps (HF max_steps and the like) against the latest
+    /// logged step, else epochs against an epoch metric. Nested config keys count by their last part.
+    var progress: (done: Double, total: Double, unit: String)? {
+        var cfg: [String: Double] = [:]
+        for (k, v) in config?.flat ?? [] { cfg[String(k.split(separator: ".").last ?? "")] = Double(v) }
+        let total = { (names: [String]) in names.lazy.compactMap { cfg[$0] }.first { $0 > 0 } }
+        let train = (metrics ?? [:]).filter { !$0.key.hasPrefix("sys/") }
+        if let t = total(["max_steps", "total_steps", "num_steps", "train_steps"]) {
+            return (Double(train.values.map(\.step).max() ?? 0), t, "step")
+        }
+        if let t = total(["num_train_epochs", "epochs", "max_epochs", "num_epochs"]),
+           let e = train.first(where: { $0.key == "epoch" || $0.key.hasSuffix("/epoch") })?.value.last.value, e.isFinite {
+            return (e, t, "epoch")
+        }
+        return nil
+    }
+}
+
+/// A machine's latest readings, from the sys/ metrics the client logs (sys/cpu, sys/ram_gb, sys/gpu{i}.util ...).
+nonisolated struct SysLoad: Sendable {
+    struct GPU: Identifiable, Sendable {
+        let id: Int
+        let util, memGB, tempC, powerW: Double?
+        var details: String {
+            [memGB.map { String(format: "%.1f GB", $0) }, tempC.map { "\(Int($0.rounded())) °C" }, powerW.map { "\(Int($0.rounded())) W" }]
+                .compactMap { $0 }.joined(separator: " · ")
+        }
+    }
+    let cpu: Double?
+    let ramGB: Double?
+    let gpus: [GPU]
+
+    init?(_ metrics: [String: MetricSummary]?) {
+        let v = (metrics ?? [:]).filter { $0.key.hasPrefix("sys/") }.mapValues(\.last.value)
+        guard !v.isEmpty else { return nil }
+        cpu = v["sys/cpu"]
+        ramGB = v["sys/ram_gb"]
+        gpus = Set(v.keys.compactMap { k -> Int? in
+            guard k.hasPrefix("sys/gpu"), let dot = k.firstIndex(of: ".") else { return nil }
+            return Int(k[k.index(k.startIndex, offsetBy: 7)..<dot])
+        }).sorted().map { i in
+            let g = { (field: String) in v["sys/gpu\(i).\(field)"] }
+            return GPU(id: i, util: g("util"), memGB: g("mem_gb"), tempC: g("temp_c"), powerW: g("power_w"))
+        }
+    }
 }
 
 nonisolated struct MetricSummary: Decodable, Hashable, Sendable {

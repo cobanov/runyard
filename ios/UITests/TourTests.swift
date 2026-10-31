@@ -43,7 +43,8 @@ final class TourTests: XCTestCase {
         sleep(2)
         shot(app, "03-projects")
 
-        let project = env["RUNYARD_TEST_PROJECT"].map { app.buttons.containing(.staticText, identifier: $0).firstMatch }
+        // The last match: a running run's card above the projects shows its project's name too.
+        let project = env["RUNYARD_TEST_PROJECT"].map { app.buttons.containing(.staticText, identifier: $0).allElementsBoundByIndex.last! }
         (project ?? app.collectionViews.buttons.element(boundBy: app.collectionViews.buttons.count - 1)).tap()
         sleep(2)
         shot(app, "04-runs")

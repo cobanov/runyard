@@ -19,7 +19,7 @@ targets:
     platform: iOS
     sources: [Runyard]
     scheme:
-      testTargets: [RunyardUITests]
+      testTargets: [RunyardTests, RunyardUITests]
     info:
       path: Runyard/Info.plist
       properties:
@@ -40,6 +40,17 @@ targets:
         PRODUCT_NAME: Runyard
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+  RunyardTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: Runyard
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cobanov.runyard.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
   RunyardUITests:
     type: bundle.ui-testing
     platform: iOS

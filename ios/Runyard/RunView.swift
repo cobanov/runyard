@@ -110,7 +110,7 @@ struct RunView: View {
                 charts(trainKeys, xLabel: "step")
             }
         case .system:
-            SystemNow(metrics: run.metrics ?? [:])
+            if let load = SysLoad(run.metrics) { SystemNow(load: load) }
             charts(sysKeys, xLabel: "second")
         case .samples:
             SamplesView(id: id, running: run.running)
@@ -210,33 +210,23 @@ struct MetricChart: View {
 /// The latest readings of the SDK's system monitor (sys/cpu, sys/ram_gb, sys/gpu{i}.util|mem_gb|temp_c|power_w):
 /// the machine's load at a glance, one row per GPU.
 struct SystemNow: View {
-    let metrics: [String: MetricSummary]
+    let load: SysLoad
 
     var body: some View {
-        let v = metrics.filter { $0.key.hasPrefix("sys/") }.mapValues(\.last.value)
-        let gpus = Set(v.keys.compactMap { k -> Int? in
-            guard k.hasPrefix("sys/gpu"), let dot = k.firstIndex(of: ".") else { return nil }
-            return Int(k[k.index(k.startIndex, offsetBy: 7)..<dot])
-        }).sorted()
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                if let cpu = v["sys/cpu"] { tile("CPU", "\(Int(cpu.rounded()))%", load: cpu) }
-                if let ram = v["sys/ram_gb"] { tile("RAM", String(format: "%.1f GB", ram)) }
+                if let cpu = load.cpu { tile("CPU", "\(Int(cpu.rounded()))%", load: cpu) }
+                if let ram = load.ramGB { tile("RAM", String(format: "%.1f GB", ram)) }
             }
-            ForEach(gpus, id: \.self) { i in
-                let g = { (field: String) in v["sys/gpu\(i).\(field)"] }
+            ForEach(load.gpus) { g in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text("GPU \(i)").font(.subheadline.bold())
+                        Text("GPU \(g.id)").font(.subheadline.bold())
                         Spacer()
-                        if let u = g("util") { Text("\(Int(u.rounded()))%").font(.title3.bold().monospacedDigit()) }
+                        if let u = g.util { Text("\(Int(u.rounded()))%").font(.title3.bold().monospacedDigit()) }
                     }
-                    if let u = g("util") { ProgressView(value: min(max(u, 0), 100), total: 100).tint(loadColor(u)) }
-                    Text([g("mem_gb").map { String(format: "%.1f GB", $0) },
-                          g("temp_c").map { "\(Int($0.rounded())) °C" },
-                          g("power_w").map { "\(Int($0.rounded())) W" }]
-                        .compactMap { $0 }.joined(separator: " · "))
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    if let u = g.util { ProgressView(value: min(max(u, 0), 100), total: 100).tint(loadColor(u)) }
+                    Text(g.details).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
                 .padding(10)
                 .background(.background.secondary, in: .rect(cornerRadius: 10))
@@ -254,9 +244,9 @@ struct SystemNow: View {
         .padding(10)
         .background(.background.secondary, in: .rect(cornerRadius: 10))
     }
-
-    private func loadColor(_ percent: Double) -> Color { percent > 90 ? .orange : .accentColor }
 }
+
+func loadColor(_ percent: Double) -> Color { percent > 90 ? .orange : .accentColor }
 
 struct ConfigView: View {
     let run: Run
