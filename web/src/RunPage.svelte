@@ -9,17 +9,21 @@
   let error = $state('')
   let series = $state({})
   let tab = $state('charts')
+  let alerts = $state([])
 
   const loadRun = throttle(() => get('/runs/' + id).then((r) => (run = r)).catch((e) => (error = e.message)))
   const loadMetrics = throttle(() => get(`/runs/${id}/metrics?points=600`).then((s) => (series = s)), 4000)
+  const loadAlerts = throttle(() => get(`/alerts?run=${id}&limit=10`).then((a) => (alerts = a)))
   loadRun()
   loadMetrics()
+  loadAlerts()
   $effect(() =>
     onEvent((e) => {
-      if (e.type === 'reconnect') (loadRun(), loadMetrics())
+      if (e.type === 'reconnect') (loadRun(), loadMetrics(), loadAlerts())
       if (e.run !== id) return
       if (e.type === 'run') loadRun()
       if (e.type === 'metrics') loadMetrics()
+      if (e.type === 'alert') loadAlerts()
     }),
   )
 
@@ -60,6 +64,17 @@
       {#if run.notes}<p class="small">{run.notes}</p>{/if}
     </div>
   </div>
+
+  {#if alerts.length}
+    <ul class="alerts small" aria-label="Alerts">
+      {#each alerts as a (a.id)}
+        <li class="level-{a.level}">
+          <strong>{a.title}</strong>
+          <span class="muted">{a.body ? a.body.split('\n')[0] + ', ' : ''}{ago(a.ts, live.now)}</span>
+        </li>
+      {/each}
+    </ul>
+  {/if}
 
   <div class="tabs" role="tablist">
     {#each tabs as [t, label]}
@@ -110,6 +125,24 @@
   }
   .head p {
     margin: 4px 0 0;
+  }
+  .alerts {
+    list-style: none;
+    margin: 14px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+  }
+  .alerts li {
+    border-left: 3px solid var(--muted);
+    padding: 2px 0 2px 10px;
+    overflow-wrap: anywhere;
+  }
+  .alerts .level-warn {
+    border-left-color: var(--crashed);
+  }
+  .alerts .level-error {
+    border-left-color: var(--failed);
   }
   .tabs {
     display: flex;

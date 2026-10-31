@@ -249,6 +249,7 @@ func (s *srv) watchCrashes(ctx context.Context) {
 		case <-t.C:
 		}
 		s.markCrashed(ctx, crashAfter)
+		s.markStalled(ctx)
 		t.Reset(30 * time.Second)
 	}
 }

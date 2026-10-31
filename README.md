@@ -75,6 +75,18 @@ docker compose exec app /runyard-server channel test 1
 Events: `finished`, `failed`, `crashed`, `alert`. ntfy messages carry the last metrics, the latest sample image
 and a link to the run.
 
+Checks raise alerts from the data itself, once per run, through the channels listening to `alert`. One comes
+built in: any `*loss*` metric going NaN or ±Inf. Add your own per project:
+
+```sh
+docker compose exec app /runyard-server check add -project sft -after 100 above train/loss 10   # diverged, after warmup
+docker compose exec app /runyard-server check add -project sft below eval/accuracy 0.2
+docker compose exec app /runyard-server check add -project gba stall 30m   # heartbeats, but no metric or output: stuck
+docker compose exec app /runyard-server check ls
+```
+
+`*` in a metric name matches anything. Data older than five minutes (a `runyard sync` of an old run) is not checked.
+
 ## Layout
 
 | Path | What |

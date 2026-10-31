@@ -121,7 +121,7 @@ func (s *srv) mcpHandler() http.Handler {
 		func(ctx context.Context, _ *mcp.CallToolRequest, in compareIn) (*mcp.CallToolResult, any, error) {
 			return jsonResult(s.compare(ctx, in.Runs))
 		})
-	mcp.AddTool(server, &mcp.Tool{Name: "list_alerts", Description: "Alerts raised by runs (run.alert in the training script), newest first."},
+	mcp.AddTool(server, &mcp.Tool{Name: "list_alerts", Description: "Alerts raised by runs (run.alert in the training script) and by server checks (a NaN loss, a crossed threshold, a stuck run), newest first."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in alertsIn) (*mcp.CallToolResult, any, error) {
 			run := ""
 			if in.Run != "" {

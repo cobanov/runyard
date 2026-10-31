@@ -3,6 +3,7 @@
 //	runyard-server                  serve (default)
 //	runyard-server key create NAME  print a new write API key
 //	runyard-server channel ...      manage notification channels, see channelCmd
+//	runyard-server check ...        manage the checks that raise alerts (NaN, threshold, stall), see checkCmd
 package main
 
 import (
@@ -52,14 +53,18 @@ func main() {
 		}
 		fmt.Println(key)
 		return
-	case args[0] == "channel":
-		if err := channelCmd(ctx, db, args[1:]); err != nil {
+	case args[0] == "channel" || args[0] == "check":
+		cmd := channelCmd
+		if args[0] == "check" {
+			cmd = checkCmd
+		}
+		if err := cmd(ctx, db, args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
 		}
 		return
 	default:
-		fmt.Fprintln(os.Stderr, "usage: runyard-server [serve] | key create NAME | channel add|ls|rm|test")
+		fmt.Fprintln(os.Stderr, "usage: runyard-server [serve] | key create NAME | channel add|ls|rm|test | check add|ls|rm")
 		os.Exit(2)
 	}
 

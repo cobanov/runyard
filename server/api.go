@@ -245,11 +245,13 @@ func (s *srv) postMetrics(r *http.Request) (any, error) {
 	}
 	var names []string
 	seen := map[string]bool{}
+	progress := false
 	for _, row := range rows {
 		for k := range row.Values {
 			if !seen[k] {
 				seen[k] = true
 				names = append(names, k)
+				progress = progress || !strings.HasPrefix(k, "sys/")
 			}
 		}
 	}
@@ -286,6 +288,10 @@ func (s *srv) postMetrics(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if progress {
+		s.progressed(ctx, id)
+	}
+	s.checkMetrics(ctx, id, project, rows)
 	s.hub.publish(event{Type: "metrics", Run: id})
 	return map[string]int{"written": len(keyCol)}, nil
 }
@@ -335,6 +341,7 @@ func (s *srv) postLogs(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.progressed(r.Context(), id)
 	s.hub.publish(event{Type: "logs", Run: id})
 	return map[string]int{"written": len(lines)}, nil
 }
@@ -438,13 +445,9 @@ func (s *srv) postAlert(r *http.Request) (any, error) {
 	if a.Level == "" {
 		a.Level = "info"
 	}
-	id := r.PathValue("id")
-	var aid int64
-	if err := s.db.QueryRow(r.Context(), `INSERT INTO alerts (run_id, level, title, body) VALUES ($1::uuid, $2, $3, $4) RETURNING id`,
-		id, a.Level, a.Title, a.Body).Scan(&aid); err != nil {
+	aid, err := s.addAlert(r.Context(), r.PathValue("id"), nil, Alert{Level: a.Level, Title: a.Title, Body: a.Body})
+	if err != nil {
 		return nil, err
 	}
-	s.hub.publish(event{Type: "alert", Run: id})
-	go s.notify(id, "alert", &Alert{Level: a.Level, Title: a.Title, Body: a.Body})
 	return map[string]int64{"id": aid}, nil
 }

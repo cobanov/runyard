@@ -195,7 +195,8 @@ func TestWriteFlow(t *testing.T) {
 	}
 	var alerts []Alert
 	call(t, "GET", api+"/alerts?project=gba", "", nil, &alerts)
-	if len(alerts) != 1 || alerts[0].Title != "loss is NaN" || alerts[0].RunName != "pixel32" {
+	// The run's own alert, and the one the default check raised when loss went NaN at step 3.
+	if len(alerts) != 2 || alerts[0].Title != "loss is NaN" || alerts[0].RunName != "pixel32" || alerts[1].Body != "at step 3" {
 		t.Fatalf("alerts: %+v", alerts)
 	}
 	var runs []Run

@@ -163,6 +163,15 @@ Kimlik: API anahtarı (`Authorization: Bearer`). v0.1 tek kullanıcı.
 - **Kurallar** proje başına. Bildirimde çalıştırmanın bağlantısı ve son örnek resim (ntfy attachment) olur.
 - v0.1: ntfy ve webhook; kanal ve kurallar `runyard-server channel add|ls|rm|test` ile yönetilir (arayüzde ayar
   ekranı yok). Çöktü: 5 dakika heartbeat gelmezse; heartbeat dönerse koşu yeniden `running` olur.
+- v0.2 kontrolleri (`checks` tablosu, `runyard-server check add|ls|rm`): `nan KEY`, `above|below KEY DEĞER`
+  (`-after ADIM` ısınmayı atlar), `stall SÜRE`. Tetiklenen kontrol bir `alerts` satırı yazar ve bugünkü `alert` olayıyla
+  kanallara gider; her kontrol bir koşuda bir kez (`alerts (run_id, check_id)` unique). Kontrol sunucuda olduğu için
+  köprü ve adaptörler de kapsanır. Varsayılan tek kontrol: bütün projelerde `nan *loss*` (fp16'da `grad_norm` inf
+  olabildiği için yalnız kayıplar). NaN ve eşik metrik yazımında bakılır; zaman damgası 5 dakikadan eski satırlar
+  (`runyard sync`) atlanır. Stall 30 sn'lik döngüde, çökme kontrolünden sonra bakılır: `runs.progress_at`, `sys/` dışı
+  metrik veya log satırı gelince güncellenir (heartbeat ve sistem örnekleyici ana döngü takılsa da akar). Koşu
+  sayfası son 10 alert'i gösterir. Bilerek yok: göreli kurallar, aynı koşuda yeniden kurulma, arayüzde ayar ekranı,
+  koddan kural tanımlama.
 
 ## 11. Ajanlar
 
@@ -216,6 +225,9 @@ yargı yazıldı. Arayüz 390 px genişlikte denendi.
 
 **v0.2:** Lightning, Keras, XGBoost, LightGBM, sklearn, torchtune adaptörleri; MLflow uyumlu uç; TensorBoard
 izleyicisi; NaN/eşik/sessizlik kuralları; PWA push; video oynatıcı.
+
+**Durum (2026-10-31):** sıra kurallar → TensorBoard izleyicisi → video oynatıcı; gerisi gerçek bir koşu isteyince
+(MLflow ucu, klasik ML ve Keras/Lightning adaptörleri, PWA push: ntfy yetiyor). Kurallar bitti (§10).
 
 **v0.3:** checkpoint/artifact kayıtları; çok kullanıcı ve ekipler; S3/R2 medya; upstream PR'lar
 (transformers `report_to="runyard"`, Accelerate'e hazır tracker); herkese açık sürüm ve doküman sitesi.

@@ -44,6 +44,8 @@ Without touching the code:
 3. `get_metrics` for the curve when the shape matters (plateau, divergence, spikes).
 4. `get_samples`: look at the images yourself; numbers alone do not say whether a diffusion model is good.
 5. `tail_logs` when a run failed or went silent: the traceback is in the last lines (stderr lines start with `!`).
+   `list_alerts` shows what the server caught on its own: a NaN loss, a crossed threshold, or "No progress", which
+   means heartbeats still arrive but the training loop has stopped logging (a hang, not a crash).
 6. `compare_runs` to pick between runs: it shows only the config keys that differ.
 
 Report what you saw, not just the numbers: "loss flat since step 30k, samples sharp but repetitive". Record a verdict
