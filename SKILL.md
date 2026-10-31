@@ -52,7 +52,8 @@ Without touching the code:
    `list_alerts` shows what the server caught on its own: a NaN loss, a crossed threshold, or "No progress", which
    means heartbeats still arrive but the training loop has stopped logging (a hang, not a crash).
 6. `compare_runs` to pick between runs: it shows only the config keys that differ.
-7. `list_artifacts` (or `runyard artifacts RUN`) for the run's checkpoints and models: which step, where they are,
+7. `list_machines` before starting a run, or when one is slow: which GPU is free, and who else is on it.
+8. `list_artifacts` (or `runyard artifacts RUN`) for the run's checkpoints and models: which step, where they are,
    and a download URL when a copy was uploaded (`runyard artifacts RUN --get NAME`).
 
 Report what you saw, not just the numbers: "loss flat since step 30k, samples sharp but repetitive". Record a verdict

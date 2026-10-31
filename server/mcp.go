@@ -66,6 +66,10 @@ func (s *srv) mcpHandler() http.Handler {
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 			return jsonResult(listProjects(ctx, s.db))
 		})
+	mcp.AddTool(server, &mcp.Tool{Name: "list_machines", Description: "The machines running `runyard agent`: latest CPU, RAM, disk and per-GPU utilization, memory, temperature, power and the processes on each GPU (any user's, not only runyard runs), the running runs on each, and whether it went silent. Use it to see whether a GPU is free before starting a run."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+			return jsonResult(listHosts(ctx, s))
+		})
 	mcp.AddTool(server, &mcp.Tool{Name: "list_runs", Description: "Runs, newest first, with status, config and summary."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in listRunsIn) (*mcp.CallToolResult, any, error) {
 			return jsonResult(listRuns(ctx, s.db, in.Project, in.Status, in.Tag, or(in.Limit, 30)))
@@ -137,7 +141,7 @@ func (s *srv) mcpHandler() http.Handler {
 					return nil, nil, err
 				}
 			}
-			return jsonResult(listAlerts(ctx, s.db, run, in.Project, or(in.Limit, 20)))
+			return jsonResult(listAlerts(ctx, s.db, run, in.Project, false, or(in.Limit, 20)))
 		})
 	mcp.AddTool(server, &mcp.Tool{Name: "add_note", Description: "Appends a note to a run. Needs the API key as a Bearer token."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in noteIn) (*mcp.CallToolResult, any, error) {

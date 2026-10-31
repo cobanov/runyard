@@ -280,6 +280,17 @@ struct AlertsView: View {
     var body: some View {
         List(alerts) { a in
             NavigationLink(value: Route.run(a.run)) { AlertRow(alert: a, showRun: true) }
+                .opacity(a.dismissedAt == nil ? 1 : 0.5)
+                .swipeActions {
+                    if a.dismissedAt == nil {
+                        Button("Dismiss") { Task { await dismiss([a.id]) } }.tint(.gray)
+                    }
+                }
+        }
+        .toolbar {
+            if alerts.contains(where: { $0.dismissedAt == nil }) {
+                Button("Dismiss all") { Task { await dismiss([]) } }
+            }
         }
         .overlay {
             if loaded && alerts.isEmpty {
@@ -292,6 +303,16 @@ struct AlertsView: View {
         .navigationTitle("Alerts")
         .refreshable { await load() }
         .poll(every: { 15 }) { await load() }
+    }
+
+    /// Puts alerts away (all of them for no ids): they stay here, dimmed.
+    private func dismiss(_ ids: [Int]) async {
+        do {
+            try await store.post("/api/v1/alerts/dismiss", json: ["ids": ids])
+        } catch {
+            self.error = error.localizedDescription
+        }
+        await load()
     }
 
     private func load() async {

@@ -254,13 +254,17 @@ type Alert struct {
 	Level   string    `json:"level"`
 	Title   string    `json:"title"`
 	Body    string    `json:"body"`
+	// Dismissed is when someone put the alert away; it is left out of the Overview.
+	Dismissed *time.Time `json:"dismissed_at"`
 }
 
-func listAlerts(ctx context.Context, db *pgxpool.Pool, run, project string, limit int) ([]Alert, error) {
-	rows, _ := db.Query(ctx, `SELECT a.id, r.id::text, r.name, p.name, a.ts, a.level, a.title, a.body
+// listAlerts lists the newest alerts, of one run or project when given; active leaves out the dismissed ones.
+func listAlerts(ctx context.Context, db *pgxpool.Pool, run, project string, active bool, limit int) ([]Alert, error) {
+	rows, _ := db.Query(ctx, `SELECT a.id, r.id::text, r.name, p.name, a.ts, a.level, a.title, a.body, a.dismissed_at
 		FROM alerts a JOIN runs r ON r.id = a.run_id JOIN projects p ON p.id = r.project_id
 		WHERE ($1 = '' OR r.id::text = $1) AND ($2 = '' OR p.name = $2) AND ($4::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($4))
-		ORDER BY a.ts DESC LIMIT $3`, run, project, limit, vis(ctx))
+		AND NOT ($5 AND a.dismissed_at IS NOT NULL)
+		ORDER BY a.ts DESC LIMIT $3`, run, project, limit, vis(ctx), active)
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Alert])
 }
 

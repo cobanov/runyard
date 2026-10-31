@@ -1,0 +1,21 @@
+"""runyard agent: a reading lands on the Machines endpoint; GPU processes are named without their arguments."""
+from types import SimpleNamespace
+
+from conftest import get
+from runyard.agent import Machine
+from runyard.cli import main
+
+
+def test_agent_once(server):
+    assert main(["agent", "--name", "box-1", "--once"]) == 0
+    hosts = get(server + "/api/v1/hosts")
+    assert [h["name"] for h in hosts] == ["box-1"]
+    assert isinstance(hosts[0]["stats"].get("gpus", []), list)
+
+
+def test_proc_name_keeps_secrets_out():
+    m = Machine()
+    argv = {1: ["/usr/bin/python3", "-u", "train.py", "--lr", "3e-4"], 2: ["curl", "-H", "Authorization: Bearer xyz"]}
+    m.psutil = SimpleNamespace(Process=lambda pid: SimpleNamespace(cmdline=lambda: argv[pid], name=lambda: "?", username=lambda: "ege"))
+    assert m._proc(SimpleNamespace(pid=1, usedGpuMemory=2e9)) == {"pid": 1, "name": "python3 train.py", "user": "ege", "mem_gb": 2.0}
+    assert m._proc(SimpleNamespace(pid=2, usedGpuMemory=None))["name"] == "curl"

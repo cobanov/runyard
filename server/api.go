@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -78,7 +79,43 @@ func (s *srv) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/artifacts/{id}/file", s.serveArtifact)
 	mux.HandleFunc("GET /api/v1/alerts", s.read(func(r *http.Request) (any, error) {
 		q := r.URL.Query()
-		return listAlerts(r.Context(), s.db, q.Get("run"), q.Get("project"), intParam(r, "limit", 100))
+		return listAlerts(r.Context(), s.db, q.Get("run"), q.Get("project"), q.Has("active"), intParam(r, "limit", 100))
+	}))
+	// What the web UI changes in place: a run's notes and tags, and alerts put away.
+	mux.HandleFunc("PATCH /api/v1/runs/{id}/meta", s.curate(func(r *http.Request) (any, error) {
+		var in struct {
+			Notes *string   `json:"notes"`
+			Tags  *[]string `json:"tags"`
+		}
+		if err := decode(r, &in); err != nil {
+			return nil, err
+		}
+		if in.Tags != nil {
+			tags := []string{}
+			for _, t := range *in.Tags {
+				if t = strings.TrimSpace(t); t != "" && !slices.Contains(tags, t) {
+					tags = append(tags, t)
+				}
+			}
+			in.Tags = &tags
+		}
+		_, err := s.patch(r.Context(), r.PathValue("id"), runPatch{Notes: in.Notes, Tags: in.Tags})
+		return struct{}{}, err
+	}))
+	mux.HandleFunc("POST /api/v1/alerts/dismiss", s.curate(func(r *http.Request) (any, error) {
+		var in struct {
+			IDs []int64 `json:"ids"` // empty: every alert the request may see
+		}
+		if err := decode(r, &in); err != nil {
+			return nil, err
+		}
+		tag, err := s.db.Exec(r.Context(), `UPDATE alerts a SET dismissed_at = now() FROM runs r JOIN projects p ON p.id = r.project_id
+			WHERE r.id = a.run_id AND a.dismissed_at IS NULL AND (coalesce(cardinality($1::bigint[]), 0) = 0 OR a.id = ANY($1))
+			AND ($2::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($2))`, in.IDs, vis(r.Context()))
+		if err == nil {
+			s.hub.publish(event{Type: "alert"})
+		}
+		return map[string]int64{"dismissed": tag.RowsAffected()}, err
 	}))
 	mux.HandleFunc("GET /api/v1/events", func(w http.ResponseWriter, r *http.Request) { s.hub.serve(w, r, s.runFilter(r.Context())) })
 	mux.Handle("/mcp", s.mcpHandler())
@@ -86,6 +123,7 @@ func (s *srv) routes() http.Handler {
 	s.pushRoutes(mux)
 	s.authRoutes(mux)
 	s.adminRoutes(mux)
+	s.hostRoutes(mux)
 
 	mux.HandleFunc("GET /media/{key...}", func(w http.ResponseWriter, r *http.Request) {
 		key := r.PathValue("key")

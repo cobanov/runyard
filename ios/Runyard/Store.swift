@@ -91,6 +91,14 @@ final class Store {
         }
     }
 
+    /// POST with a JSON body, for putting alerts away.
+    func post(_ path: String, json: [String: any Sendable]) async throws {
+        var req = try api.request(path, method: "POST")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: json)
+        _ = try await api.send(req)
+    }
+
     /// GET for the screens: a 401 means the session ended, so the app goes back to the login form.
     func get<T: Decodable>(_ path: String) async throws -> T {
         do {

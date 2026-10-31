@@ -1,5 +1,5 @@
 <script>
-  import { get, send, why, store, ago, live } from './lib.svelte.js'
+  import { get, send, why, store, ago, live, cred, setKey } from './lib.svelte.js'
 
   let { auth } = $props()
   const origin = location.origin
@@ -20,11 +20,24 @@
       await change()
       await reload()
     } catch (e) {
+      if (!auth && e.status === 401 && cred.key) return void ((keyError = 'The server refused that key.'), setKey(''))
       errors[section] = why(e)
     }
   }
-  act('keys', () => {}, loadKeys)
-  act('channels', () => {}, loadChannels)
+  // Without users the server needs an API key for these; with them, guard and the login form have it covered.
+  $effect(() => {
+    if (!auth && !cred.key) return
+    act('keys', () => {}, loadKeys)
+    act('channels', () => {}, loadChannels)
+  })
+  let typed = $state('')
+  let keyError = $state('')
+  const useKey = (e) => {
+    e.preventDefault()
+    keyError = ''
+    setKey(typed.trim())
+    typed = ''
+  }
 
   const key = $derived(made?.key || 'ry_...')
   const snippets = $derived([
@@ -67,6 +80,33 @@
 </script>
 
 <div class="page-head"><h1>Settings</h1></div>
+
+{#if !auth}
+  <section>
+    <h2>Access</h2>
+    {#if cred.key}
+      <div class="card card-pad access">
+        <p class="small">Changes from this tab use the API key you added. It is forgotten when the tab closes.</p>
+        <button onclick={() => ((keys = channels = null), setKey(''))}>Forget the key</button>
+      </div>
+    {:else}
+      <div class="card card-pad access">
+        <p class="small">
+          This server runs without users (<code>RUNYARD_AUTH</code> is off): anyone who reaches it can read, so API keys,
+          notification channels and deleting runs need an API key. Add one to manage them here, or use the server's command line.
+        </p>
+        <form class="add" onsubmit={useKey}>
+          <label class="grow">API key <input class="field" type="password" bind:value={typed} placeholder="ry_..." autocomplete="off" required /></label>
+          <button class="btn-primary">Use key</button>
+        </form>
+        {#if keyError}<p class="small"><span class="danger">{keyError}</span></p>{/if}
+        <pre class="small muted">docker compose exec app /runyard-server key create my-laptop
+docker compose exec app /runyard-server channel add ntfy https://ntfy.sh/my-topic</pre>
+        <p class="small muted">For logins and teams, start the server with <code>RUNYARD_AUTH=1</code> and add an admin with <code>runyard-server user add -admin NAME</code>.</p>
+      </div>
+    {/if}
+  </section>
+{/if}
 
 <section>
   <h2>Connect</h2>
@@ -182,6 +222,22 @@
 <style>
   section {
     margin-top: 24px;
+  }
+  .access {
+    display: grid;
+    gap: 10px;
+    justify-items: start;
+  }
+  .access p,
+  .access pre {
+    margin: 0;
+  }
+  .access pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .access .add {
+    width: 100%;
   }
   section .empty {
     margin: 0 0 14px;

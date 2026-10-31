@@ -58,6 +58,19 @@
       failed = why(e)
     }
   }
+  let editing = $state(null) // {tags, notes} while they are being edited
+  const edit = () => (editing = { tags: (run.tags || []).join(', '), notes: run.notes || '' })
+  async function save(e) {
+    e.preventDefault()
+    failed = ''
+    try {
+      await send('PATCH', `/runs/${run.id}/meta`, { notes: editing.notes, tags: editing.tags.split(',') })
+      editing = null
+      loadRun()
+    } catch (err) {
+      failed = why(err)
+    }
+  }
   const config = $derived(Object.entries(flatten(run?.config)))
   const summary = $derived(Object.entries(flatten(run?.summary)))
 </script>
@@ -77,11 +90,20 @@
       <div><dt>Duration</dt><dd>{runTime(run, live.now)}</dd></div>
       <div><dt>Started</dt><dd>{ago(run.started_at, live.now)}</dd></div>
       {#if run.status === 'running'}<div><dt>Heartbeat</dt><dd>{ago(run.last_heartbeat_at, live.now)}</dd></div>{/if}
-      {#if run.host}<div><dt>Host</dt><dd>{run.host}</dd></div>{/if}
+      {#if run.host}<div><dt>Host</dt><dd><a href="#/machines">{run.host}</a></dd></div>{/if}
       {#if run.git?.commit}<div><dt>Git</dt><dd>{run.git.branch} {run.git.commit.slice(0, 8)}{run.git.dirty ? ', uncommitted changes' : ''}</dd></div>{/if}
     </dl>
-    {#if run.tags?.length}<p class="tags">{#each run.tags as t}<span class="tag">{t}</span>{/each}</p>{/if}
-    {#if run.notes}<p class="small notes">{run.notes}</p>{/if}
+    {#if editing}
+      <form class="edit" onsubmit={save}>
+        <label class="small">Tags, separated by commas <input class="field" bind:value={editing.tags} placeholder="baseline, lr-sweep" /></label>
+        <label class="small">Notes <textarea class="field" rows="4" bind:value={editing.notes} placeholder="What this run tries, what you saw"></textarea></label>
+        <div class="actions"><button class="btn-primary">Save</button><button type="button" onclick={() => (editing = null)}>Cancel</button></div>
+      </form>
+    {:else}
+      {#if run.tags?.length}<p class="tags">{#each run.tags as t}<span class="tag">{t}</span>{/each}</p>{/if}
+      {#if run.notes}<p class="small notes">{run.notes}</p>{/if}
+      <button class="link small" onclick={edit}>{run.tags?.length || run.notes ? 'Edit notes and tags' : 'Add notes or tags'}</button>
+    {/if}
   </div>
 
   {#if alerts.length}
@@ -183,6 +205,38 @@
   .notes {
     margin: 10px 0 0;
     white-space: pre-wrap;
+  }
+  .link {
+    display: block;
+    margin-top: 10px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font-weight: 400;
+    text-decoration: underline;
+  }
+  .edit {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .edit label {
+    display: grid;
+    gap: 4px;
+    color: var(--muted);
+  }
+  .edit .field {
+    color: var(--ink);
+  }
+  .edit textarea {
+    height: auto;
+    padding: 8px 12px;
+    resize: vertical;
+  }
+  .actions {
+    display: flex;
+    gap: 8px;
   }
   .alerts {
     margin: 14px 0 0;

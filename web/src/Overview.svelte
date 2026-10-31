@@ -1,11 +1,12 @@
 <script>
-  import { get, onEvent, throttle, ago, runTime, live, fmt, plotValue, mainMetric, sysLoad } from './lib.svelte.js'
+  import { get, send, onEvent, throttle, ago, runTime, live, fmt, plotValue, mainMetric, sysLoad } from './lib.svelte.js'
   import Sparkline from './Sparkline.svelte'
 
   let running = $state(null) // full runs, with their metric summaries
   let spark = $state({}) // run id -> last values of its main metric
   let recent = $state([])
   let alerts = $state([])
+  let machines = $state([]) // hosts running `runyard agent`
   let error = $state('')
 
   const loadRunning = throttle(async () => {
@@ -28,19 +29,27 @@
     }
   }, 4000)
   const loadRecent = throttle(() => get('/runs?limit=40').then((r) => (recent = r.filter((x) => x.status !== 'running').slice(0, 8))))
-  const loadAlerts = throttle(() => get('/alerts?limit=5').then((a) => (alerts = a)))
+  const loadAlerts = throttle(() => get('/alerts?limit=5&active').then((a) => (alerts = a)))
+  const loadMachines = throttle(() => get('/hosts').then((h) => (machines = h)), 5000)
+  const dismissAll = () => send('POST', '/alerts/dismiss', {}).then(loadAlerts)
   loadRunning()
   loadRecent()
   loadAlerts()
+  loadMachines()
   $effect(() =>
     onEvent((e) => {
       if (e.type === 'run' || e.type === 'reconnect') (loadRunning(), loadRecent(), loadAlerts())
       if (e.type === 'metrics') loadRunning()
       if (e.type === 'alert') loadAlerts()
+      if (e.type === 'host' || e.type === 'reconnect') loadMachines()
     }),
   )
 
-  const hosts = $derived(sysLoad(running || []))
+  // The agent's machines, then any other host a running run reports sys/ metrics from.
+  const hosts = $derived.by(() => {
+    const agent = machines.map((m) => ({ host: m.name, silent: m.silent, ...m.stats, gpus: m.stats.gpus || [] }))
+    return [...agent, ...sysLoad(running || []).filter((h) => !machines.some((m) => m.name === h.host))]
+  })
   const pct = (v) => (typeof v === 'number' ? Math.max(0, Math.min(100, v)) : 0)
   // Machine readings are glanced at, not compared: whole numbers, one decimal for gigabytes.
   const n0 = (v, unit) => (typeof v === 'number' ? `${Math.round(v)}${unit}` : '–')
@@ -88,15 +97,15 @@
 {/if}
 
 <section>
-  <h2>Machine load</h2>
+  <h2><a href="#/machines" class="h2link">Machine load</a></h2>
   {#if !hosts.length}
-    <p class="empty">Shows GPU, CPU and memory from running runs that log <code>sys/</code> metrics.</p>
+    <p class="empty">No machines yet. Run <code>runyard agent</code> on each one to see its GPUs, CPU and memory here, training or not: <a href="#/machines">Machines</a>.</p>
   {:else}
     <div class="hosts">
       {#each hosts as h (h.host)}
-        <div class="card card-pad host">
+        <div class="card card-pad host" class:silent={h.silent}>
           <div class="who">
-            <strong>{h.host}</strong>
+            <strong>{h.host}{#if h.silent} <span class="badge status-crashed">silent</span>{/if}</strong>
             <span class="muted small">
               {#if h.cpu != null}CPU {n0(h.cpu, '%')}{/if}{#if h.ram_gb != null}, RAM {n1(h.ram_gb, ' GB')}{/if}
             </span>
@@ -157,7 +166,7 @@
           </li>
         {/each}
       </ul>
-      <p class="small more"><a href="#/alerts">All alerts</a></p>
+      <p class="small more"><a href="#/alerts">All alerts</a> · <button class="link" onclick={dismissAll}>Dismiss these</button></p>
     {/if}
   </section>
 </div>
@@ -293,5 +302,24 @@
   }
   .more {
     margin: 8px 2px 0;
+  }
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font-size: inherit;
+    font-weight: 400;
+    text-decoration: underline;
+  }
+  .h2link {
+    color: inherit;
+    text-decoration: none;
+  }
+  .h2link:hover {
+    text-decoration: underline;
+  }
+  .host.silent table {
+    opacity: 0.55;
   }
 </style>

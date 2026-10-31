@@ -88,9 +88,19 @@ struct MainView: View {
 
 struct ServerView: View {
     @Environment(Store.self) private var store
+    @State private var machines: [Machine] = []
 
     var body: some View {
         List {
+            if !machines.isEmpty {
+                Section {
+                    ForEach(machines) { MachineRow(machine: $0) }
+                } header: {
+                    Text("Machines")
+                } footer: {
+                    Text("From runyard agent on each machine: every process on its GPUs, whoever started it.")
+                }
+            }
             Section("Server") {
                 LabeledContent("Address", value: store.server)
                 if let me = store.me {
@@ -110,5 +120,36 @@ struct ServerView: View {
             }
         }
         .navigationTitle("Server")
+        .refreshable { await loadMachines() }
+        .poll(every: { 10 }) { await loadMachines() }
+    }
+
+    private func loadMachines() async {
+        if let m: [Machine] = try? await store.get("/api/v1/hosts") { machines = m }
+    }
+}
+
+struct MachineRow: View {
+    let machine: Machine
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(machine.name).font(.headline)
+                Spacer()
+                if machine.silent {
+                    Text("silent since \(machine.seenAt.formatted(date: .omitted, time: .shortened))").font(.caption).foregroundStyle(.orange)
+                }
+            }
+            MachineStrip(load: machine.load).opacity(machine.silent ? 0.5 : 1)
+            ForEach(Array(machine.procs.enumerated()), id: \.offset) { _, p in
+                Text("GPU \(p.gpu) · \(p.proc.name.isEmpty ? "pid \(p.proc.pid)" : p.proc.name)\(p.proc.user.map { " · \($0)" } ?? "") · \(String(format: "%.1f GB", p.proc.memGB))")
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+            }
+            if !machine.runs.isEmpty {
+                Text("Training " + machine.runs.map(\.name).joined(separator: ", ")).font(.caption).foregroundStyle(.tint)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }

@@ -8,9 +8,10 @@
   import Alerts from './Alerts.svelte'
   import Login from './Login.svelte'
   import Settings from './Settings.svelte'
+  import Machines from './Machines.svelte'
   import { pushSupported, pushOn, setPush } from './push.js'
 
-  // Hash routes: #/ overview, #/projects, #/alerts, #/settings, #/p/<project> runs, #/r/<run id>, #/compare/<id>,<id>...
+  // Hash routes: #/ overview, #/projects, #/machines, #/alerts, #/settings, #/p/<project> runs, #/r/<run id>, #/compare/<id>,<id>...
   let hash = $state(location.hash)
   let open = $state(false) // the drawer on narrow screens
   window.addEventListener('hashchange', () => ((hash = location.hash), (open = false)))
@@ -89,6 +90,9 @@
           {/each}
         </ul>
       {/if}
+      <a href="#/machines" class="item" aria-current={route.kind === 'machines' || null}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v10H4zM8 19h8M12 15v4M8 12V9M12 12V8M16 12v-2" /></svg>Machines
+      </a>
       <a href="#/alerts" class="item" aria-current={route.kind === 'alerts' || null}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 20h20zM12 10v4M12 17v.5" /></svg>Alerts
       </a>
@@ -122,6 +126,8 @@
           <Compare ids={route.arg.split(',')} />
         {:else if route.kind === 'projects'}
           <Projects />
+        {:else if route.kind === 'machines'}
+          <Machines />
         {:else if route.kind === 'alerts'}
           <Alerts />
         {:else if route.kind === 'settings'}

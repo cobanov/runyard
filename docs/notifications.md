@@ -20,6 +20,10 @@ Messages carry the last metrics (or the last output lines of a failed run), the 
 channel can show it, and a link to the run when `RUNYARD_URL` is set. Tokens are read from the environment so
 they stay out of the process list. A webhook gets the whole event as JSON.
 
+Channels that hear `alert` for every project also hear about machines: "toji went silent" when its
+[`runyard agent`](server.md#machines) has sent nothing for 2 minutes, and "toji is back" when it sends again (event
+`host` in a webhook's JSON).
+
 ## Web push
 
 Tap the bell in the web UI's header to get notifications on that device, from the browser or the installed app

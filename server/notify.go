@@ -64,13 +64,17 @@ func (s *srv) notify(runID, event string, a *Alert) {
 	if len(chans) == 0 {
 		return
 	}
-	m := s.message(ctx, run, event, a)
+	s.deliver(ctx, chans, s.message(ctx, run, event, a))
+}
+
+// deliver sends m to every channel, dropping the ones whose endpoint is gone for good.
+func (s *srv) deliver(ctx context.Context, chans []channel, m message) {
 	for _, c := range chans {
 		err := c.send(ctx, m)
 		if errors.Is(err, errGone) {
 			s.db.Exec(ctx, `DELETE FROM channels WHERE id = $1`, c.ID)
 		} else if err != nil {
-			log.Printf("notify %s via channel %d: %v", runID, c.ID, err)
+			log.Printf("notify %q via channel %d: %v", m.Title, c.ID, err)
 		}
 	}
 }
@@ -267,6 +271,7 @@ func (s *srv) watchCrashes(ctx context.Context) {
 		}
 		s.markCrashed(ctx, crashAfter)
 		s.markStalled(ctx)
+		s.markSilentHosts(ctx)
 		t.Reset(30 * time.Second)
 	}
 }

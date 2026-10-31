@@ -14,6 +14,8 @@ Key facts:
 - Agents read through the MCP server at `<server>/mcp` (streamable HTTP, `Authorization: Bearer <key>` when the
   server runs with `RUNYARD_AUTH`), or the `runyard` CLI with `--json`.
 - A run is finished on a clean exit, failed on an exception and crashed after five minutes without a heartbeat.
+- `runyard agent` on each training machine reports its GPUs (with every process on them), CPU, memory and disk,
+  training or not; MCP `list_machines` reads them, and the server notifies when a machine goes silent.
 
 ## Docs
 

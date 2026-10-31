@@ -35,6 +35,20 @@ func (s *srv) admin(f func(*http.Request) (any, error)) http.HandlerFunc {
 	}
 }
 
+// curate guards the light changes the web UI makes in place (a run's notes and tags, dismissing alerts): with
+// RUNYARD_AUTH, any user who may see the run (guard checks that); without it, anyone, as anyone may read.
+// Deleting, keys and channels stay with admin.
+func (s *srv) curate(f func(*http.Request) (any, error)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := csrf.Check(r); err != nil {
+			httpError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		s.read(f)(w, r)
+	}
+}
+
 // adminRoutes: the web UI's Settings page and delete buttons, and the same for scripts and agents with an admin key.
 func (s *srv) adminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/runs/{id}", s.admin(func(r *http.Request) (any, error) {

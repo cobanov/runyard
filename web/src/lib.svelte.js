@@ -2,17 +2,29 @@
 
 export const get = (path) => send('GET', path)
 
+// cred.key is an API key typed into Settings on a server without users (RUNYARD_AUTH off), where keys, channels
+// and deletes need one; it goes with every call from this tab, and is forgotten when the tab closes.
+export const cred = $state({ key: (() => { try { return sessionStorage.getItem('runyard.key') || '' } catch { return '' } })() })
+export function setKey(key) {
+  cred.key = key
+  try {
+    key ? sessionStorage.setItem('runyard.key', key) : sessionStorage.removeItem('runyard.key')
+  } catch {}
+}
+
 // send calls the API; a failure throws an Error carrying the HTTP status.
 export async function send(method, path, body) {
-  const init = body ? { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : { method }
-  const r = await fetch('/api/v1' + path, init)
+  const headers = cred.key ? { Authorization: 'Bearer ' + cred.key } : {}
+  if (body) headers['Content-Type'] = 'application/json'
+  const r = await fetch('/api/v1' + path, { method, headers, body: body && JSON.stringify(body) })
   const out = await r.json().catch(() => ({}))
   if (!r.ok) throw Object.assign(new Error(out.error || r.statusText), { status: r.status })
   return out
 }
 
 // why puts a failed call in a sentence: 401 and 403 from a change mean it needs an admin.
-export const why = (e) => (e.status === 401 || e.status === 403 ? 'Only an admin can do this: log in as one (the server needs RUNYARD_AUTH on).' : e.message)
+export const why = (e) =>
+  e.status === 401 || e.status === 403 ? 'Only an admin can do this: add an API key on the Settings page, or log in as an admin when the server has users.' : e.message
 
 export const live = $state({ connected: false, now: Date.now() })
 setInterval(() => (live.now = Date.now()), 10000)

@@ -2,8 +2,11 @@
 
 ## Web UI
 
-Projects, a project's runs (filter by status), and a run page with charts, samples (images, videos, text tables),
-logs, config, system usage, alerts and artifacts. Pick runs to compare them side by side. Everything updates live.
+Projects, a project's runs (search, filter by status, sort by any column), and a run page with charts (smoothing,
+log scale), samples (images, videos, text tables), logs, config, system usage, alerts and artifacts; its notes and
+tags are edited in place. Pick runs to compare them side by side. Machines shows every machine running
+[`runyard agent`](server.md#machines): its GPUs, the processes on them and the runs it trains. Alerts can be
+dismissed. Everything updates live.
 It is made for the phone first: add it to the home screen to install it, and tap the bell to get push
 notifications on that device.
 
@@ -40,6 +43,7 @@ The web UI's Settings page shows this command with the server's address and a ke
 | `tail_logs` | the last lines the run printed (stderr lines start with `!`) |
 | `compare_runs` | runs side by side: the config keys that differ, last/min of shared metrics |
 | `list_alerts`, `list_artifacts` | alerts raised by the run or by checks; checkpoints and models |
+| `list_machines` | each machine's GPUs (utilization, memory, the processes on them), CPU, memory and disk, and its runs |
 | `add_note`, `add_tags` | write a verdict or mark a run; need the API key |
 
 [`SKILL.md`](https://github.com/cobanov/runyard/blob/main/SKILL.md) tells an agent how to use them.
@@ -48,6 +52,8 @@ The web UI's Settings page shows this command with the server's address and a ke
 
 Reads are `GET` under `/api/v1`: `projects`, `runs?project=&status=&tag=`, `runs/{id}` (also an id prefix or
 name), `runs/{id}/metrics?keys=&points=`, `runs/{id}/logs?after=&tail`, `runs/{id}/media?key=&kind=&step=`,
-`runs/{id}/artifacts`, `artifacts/{id}/file`, `alerts?run=&project=`, and `events` (server-sent events, one line
-per change). Writes need `Authorization: Bearer <key>`: `POST runs`, `PATCH runs/{id}`, and `POST` of
-`runs/{id}/metrics`, `logs`, `media`, `heartbeat`, `alerts` and `artifacts`.
+`runs/{id}/artifacts`, `artifacts/{id}/file`, `alerts?run=&project=&active` (active: not dismissed), `hosts`,
+`hosts/{name}/history?hours=` and `events` (server-sent events, one line per change). Writes need
+`Authorization: Bearer <key>`: `POST runs`, `PATCH runs/{id}`, `POST hosts/{name}` (the agent), and `POST` of
+`runs/{id}/metrics`, `logs`, `media`, `heartbeat`, `alerts` and `artifacts`. `PATCH runs/{id}/meta`
+`{"notes", "tags"}` and `POST alerts/dismiss` `{"ids"}` (none: all) are what the web UI edits in place.

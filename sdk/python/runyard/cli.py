@@ -9,11 +9,15 @@
     runyard watch DIR [--project P] [--once] [--interval 10]
                                      sends TensorBoard event files under DIR, one run per directory, until Ctrl-C;
                                      --once reads them once and exits (needs the tensorboard package)
+    runyard agent [--name NAME] [--interval 10]
+                                     sends this machine's GPU, CPU, memory and disk to the server until stopped,
+                                     for the Machines page (run it as a service, see docs/server.md)
 """
 import argparse
 import json
 import os
 import signal
+import socket
 import sys
 import time
 import urllib.parse
@@ -164,6 +168,20 @@ def cmd_watch(a):
     watch(a.dir, a.project, a.once, a.interval)
 
 
+def cmd_agent(a):
+    """Sends this machine's GPU, CPU, memory and disk to the server every few seconds, until stopped."""
+    if not key():
+        print("runyard: agent needs RUNYARD_API_KEY, a key from `runyard-server key create`", file=sys.stderr)
+        return 1
+    from .agent import agent
+
+    signal.signal(signal.SIGTERM, signal.default_int_handler)  # systemd and launchd stop it like Ctrl-C
+    try:
+        agent(server(), key(), a.name, a.interval, a.once, a.disk)
+    except KeyboardInterrupt:
+        pass
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="runyard", description="Reads runs from the server in RUNYARD_SERVER; watch sends to it.")
     p.add_argument("--version", action="version", version=__version__)
@@ -207,6 +225,13 @@ def main(argv=None):
     watch.add_argument("--once", action="store_true", help="read everything once, finish the runs and exit (imports)")
     watch.add_argument("--interval", type=float, default=10, help="seconds between polls (default 10)")
     watch.set_defaults(fn=cmd_watch)
+
+    ag = sub.add_parser("agent", help=cmd_agent.__doc__)
+    ag.add_argument("--name", default=socket.gethostname(), help="this machine's name (default: its hostname, as runs record it)")
+    ag.add_argument("--interval", type=float, default=10, help="seconds between readings (default 10)")
+    ag.add_argument("--disk", default="/", help="the filesystem whose usage to report (default /)")
+    ag.add_argument("--once", action="store_true", help="send one reading and exit")
+    ag.set_defaults(fn=cmd_agent)
     a = p.parse_args(argv)
     try:
         return a.fn(a) or 0

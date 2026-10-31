@@ -131,6 +131,8 @@ func sendPush(ctx context.Context, c channelConfig, m message) error {
 	link := "/"
 	if m.Run.ID != "" {
 		link = "/#/r/" + m.Run.ID
+	} else if m.Event == "host" {
+		link = "/#/machines"
 	}
 	payload, _ := json.Marshal(map[string]string{"title": cut(m.Title, 200), "body": cut(m.Body, 1000), "url": link, "tag": m.Run.ID + "/" + m.Event})
 	as, _ := ecdh.P256().GenerateKey(rand.Reader)

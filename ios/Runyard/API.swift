@@ -83,6 +83,10 @@ nonisolated struct SysLoad: Sendable {
     let ramGB: Double?
     let gpus: [GPU]
 
+    init(cpu: Double?, ramGB: Double?, gpus: [GPU]) {
+        (self.cpu, self.ramGB, self.gpus) = (cpu, ramGB, gpus)
+    }
+
     init?(_ metrics: [String: MetricSummary]?) {
         let v = (metrics ?? [:]).filter { $0.key.hasPrefix("sys/") }.mapValues(\.last.value)
         guard !v.isEmpty else { return nil }
@@ -151,7 +155,48 @@ nonisolated struct Alert: Decodable, Identifiable, Sendable {
     let level: String // info | warn | error
     let title: String
     let body: String
-    enum CodingKeys: String, CodingKey { case id, run, project, ts, level, title, body, runName = "run_name" }
+    let dismissedAt: Date? // put away by someone; the web Overview leaves it out
+    enum CodingKeys: String, CodingKey { case id, run, project, ts, level, title, body, runName = "run_name", dismissedAt = "dismissed_at" }
+}
+
+/// A machine running `runyard agent` (server/hosts.go): its latest reading, every process on its GPUs, and the runs on it.
+nonisolated struct Machine: Decodable, Identifiable, Sendable {
+    struct Proc: Decodable, Sendable {
+        let pid: Int
+        let name: String
+        let user: String?
+        let memGB: Double
+        enum CodingKeys: String, CodingKey { case pid, name, user, memGB = "mem_gb" }
+    }
+    struct GPU: Decodable, Sendable {
+        let i: Int
+        let util, memGB, tempC, powerW: Double?
+        let procs: [Proc]?
+        enum CodingKeys: String, CodingKey { case i, util, procs, memGB = "mem_gb", tempC = "temp_c", powerW = "power_w" }
+    }
+    struct Stats: Decodable, Sendable {
+        let cpu, ramGB: Double?
+        let gpus: [GPU]?
+        enum CodingKeys: String, CodingKey { case cpu, gpus, ramGB = "ram_gb" }
+    }
+    struct OnIt: Decodable, Sendable {
+        let id, name, project: String
+    }
+    let name: String
+    let seenAt: Date
+    let silent: Bool
+    let stats: Stats
+    let runs: [OnIt]
+    var id: String { name }
+    enum CodingKeys: String, CodingKey { case name, silent, stats, runs, seenAt = "seen_at" }
+
+    var load: SysLoad {
+        SysLoad(cpu: stats.cpu, ramGB: stats.ramGB, gpus: (stats.gpus ?? []).map {
+            SysLoad.GPU(id: $0.i, util: $0.util, memGB: $0.memGB, tempC: $0.tempC, powerW: $0.powerW)
+        })
+    }
+    /// Every GPU process, with the GPU it is on.
+    var procs: [(gpu: Int, proc: Proc)] { (stats.gpus ?? []).flatMap { g in (g.procs ?? []).map { (g.i, $0) } } }
 }
 
 /// A metric value: the server sends NaN and ±Infinity as strings, which JSON numbers cannot hold.
