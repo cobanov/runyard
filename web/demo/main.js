@@ -9,6 +9,9 @@ const el = (html) => {
   return t.content.firstChild
 }
 
+// ?still leaves the bar and the notifications out: the website's screenshots are taken that way.
+const still = new URLSearchParams(location.search).has('still')
+
 document.head.append(
   el(`<style>
   .demo-bar { position: fixed; z-index: 50; left: 50%; bottom: 16px; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 24px);
@@ -42,13 +45,14 @@ const bar = el(`<div class="demo-bar" role="region" aria-label="About this demo"
 </div>`)
 bar.querySelector('.go').onclick = () => (location.hash = '#/r/' + startRun())
 bar.querySelector('.x').onclick = () => bar.remove()
-document.body.append(bar)
+if (!still) document.body.append(bar)
 
 // Notifications: what ntfy, Slack or web push would bring to your phone, here for twelve seconds each.
 const notes = el('<div class="demo-notes" aria-live="polite"></div>')
 document.body.append(notes)
 const mark = '<svg viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M36 220 V144 A108 108 0 0 1 144 36 H220 L184 72 H144 A72 72 0 0 0 72 144 V220 Z"/><path fill="var(--running)" d="M96 220 V144 A48 48 0 0 1 144 96 H220 L184 132 H144 A12 12 0 0 0 132 144 V220 Z"/></svg>'
 onNotice((n) => {
+  if (still) return
   const note = el(`<button type="button" class="demo-note ${n.level}">${mark}<small>runyard · now</small><b></b><span></span></button>`)
   note.querySelector('b').textContent = n.title
   note.querySelector('span').textContent = n.body

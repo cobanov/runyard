@@ -27,6 +27,11 @@
       --rule: light-dark(#e5e7eb, #27272a);
       --soft: light-dark(#f3f4f6, #1c1c1f);
       --running: light-dark(#0f9488, #2dd4bf);
+      /* code: the app's chart hues, a step darker on paper and lighter on black */
+      --hl-key: light-dark(#7c3aed, #c4b5fd);
+      --hl-str: light-dark(#15803d, #86efac);
+      --hl-fn: light-dark(#1d4ed8, #93c5fd);
+      --hl-num: light-dark(#c2410c, #fdba74);
       --radius: 8px;
       --radius-sm: 6px;
       --sans: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -36,6 +41,7 @@
     body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
     a { color: inherit; }
     .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     header { display: flex; align-items: center; gap: 16px; padding: 20px 0; }
     /* The logo: ink lanes and wordmark follow the theme; the inside lane is the running colour, as in the app. */
     .brand { display: block; color: var(--ink); }
@@ -44,49 +50,74 @@
     nav { margin-left: auto; display: flex; gap: 20px; font-size: 0.9375rem; }
     nav a { text-decoration: none; color: var(--muted); }
     nav a:hover { color: var(--ink); }
-    .hero { padding: 56px 0 32px; display: grid; grid-template-columns: minmax(0, 640px) auto; justify-content: space-between; align-items: center; gap: 48px; }
+    @media (max-width: 480px) { nav { gap: 14px; } nav .wide { display: none; } }
+    .hero { padding: 56px 0 32px; display: grid; grid-template-columns: minmax(0, 620px) auto; justify-content: space-between; align-items: center; gap: 48px; }
     .hero-mark { width: 196px; color: var(--ink); }
-    @media (max-width: 760px) { .hero { grid-template-columns: minmax(0, 1fr); } .hero-mark { display: none; } }
-    h1 { font-size: clamp(2rem, 5vw, 3rem); line-height: 1.05; letter-spacing: -0.03em; margin: 0 0 16px; font-weight: 800; }
-    .lede { font-size: 1.125rem; color: var(--muted); margin: 0 0 24px; }
+    @media (max-width: 760px) { .hero { grid-template-columns: minmax(0, 1fr); padding-top: 32px; } .hero-mark { display: none; } }
+    h1 { font-size: clamp(2.125rem, 5.5vw, 3.25rem); line-height: 1.04; letter-spacing: -0.03em; margin: 0 0 16px; font-weight: 800; text-wrap: balance; }
+    .lede { font-size: 1.1875rem; color: var(--muted); margin: 0 0 28px; max-width: 34ch; text-wrap: pretty; }
     .actions { display: flex; flex-wrap: wrap; gap: 10px; }
-    .btn { display: inline-block; padding: 9px 16px; border-radius: var(--radius-sm); border: 1px solid var(--rule); background: var(--panel); text-decoration: none; font-size: 0.9375rem; font-weight: 500; }
+    .btn { display: inline-block; padding: 10px 18px; border-radius: var(--radius-sm); border: 1px solid var(--rule); background: var(--panel); text-decoration: none; font-size: 0.9375rem; font-weight: 600; }
+    .btn:hover { border-color: var(--muted); }
     .btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-    .shot { margin: 32px 0 64px; border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; background: var(--panel); }
+    .shot { margin: 32px 0 56px; border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; background: var(--panel); }
     .shot img { display: block; width: 100%; height: auto; }
     .shot .dark, :root[data-theme="dark"] .shot .light { display: none; }
     @media (prefers-color-scheme: dark) { .shot .light { display: none; } .shot .dark { display: block; } }
-    h2 { font-size: 1.5rem; letter-spacing: -0.02em; margin: 0 0 20px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 14px; margin-bottom: 64px; }
-    .card { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius); padding: 18px 20px; }
-    .card h3 { margin: 0 0 6px; font-size: 1rem; }
-    .card p { margin: 0; color: var(--muted); font-size: 0.9375rem; }
-    pre { margin: 0 0 14px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius); font: 0.875rem/1.55 var(--mono); overflow-x: auto; }
-    .c { color: var(--muted); }
-    .k { color: var(--running); }
-    .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 24px; margin-bottom: 64px; }
-    .two p { color: var(--muted); margin: 0 0 12px; }
-    ul.plain { list-style: none; padding: 0; margin: 0; color: var(--muted); display: grid; gap: 6px; font-size: 0.9375rem; }
-    ul.plain b { color: var(--ink); font-weight: 600; }
-    /* Comparison: scrolls sideways inside its frame on a phone, the row names stay put. */
-    .lead { color: var(--muted); margin: -8px 0 20px; max-width: 72ch; }
-    .compare { overflow-x: auto; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--panel); margin-bottom: 12px; }
-    .compare table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 900px; font-size: 0.875rem; line-height: 1.45; }
-    .compare th, .compare td { text-align: left; vertical-align: top; padding: 11px 14px; border-bottom: 1px solid var(--rule); }
+    section { margin-bottom: 72px; }
+    h2 { font-size: clamp(1.5rem, 3vw, 1.875rem); letter-spacing: -0.02em; margin: 0 0 8px; text-wrap: balance; }
+    .sub { color: var(--muted); margin: 0 0 24px; font-size: 1.0625rem; }
+    /* One line each: a reader takes in all six at a glance. */
+    .points { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 28px 32px; margin: 0; padding: 0; list-style: none; }
+    .points li { border-top: 2px solid var(--running); padding-top: 12px; }
+    .points b { display: block; font-size: 1.0625rem; margin-bottom: 2px; }
+    .points span { color: var(--muted); }
+    /* Code: a labelled panel, lines wrap with a hanging indent, a copy button. */
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 20px; }
+    .code { border: 1px solid var(--rule); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
+    .code-head { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--rule); font-size: 0.875rem; }
+    .code-head .num { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--soft); font-weight: 700; font-size: 0.8125rem; }
+    .code-head .file { color: var(--muted); font: 0.8125rem var(--mono); }
+    .copy { margin-left: auto; font: inherit; font-size: 0.8125rem; padding: 4px 10px; border: 1px solid var(--rule); border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
+    .copy:hover { color: var(--ink); border-color: var(--muted); }
+    .code pre { margin: 0; padding: 14px 16px; font: 0.875rem/1.65 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+    .ln { display: block; padding-left: 2ch; text-indent: -2ch; }
+    .code .c { color: var(--muted); }
+    .code .k { color: var(--hl-key); }
+    .code .s { color: var(--hl-str); }
+    .code .f { color: var(--hl-fn); }
+    .code .n { color: var(--hl-num); }
+    .code .n, .code .k, .nw { white-space: nowrap; } /* no break inside 3e-4, --build or my-laptop */
+    /* Comparison: marks, not sentences. Scrolls inside its frame on a phone; the row names stay put. */
+    .compare { position: relative; overflow-x: auto; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--panel); }
+    .compare table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 640px; font-size: 0.9375rem; }
+    .compare th, .compare td { padding: 12px 14px; border-bottom: 1px solid var(--rule); text-align: center; vertical-align: middle; }
     .compare tbody tr:last-child > * { border-bottom: 0; }
-    .compare thead th { font-size: 0.9375rem; white-space: nowrap; }
-    .compare tbody th { font-weight: 600; width: 150px; }
-    .compare th:first-child { position: sticky; left: 0; z-index: 1; background: var(--panel); border-right: 1px solid var(--rule); }
-    .compare td { color: var(--muted); }
-    .compare .us { background: var(--soft); color: var(--ink); }
-    .compare .no { opacity: 0.7; }
-    .nw { white-space: nowrap; }
-    .hint { display: none; color: var(--muted); font-size: 0.8125rem; margin: -8px 0 10px; }
-    @media (max-width: 760px) { .hint { display: block; } .compare tbody th { width: 112px; } }
-    .note { color: var(--muted); font-size: 0.8125rem; margin: 0 0 64px; }
-    footer { border-top: 1px solid var(--rule); padding: 24px 0 48px; color: var(--muted); font-size: 0.875rem; display: flex; flex-wrap: wrap; gap: 8px 24px; }
-    footer a { text-decoration: none; }
-    footer a:hover { text-decoration: underline; }
+    .compare thead th { font-size: 0.875rem; white-space: nowrap; }
+    .compare tbody th { text-align: left; font-weight: 500; }
+    .compare th:first-child { position: sticky; left: 0; z-index: 1; background: var(--panel); border-right: 1px solid var(--rule); width: 34%; }
+    .compare .us { background: var(--soft); }
+    .compare thead .us { font-weight: 800; }
+    .y { color: var(--running); font-weight: 800; font-size: 1.0625rem; }
+    .no { color: var(--muted); opacity: 0.6; }
+    .q { color: var(--muted); font-size: 0.8125rem; white-space: nowrap; }
+    .note { color: var(--muted); font-size: 0.8125rem; margin: 10px 0 0; }
+    .hint { display: none; color: var(--muted); font-size: 0.8125rem; margin: 0 0 10px; }
+    @media (max-width: 700px) { .hint { display: block; } }
+    .cta { text-align: center; padding: 48px 20px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--panel); }
+    .cta .sub { margin: 0 auto 22px; }
+    footer { border-top: 1px solid var(--rule); background: var(--panel); margin-top: 24px; }
+    .foot { display: grid; grid-template-columns: 1.6fr repeat(3, 1fr); gap: 32px; padding: 40px 0 32px; font-size: 0.9375rem; }
+    @media (max-width: 760px) { .foot { grid-template-columns: repeat(2, 1fr); } .foot .about { grid-column: 1 / -1; } }
+    .foot h3 { margin: 0 0 10px; font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+    .foot ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+    .foot a { text-decoration: none; }
+    .foot a:hover { text-decoration: underline; }
+    .about svg { width: 36px; height: 36px; color: var(--ink); margin-bottom: 10px; }
+    .about p { margin: 0 0 6px; color: var(--muted); max-width: 30ch; }
+    .legal { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding: 16px 0 28px; border-top: 1px solid var(--rule); color: var(--muted); font-size: 0.875rem; }
+    .legal a { text-decoration: none; }
+    .legal a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -95,92 +126,136 @@
       <a class="brand" href="/"><svg viewBox="28 28 963.125 200" role="img" aria-label="runyard"><g><path fill="currentColor" d="M36 220 V144 A108 108 0 0 1 144 36 H220 L184 72 H144 A72 72 0 0 0 72 144 V220 Z"/><path class="live" d="M96 220 V144 A48 48 0 0 1 144 96 H220 L184 132 H144 A12 12 0 0 0 132 144 V220 Z"/></g><path fill="currentColor" transform="translate(267.53 185.74) scale(0.21149)" d="M58.93 0.0V-496.0H160.50L187.50 -404.68Q204.12 -441.56 227.56 -464.75Q251.00 -487.93 282.43 -498.71Q313.87 -509.50 352.81 -508.12V-376.43Q296.50 -381.24 260.43 -367.71Q224.37 -354.18 207.03 -322.09Q189.68 -290.00 189.68 -238.43V0.0ZM596.87 12.0Q533.37 12.0 496.65 -12.5Q459.93 -37.0 444.43 -82.90Q428.93 -128.81 428.93 -192.37V-496.0H559.68V-226.31Q559.68 -190.37 564.28 -159.43Q568.87 -128.50 586.90 -110.37Q604.93 -92.25 644.43 -92.25Q695.87 -92.25 720.09 -125.84Q744.31 -159.43 744.31 -231.56V-496.0H875.75V0.0H765.31L744.31 -70.62Q722.62 -33.93 689.03 -10.96Q655.43 12.0 596.87 12.0ZM983.93 0.0V-496.0H1094.75L1114.68 -427.18Q1126.62 -447.75 1148.12 -465.90Q1169.62 -484.06 1200.12 -496.09Q1230.62 -508.12 1269.87 -508.12Q1332.62 -508.12 1368.97 -484.12Q1405.31 -460.12 1420.62 -414.87Q1435.93 -369.62 1435.93 -305.74V0.0H1305.18V-271.81Q1305.18 -307.74 1300.24 -337.84Q1295.31 -367.93 1277.31 -386.21Q1259.31 -404.49 1218.87 -404.49Q1166.81 -404.49 1140.75 -367.81Q1114.68 -331.12 1114.68 -259.37V0.0ZM1527.81 162.0V63.24H1564.68Q1594.68 63.24 1611.50 59.96Q1628.31 56.68 1638.62 45.65Q1648.93 34.62 1656.56 12.18L1661.56 -1.75L1475.0 -496H1615.81L1722.18 -164.44L1824.37 -496.0H1965.19L1780.19 6.87Q1763.75 51.68 1747.34 81.78Q1730.93 111.87 1709.68 129.59Q1688.43 147.31 1657.84 154.65Q1627.25 162.0 1582.50 162.0ZM2146.12 12.0Q2099.12 12.0 2059.96 -5.53Q2020.81 -23.06 1997.65 -55.25Q1974.49 -87.43 1974.49 -132.43Q1974.49 -191.43 2015.84 -227.43Q2057.18 -263.43 2132.99 -283.09Q2208.81 -302.75 2310.68 -310.68V-324.50Q2310.68 -369.93 2286.28 -393.15Q2261.87 -416.37 2214.56 -416.37Q2178.87 -416.37 2153.65 -399.99Q2128.43 -383.62 2120.43 -351.74L2007.12 -390.87Q2029.87 -443.06 2085.5 -475.59Q2141.12 -508.12 2219.12 -508.12Q2325.56 -508.12 2380.47 -460.34Q2435.37 -412.56 2435.37 -303.0V-191.81Q2435.37 -157.00 2437.53 -121.09Q2439.68 -85.18 2443.84 -53.90Q2448.00 -22.62 2452.68 0.0H2331.68L2313.06 -62.49Q2287.24 -24.12 2245.06 -6.06Q2202.87 12.0 2146.12 12.0ZM2191.25 -80.43Q2225.06 -80.43 2252.18 -91.68Q2279.31 -102.93 2294.99 -129.93Q2310.68 -156.93 2310.68 -204.0V-227.87Q2216.06 -220.62 2163.78 -201.46Q2111.50 -182.31 2111.50 -140.62Q2111.50 -113.50 2133.53 -96.96Q2155.56 -80.43 2191.25 -80.43ZM2545.93 0.0V-496.0H2647.50L2674.50 -404.68Q2691.12 -441.56 2714.56 -464.75Q2738.00 -487.93 2769.43 -498.71Q2800.87 -509.50 2839.81 -508.12V-376.43Q2783.50 -381.24 2747.43 -367.71Q2711.37 -354.18 2694.03 -322.09Q2676.68 -290.00 2676.68 -238.43V0.0ZM3081.62 12.0Q3020.12 12.0 2970.78 -19.53Q2921.43 -51.06 2892.96 -109.93Q2864.49 -168.81 2864.49 -250.12Q2864.49 -331.43 2892.96 -388.93Q2921.43 -446.43 2970.78 -477.28Q3020.12 -508.12 3081.62 -508.12Q3128.24 -508.12 3170.31 -486.68Q3212.37 -465.25 3235.74 -424.87V-708.0H3366.50V-191.81Q3366.50 -158.56 3369.68 -108.34Q3372.87 -58.12 3383.50 0.0H3259.12L3239.18 -66.74Q3209.56 -26.74 3168.56 -7.37Q3127.56 12.0 3081.62 12.0ZM3122.18 -91.62Q3156.25 -91.62 3182.93 -108.47Q3209.62 -125.31 3225.40 -159.93Q3241.18 -194.56 3241.18 -248.06Q3241.18 -328.12 3206.81 -366.31Q3172.43 -404.49 3122.18 -404.49Q3071.25 -404.49 3036.87 -364.59Q3002.50 -324.68 3002.50 -250.12Q3002.50 -175.18 3036.87 -133.40Q3071.25 -91.62 3122.18 -91.62Z"/></svg></a>
       <nav>
         <a href="/demo/">Demo</a>
-        <a href="#compare">Compare</a>
+        <a href="#compare" class="wide">Compare</a>
         <a href="https://cobanov.github.io/runyard/">Docs</a>
         <a href="https://github.com/cobanov/runyard">GitHub</a>
       </nav>
     </header>
 
-    <section class="hero">
+    <div class="hero">
       <div>
-      <h1>A training tracker that fits in one binary.</h1>
-      <p class="lede">runyard is a self-hosted tracker for ML and deep learning runs: status, metrics, samples, logs and checkpoints in a phone-first web UI, notifications when a run finishes, fails or goes silent, and an MCP server so agents can read everything. Far fewer features than W&amp;B or MLflow, on purpose.</p>
-      <div class="actions">
-        <a class="btn primary" href="/demo/">Try the demo</a>
-        <a class="btn" href="https://cobanov.github.io/runyard/">Read the docs</a>
-        <a class="btn" href="https://github.com/cobanov/runyard">Source on GitHub</a>
-      </div>
+        <h1>Your training runs, live, on your own machines.</h1>
+        <p class="lede">A self-hosted tracker for ML runs. Check them from your phone, and know the moment one dies.</p>
+        <div class="actions">
+          <a class="btn primary" href="/demo/">Try the live demo</a>
+          <a class="btn" href="https://cobanov.github.io/runyard/">Read the docs</a>
+        </div>
       </div>
       <div class="hero-mark"><svg viewBox="28 28 200 200" aria-hidden="true"><g><path fill="currentColor" d="M36 220 V144 A108 108 0 0 1 144 36 H220 L184 72 H144 A72 72 0 0 0 72 144 V220 Z"/><path class="live" d="M96 220 V144 A48 48 0 0 1 144 96 H220 L184 132 H144 A12 12 0 0 0 132 144 V220 Z"/></g></svg></div>
-    </section>
+    </div>
 
     <figure class="shot" aria-label="The Overview page: running runs with their main metric, machine load per host, recently ended runs and alerts">
       <img class="light" src="img/overview-light.png" width="2880" height="1800" alt="runyard overview, light theme">
       <img class="dark" src="img/overview-dark.png" width="2880" height="1800" alt="runyard overview, dark theme">
     </figure>
 
-    <h2>Five minutes</h2>
-    <div class="two">
-      <div>
-        <p>Run the server with Docker Compose. One Go binary and PostgreSQL; media and artifacts go to a directory or an S3/R2 bucket.</p>
-<pre><span class="c"># server</span>
-git clone https://github.com/cobanov/runyard &amp;&amp; cd runyard
-docker compose up -d --build
-docker compose exec app /runyard-server key create my-laptop</pre>
+    <section aria-label="What it does">
+      <ul class="points">
+        <li><b>Three lines of Python</b><span>Or none: W&amp;B, TensorBoard and MLflow code works as is.</span></li>
+        <li><b>Your phone knows</b><span>When a run finishes, fails, crashes or stalls.</span></li>
+        <li><b>Every GPU in view</b><span>Who is using it, training or not.</span></li>
+        <li><b>Agents can read it</b><span>A built-in MCP server for Claude Code and others.</span></li>
+        <li><b>One binary</b><span>Go and PostgreSQL. Your data stays with you.</span></li>
+        <li><b>Free</b><span>Open source, Apache-2.0. No account to make.</span></li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Up in a minute</h2>
+      <p class="sub">Start the server once, then log from any training script.</p>
+      <div class="steps">
+        <div class="code">
+          <div class="code-head"><span class="num">1</span>Start the server<button class="copy" type="button">Copy</button></div>
+<pre><code><span class="ln"><span class="f">git</span> clone <span class="s">https://github.com/cobanov/runyard</span> &amp;&amp; <span class="f">cd</span> runyard</span><span class="ln"><span class="f">docker</span> compose up <span class="k">-d --build</span></span><span class="ln"> </span><span class="ln"><span class="c"># an API key for your scripts</span></span><span class="ln"><span class="f">docker</span> compose exec app /runyard-server key create <span class="nw">my-laptop</span></span></code></pre>
+        </div>
+        <div class="code">
+          <div class="code-head"><span class="num">2</span>Log a run <span class="file">train.py</span><button class="copy" type="button">Copy</button></div>
+<pre><code><span class="ln"><span class="c"># pip install runyard</span></span><span class="ln"><span class="k">import</span> runyard <span class="k">as</span> ry</span><span class="ln"> </span><span class="ln">run = ry.<span class="f">init</span>(project=<span class="s">"my-project"</span>, config={<span class="s">"lr"</span>: <span class="n">3e-4</span>})</span><span class="ln">run.<span class="f">log</span>({<span class="s">"loss"</span>: loss.<span class="f">item</span>()}, step=step)</span><span class="ln">run.<span class="f">alert</span>(<span class="s">"loss is NaN"</span>, level=<span class="s">"error"</span>)</span></code></pre>
+        </div>
       </div>
-      <div>
-        <p>Log from Python in three lines. Calls are queued and sent from a background thread, so the library never stops training.</p>
-<pre><span class="c"># pip install runyard, then in the training script</span>
-<span class="k">import</span> runyard <span class="k">as</span> ry
+    </section>
 
-run = ry.init(project=<span class="c">"my-project"</span>, config={<span class="c">"lr"</span>: 3e-4})
-run.log({<span class="c">"loss"</span>: loss.item()}, step=step)
-run.image(<span class="c">"samples"</span>, grid, step=step)
-run.alert(<span class="c">"loss is NaN"</span>, level=<span class="c">"error"</span>)</pre>
+    <section>
+      <h2 id="compare">How it compares</h2>
+      <p class="sub">Fewer features than W&amp;B, on purpose. More of what matters when the GPUs are yours.</p>
+      <p class="hint">Swipe the table to see the others.</p>
+      <div class="compare">
+        <table aria-labelledby="compare">
+          <thead>
+            <tr><th scope="col"><span class="sr">Feature</span></th><th scope="col" class="us">runyard</th><th scope="col">W&amp;B</th><th scope="col">Trackio</th><th scope="col">MLflow</th><th scope="col">TensorBoard</th></tr>
+          </thead>
+          <tbody>
+          <tr><th scope="row">Free and open source</th><td class="us"><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="q">Free tier</span></td><td><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td></tr>
+          <tr><th scope="row">Runs on your own server</th><td class="us"><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="q">Paid license</span></td><td><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="q">Local only</span></td></tr>
+          <tr><th scope="row">Notifications</th><td class="us"><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="q">Slack, Discord</span></td><td><span class="no" aria-hidden="true">–</span><span class="sr">No</span></td><td><span class="no" aria-hidden="true">–</span><span class="sr">No</span></td></tr>
+          <tr><th scope="row">Catches runs that die silently</th><td class="us"><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="no" aria-hidden="true">–</span><span class="sr">No</span></td><td><span class="no" aria-hidden="true">–</span><span class="sr">No</span></td><td><span class="no" aria-hidden="true">–</span><span class="sr">No</span></td></tr>
+          <tr><th scope="row">Watches GPUs, training or not</th><td class="us"><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="no" aria-hidden="true">–</span><span class="sr">No</span></td><td><span class="no" aria-hidden="true">–</span><span class="sr">No</span></td><td><span class="no" aria-hidden="true">–</span><span class="sr">No</span></td><td><span class="no" aria-hidden="true">–</span><span class="sr">No</span></td></tr>
+          <tr><th scope="row">MCP for coding agents</th><td class="us"><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="no" aria-hidden="true">–</span><span class="sr">No</span></td></tr>
+          <tr><th scope="row">Sweeps, reports, registry</th><td class="us"><span class="no" aria-hidden="true">–</span><span class="sr">No</span></td><td><span class="y" aria-hidden="true">✓</span><span class="sr">Yes</span></td><td><span class="q">Reports, registry</span></td><td><span class="q">Registry</span></td><td><span class="no" aria-hidden="true">–</span><span class="sr">No</span></td></tr>
+          </tbody>
+        </table>
       </div>
-    </div>
+      <p class="note">From each project's docs and releases, October 2026. <a href="https://github.com/cobanov/runyard/issues">Spot a mistake?</a></p>
+    </section>
 
-    <h2>What it does</h2>
-    <div class="grid">
-      <div class="card"><h3>Logging</h3><p>Three lines of Python, or no code change at all from tools that speak Weights &amp; Biases, TensorBoard or MLflow. Integrations for transformers, TRL, Accelerate, Lightning, Keras, XGBoost, LightGBM, scikit-learn and torchtune.</p></div>
-      <div class="card"><h3>Reading</h3><p>A phone-first web UI with live charts, samples, logs and config diffs between runs. A CLI with <code>--json</code>, and an MCP server so coding agents can read runs and alerts.</p></div>
-      <div class="card"><h3>Notifications</h3><p>ntfy, Slack, Discord, Telegram, a webhook or web push to the installed app. Checks raise alerts from the data: a NaN loss, a crossed threshold, a stuck run.</p></div>
-      <div class="card"><h3>Your machines</h3><p><code>runyard agent</code> on each box shows its GPUs, every process on them whoever started it, CPU, memory and disk, training or not, with a day of history. You hear about it when a machine goes silent.</p></div>
-      <div class="card"><h3>Self-hosted</h3><p>PostgreSQL, a media directory or an S3-compatible bucket, optional users and teams. API keys, notification channels and old runs are managed on a Settings page. Reach it over Tailscale, a tunnel, or bind it to a port.</p></div>
-      <div class="card"><h3>Honest states</h3><p>A clean exit marks a run finished, an exception failed, and five minutes without a heartbeat crashed. What could not be sent is saved at exit for <code>runyard sync</code>.</p></div>
-    </div>
-
-    <h2 id="compare">How it compares</h2>
-    <p class="lead">runyard does less than W&amp;B or MLflow, on purpose: no sweeps, reports or model registry. What it adds is what you need when the GPUs are your own: your data on your server, your phone told when a run dies, and every machine in view, training or not.</p>
-    <p class="hint">Scroll the table sideways for W&amp;B, Trackio, MLflow and TensorBoard.</p>
-    <div class="compare">
-      <table aria-labelledby="compare">
-        <thead>
-          <tr><th scope="col"><span class="c">October 2026</span></th><th scope="col" class="us">runyard</th><th scope="col">Weights &amp; Biases</th><th scope="col">Trackio</th><th scope="col">MLflow</th><th scope="col">TensorBoard</th></tr>
-        </thead>
-        <tbody>
-          <tr><th scope="row">Price, license</th><td class="us">Free, <span class="nw">Apache-2.0</span></td><td>Free tier, then paid plans; the server is closed source</td><td>Free, MIT</td><td>Free, <span class="nw">Apache-2.0</span></td><td>Free, <span class="nw">Apache-2.0</span></td></tr>
-          <tr><th scope="row">Your data lives</th><td class="us">On your server: PostgreSQL, and a directory or an S3/R2 bucket</td><td>In W&amp;B's cloud, or on a W&amp;B Server you run under a license</td><td>On your disk (SQLite), in a Hugging Face Space, or on your own Trackio server</td><td>On your tracking server, or a managed one (Databricks and others)</td><td>In event files on your disk</td></tr>
-          <tr><th scope="row">To host it</th><td class="us">One Go binary and PostgreSQL</td><td>W&amp;B Server, which needs a license</td><td>A Python process</td><td>A Python server</td><td>A Python process, usually on the training machine</td></tr>
-          <tr><th scope="row">On your phone</th><td class="us">A phone-first web UI you can install, with push notifications; an iOS app in TestFlight</td><td>An iOS app with push, for cloud accounts (not on-premises)</td><td>The web dashboard</td><td>The web UI</td><td class="no">No</td></tr>
-          <tr><th scope="row">Notifications</th><td class="us">ntfy, Slack, Discord, Telegram, webhooks, web push: finished, failed, crashed, stuck, or your own alert</td><td>Email, Slack, webhooks, app push</td><td>Your alerts, to Slack, Discord or a webhook</td><td class="no">Not built in</td><td class="no">No</td></tr>
-          <tr><th scope="row">A run that dies silently</th><td class="us">Crashed after five minutes without a heartbeat, and you are told</td><td>Crashed once its heartbeats stop</td><td class="no">Not detected</td><td class="no">Not detected</td><td class="no">Not detected</td></tr>
-          <tr><th scope="row">Your machines</th><td class="us"><code>runyard agent</code>: GPUs and every process on them, whoever started it, with CPU, memory and disk, training or not; told when a machine goes silent</td><td>System metrics during a run</td><td>System metrics during a run</td><td>System metrics during a run, when turned on</td><td class="no">No</td></tr>
-          <tr><th scope="row">Coding agents</th><td class="us">Built-in MCP server; a CLI with <code>--json</code></td><td>Official MCP server</td><td>MCP server and CLI</td><td>MCP server (MLflow 3.5 and later)</td><td class="no">No</td></tr>
-          <tr><th scope="row">Code written for another tracker</th><td class="us">W&amp;B, TensorBoard and MLflow clients log to it unchanged</td><td>Syncs TensorBoard logs</td><td><code>import trackio as wandb</code></td><td class="no">Its own API</td><td class="no">Its own event files</td></tr>
-          <tr><th scope="row">Sweeps, reports, registry</th><td class="us">None; checkpoints and artifacts are recorded per run</td><td>Sweeps, reports, artifacts and a model registry</td><td>Reports, versioned artifacts and a registry</td><td>A model registry, evaluation and GenAI tracing</td><td class="no">No</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p class="note">Checked against each project's documentation and releases in October 2026. Something out of date? <a href="https://github.com/cobanov/runyard/issues">Open an issue</a>.</p>
-
-    <footer>
-      <span>runyard, by <a href="https://cobanov.dev">Mert Cobanov</a></span>
-      <a href="https://cobanov.github.io/runyard/">Documentation</a>
-      <a href="https://github.com/cobanov/runyard">GitHub</a>
-      <a href="/llms.txt">llms.txt</a>
-<span>v0.4 on PyPI; APIs may still change.</span>
-    </footer>
+    <section class="cta">
+      <h2>See it before you install it</h2>
+      <p class="sub">The real interface, with runs training in your browser.</p>
+      <a class="btn primary" href="/demo/">Open the demo</a>
+    </section>
   </div>
+
+  <footer>
+    <div class="wrap">
+      <div class="foot">
+        <div class="about">
+          <svg viewBox="28 28 200 200" aria-hidden="true"><g><path fill="currentColor" d="M36 220 V144 A108 108 0 0 1 144 36 H220 L184 72 H144 A72 72 0 0 0 72 144 V220 Z"/><path class="live" d="M96 220 V144 A48 48 0 0 1 144 96 H220 L184 132 H144 A12 12 0 0 0 132 144 V220 Z"/></g></svg>
+          <p>Your training runs, live, on your own machines.</p>
+          <p>Free and open source, Apache-2.0.</p>
+        </div>
+        <div>
+          <h3>Product</h3>
+          <ul>
+            <li><a href="/demo/">Live demo</a></li>
+            <li><a href="#compare">Compare</a></li>
+            <li><a href="https://github.com/cobanov/runyard/releases">Releases</a></li>
+            <li><a href="/llms.txt">llms.txt</a></li>
+          </ul>
+        </div>
+        <div>
+          <h3>Docs</h3>
+          <ul>
+            <li><a href="https://cobanov.github.io/runyard/server/">Run the server</a></li>
+            <li><a href="https://cobanov.github.io/runyard/logging/">Log runs</a></li>
+            <li><a href="https://cobanov.github.io/runyard/reading/">Read runs</a></li>
+            <li><a href="https://cobanov.github.io/runyard/notifications/">Notifications</a></li>
+          </ul>
+        </div>
+        <div>
+          <h3>Get it</h3>
+          <ul>
+            <li><a href="https://github.com/cobanov/runyard">GitHub</a></li>
+            <li><a href="https://pypi.org/project/runyard/">PyPI</a></li>
+            <li><a href="https://github.com/cobanov/runyard/pkgs/container/runyard">Docker image</a></li>
+            <li><a href="https://github.com/cobanov/runyard/issues">Issues</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="legal">
+        <span>Made by <a href="https://cobanov.dev">Mert Cobanov</a></span>
+        <span>v0.4 on PyPI; APIs may still change.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Copy takes the code as typed, without the panel's label.
+    for (const b of document.querySelectorAll('.copy'))
+      b.onclick = () =>
+        navigator.clipboard.writeText(b.closest('.code').querySelector('code').innerText.trimEnd()).then(
+          () => ((b.textContent = 'Copied'), setTimeout(() => (b.textContent = 'Copy'), 1500)),
+          () => (b.textContent = 'Select and copy'),
+        )
+  </script>
 </body>
 </html>
