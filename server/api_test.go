@@ -233,7 +233,9 @@ func TestAuthAndBadInput(t *testing.T) {
 		{"POST", "/runs/" + id + "/media", mediaForm(map[string]string{"key": "k", "step": "1", "kind": "audio"}, "a.wav", nil), 400},
 		{"POST", "/runs/" + newUUID() + "/media", mediaForm(map[string]string{"key": "k", "step": "1", "kind": "image"}, "a.png", nil), 404},
 		{"GET", "/runs/" + newUUID(), nil, 404},
-		{"GET", "/runs/not-a-uuid", nil, 400},
+		{"GET", "/runs/no-such-name", nil, 404},
+		{"GET", "/runs/" + id + "/logs?after=x", nil, 200},
+		{"GET", "/runs/not-a-uuid/logs", nil, 400},
 	}
 	for _, c := range cases {
 		k := key

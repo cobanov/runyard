@@ -403,10 +403,16 @@ _exit_code = [0]
 
 
 def _install_hooks():
+    _install_tee()
     global _hooked
     if _hooked:
         return
     _hooked = True
+    _install_exit_hooks()
+
+
+def _install_tee():
+    # Runs at every init: something may have replaced sys.stdout since the last run started.
     for name, number in (("stdout", 1), ("stderr", 2)):
         orig = getattr(sys, name)
         if orig is not None and not isinstance(orig, _Tee):
@@ -419,6 +425,8 @@ def _install_hooks():
                     if type(h) is logging.StreamHandler and h.stream is orig:
                         h.setStream(tee)
 
+
+def _install_exit_hooks():
     prev_hook = sys.excepthook
 
     def excepthook(t, v, tb):

@@ -45,7 +45,13 @@ func (s *srv) routes() *http.ServeMux {
 		q := r.URL.Query()
 		return listRuns(r.Context(), s.db, q.Get("project"), q.Get("status"), q.Get("tag"), intParam(r, "limit", 200))
 	}))
-	mux.HandleFunc("GET /api/v1/runs/{id}", s.read(func(r *http.Request) (any, error) { return getRun(r.Context(), s.db, r.PathValue("id")) }))
+	mux.HandleFunc("GET /api/v1/runs/{id}", s.read(func(r *http.Request) (any, error) {
+		id, err := s.resolveRun(r.Context(), r.PathValue("id")) // also takes an id prefix or a run name, for the CLI
+		if err != nil {
+			return nil, err
+		}
+		return getRun(r.Context(), s.db, id)
+	}))
 	mux.HandleFunc("GET /api/v1/runs/{id}/metrics", s.read(func(r *http.Request) (any, error) {
 		var keys []string
 		if k := r.URL.Query().Get("keys"); k != "" {
@@ -66,6 +72,7 @@ func (s *srv) routes() *http.ServeMux {
 		return listAlerts(r.Context(), s.db, q.Get("run"), q.Get("project"), intParam(r, "limit", 100))
 	}))
 	mux.HandleFunc("GET /api/v1/events", s.hub.serve)
+	mux.Handle("/mcp", s.mcpHandler())
 
 	files := http.FileServer(http.Dir(s.media))
 	mux.Handle("GET /media/", http.StripPrefix("/media", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

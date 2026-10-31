@@ -134,3 +134,23 @@ def test_exit_status(server, tmp_path):
     assert {n: r["status"] for n, r in runs.items()} == want
     lines = [line["line"] for line in get(server + f"/api/v1/runs/{runs['raise']['id']}/logs")]
     assert "before end" in lines and any("RuntimeError: boom" in line for line in lines)
+
+
+def test_cli(server, tmp_path, capsys):
+    run = ry.init(project="cli", name="pixel32", config={"size": 32}, system=False)
+    run.log({"loss": 0.5}, step=7)
+    print("from the script")
+    run.image("samples", np.zeros((4, 4, 3), np.uint8), step=7)
+    run.finish()
+    capsys.readouterr()
+
+    assert cli(["runs", "ls", "--project", "cli"]) == 0
+    assert "finished  cli/pixel32" in capsys.readouterr().out
+    assert cli(["runs", "show", "pixel32", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["metrics"]["loss"]["last"] == 0.5
+    assert cli(["logs", run.id[:8]]) == 0
+    assert "from the script" in capsys.readouterr().out
+    assert cli(["samples", "pixel32", "--out", str(tmp_path / "s"), "--json"]) == 0
+    files = [m["file"] for m in json.loads(capsys.readouterr().out)]
+    assert len(files) == 1 and Path(files[0]).read_bytes()[:4] == b"\x89PNG"
+    assert cli(["runs", "show", "no-such-run"]) == 1
