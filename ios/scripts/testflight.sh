@@ -38,6 +38,7 @@ xcodebuild archive -quiet \
   -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" \
   CURRENT_PROJECT_VERSION="$NUMBER" DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$ASC_SIGNING_CERT" PROVISIONING_PROFILE_SPECIFIER="runyard App Store" \
+  ${SIGNING_KEYCHAIN:+OTHER_CODE_SIGN_FLAGS="--keychain $SIGNING_KEYCHAIN"} \
   COMPILER_INDEX_STORE_ENABLE=NO
 
 cat > "$BUILD/ExportOptions.plist" <<PLIST
