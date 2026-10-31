@@ -88,7 +88,7 @@ func (s *srv) message(ctx context.Context, run Run, event string, a *Alert) mess
 		m.Body = "Failed after " + took + "." + s.lastLines(ctx, run.ID)
 	case "crashed":
 		m.Title, m.tags, m.priority = name+" went silent", "warning", "high"
-		m.Body = fmt.Sprintf("No heartbeat for %s after %s of running: the process likely died (killed, out of memory, machine down).", fmtDuration(crashAfter), took) + s.lastLines(ctx, run.ID)
+		m.Body = fmt.Sprintf("No heartbeat for %s after %s of running: the process likely died (killed, out of memory, machine down).", fmtDuration(time.Since(run.LastHeartbeatAt)), took) + s.lastLines(ctx, run.ID)
 	case "alert":
 		m.Title, m.Body = a.Title, name
 		if a.Body != "" {
@@ -233,7 +233,7 @@ func (s *srv) markCrashed(ctx context.Context, after time.Duration) []string {
 	// It ended at its last sign of life: the last heartbeat, or a later output line (heartbeats are 30 s apart).
 	rows, _ := s.db.Query(ctx, `UPDATE runs SET status = 'crashed', ended_at = greatest(last_heartbeat_at,
 			(SELECT ts FROM logs WHERE run_id = runs.id ORDER BY seq DESC LIMIT 1))
-		WHERE status = 'running' AND last_heartbeat_at < now() - make_interval(secs => $1) RETURNING id::text`, after.Seconds())
+		WHERE status = 'running' AND last_heartbeat_at < now() - coalesce(crash_after, make_interval(secs => $1)) RETURNING id::text`, after.Seconds())
 	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
 		log.Print("crash check: ", err)

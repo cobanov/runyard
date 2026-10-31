@@ -76,6 +76,7 @@ func (s *srv) routes() *http.ServeMux {
 	}))
 	mux.HandleFunc("GET /api/v1/events", s.hub.serve)
 	mux.Handle("/mcp", s.mcpHandler())
+	s.mlflowRoutes(mux)
 
 	mux.HandleFunc("GET /media/{key...}", func(w http.ResponseWriter, r *http.Request) {
 		key := r.PathValue("key")
@@ -217,16 +218,24 @@ func (s *srv) updateRun(r *http.Request) (any, error) {
 	if err := decode(r, &p); err != nil {
 		return nil, err
 	}
-	id := r.PathValue("id")
-	before, after, err := patchRun(r.Context(), s.db, id, p)
+	after, err := s.patch(r.Context(), r.PathValue("id"), p)
 	if err != nil {
 		return nil, err
+	}
+	return map[string]string{"status": after}, nil
+}
+
+// patch applies p, tells the live views, and notifies when the run just finished or failed.
+func (s *srv) patch(ctx context.Context, id string, p runPatch) (string, error) {
+	before, after, err := patchRun(ctx, s.db, id, p)
+	if err != nil {
+		return "", err
 	}
 	s.hub.publish(event{Type: "run", Run: id})
 	if before != after && (after == "finished" || after == "failed") {
 		go s.notify(id, after, nil)
 	}
-	return map[string]string{"status": after}, nil
+	return after, nil
 }
 
 type metricRow struct {
@@ -240,11 +249,18 @@ func (s *srv) postMetrics(r *http.Request) (any, error) {
 	if err := decode(r, &rows); err != nil {
 		return nil, err
 	}
-	id := r.PathValue("id")
-	ctx := r.Context()
+	n, err := s.writeMetrics(r.Context(), r.PathValue("id"), rows)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]int{"written": n}, nil
+}
+
+// writeMetrics stores rows (a retry overwrites, never duplicates), runs the checks, and returns how many values it wrote.
+func (s *srv) writeMetrics(ctx context.Context, id string, rows []metricRow) (int, error) {
 	var project int64
 	if err := s.db.QueryRow(ctx, `SELECT project_id FROM runs WHERE id = $1::uuid`, id).Scan(&project); err != nil {
-		return nil, err
+		return 0, err
 	}
 	var names []string
 	seen := map[string]bool{}
@@ -260,7 +276,7 @@ func (s *srv) postMetrics(r *http.Request) (any, error) {
 	}
 	ids, err := s.keyIDs(ctx, project, names)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	// Last write wins inside a batch: one INSERT cannot touch the same (key, step) twice.
 	type pk struct{ key, step int64 }
@@ -289,14 +305,14 @@ func (s *srv) postMetrics(r *http.Request) (any, error) {
 		ON CONFLICT (run_id, key_id, step) DO UPDATE SET value = excluded.value, ts = excluded.ts`,
 		id, keyCol, stepCol, tsCol, valCol)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	if progress {
 		s.progressed(ctx, id)
 	}
 	s.checkMetrics(ctx, id, project, rows)
 	s.hub.publish(event{Type: "metrics", Run: id})
-	return map[string]int{"written": len(keyCol)}, nil
+	return len(keyCol), nil
 }
 
 // keyIDs returns the metric_keys id of every name, creating missing keys.
