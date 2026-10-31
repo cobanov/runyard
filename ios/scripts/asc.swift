@@ -1,4 +1,4 @@
-// A small App Store Connect API client for shipping runyard to TestFlight.
+// A small App Store Connect API client for shipping runyard to TestFlight and the App Store.
 // It signs in with an API key (.p8), so no Apple ID or 2FA is needed.
 //
 //   swift scripts/asc.swift probe           what exists: app record, bundle id, distribution certificates
@@ -8,9 +8,14 @@
 //   swift scripts/asc.swift tester <email>  add a team member to the internal group that gets every build
 //   swift scripts/asc.swift public <build>  open TestFlight to anyone: test information, the external group
 //                                           "Public" with a public link, that build in it, sent to beta review
+//   swift scripts/asc.swift listing <json> <shots>  the App Store page: texts, category, age rating, review notes
+//                                           (ios/AppStore/listing.json) and the iPhone screenshots (*.png)
+//   swift scripts/asc.swift free-everywhere free, in every territory (and new ones as they come)
+//   swift scripts/asc.swift version <v> <n> the version being prepared becomes <v>, with build <n> (not submitted)
+//   swift scripts/asc.swift submit          sends the version being prepared to App Review
 //
-// `public` also needs CONTACT_FIRST, CONTACT_LAST, CONTACT_EMAIL and CONTACT_PHONE for Apple's reviewer;
-// they stay out of this public repository.
+// `public` and `listing` also need CONTACT_FIRST, CONTACT_LAST, CONTACT_EMAIL and CONTACT_PHONE for Apple's reviewer;
+// they stay out of this public repository. The App Privacy answers can only be given on the website.
 // Environment: ASC_KEY_ID, ASC_ISSUER_ID, APPLE_TEAM_ID (the key is read from
 // ~/.appstoreconnect/private_keys/AuthKey_<ASC_KEY_ID>.p8). Adapted from PocketVibe's.
 import CryptoKit
@@ -222,10 +227,16 @@ func upsert(_ listPath: String, type: String, attributes: [String: Any], create:
     } catch { die("\(type): \(error)") }
 }
 
-func publicBeta(_ number: String) {
-    guard let id = app()?["id"] as? String else { die("no app record") }
+/// Apple's reviewer's contact, from CONTACT_FIRST, CONTACT_LAST, CONTACT_EMAIL and CONTACT_PHONE.
+func reviewContact() -> [String] {
     let contact = ["CONTACT_FIRST", "CONTACT_LAST", "CONTACT_EMAIL", "CONTACT_PHONE"].map { env[$0] ?? "" }
     if contact.contains(where: \.isEmpty) { die("set CONTACT_FIRST, CONTACT_LAST, CONTACT_EMAIL and CONTACT_PHONE") }
+    return contact
+}
+
+func publicBeta(_ number: String) {
+    guard let id = app()?["id"] as? String else { die("no app record") }
+    let contact = reviewContact()
     guard let build = list("/v1/builds?filter[app]=\(id)&filter[version]=\(number)").first, let bid = build["id"] as? String
     else { die("no build \(number)") }
     guard attributes(build)["processingState"] as? String == "VALID" else { die("build \(number) is not processed yet") }
@@ -272,6 +283,216 @@ func publicBeta(_ number: String) {
     }
 }
 
+// ---------- The App Store (from PocketVibe's) ----------
+
+func one(_ path: String) -> [String: Any] {
+    do { return try call("GET", path)["data"] as? [String: Any] ?? [:] } catch { die("GET \(path): \(error)") }
+}
+
+func patch(_ type: String, _ id: String, attributes: [String: Any] = [:], relationships: [String: Any] = [:]) {
+    var data: [String: Any] = ["type": type, "id": id]
+    if !attributes.isEmpty { data["attributes"] = attributes }
+    if !relationships.isEmpty { data["relationships"] = relationships }
+    do { try call("PATCH", "/v1/\(type)/\(id)", ["data": data]) } catch { die("updating \(type) failed: \(error)") }
+}
+
+func put(_ url: String, _ data: Data, headers: [[String: Any]]) throws {
+    var request = URLRequest(url: URL(string: url)!)
+    request.httpMethod = "PUT"
+    for header in headers {
+        if let name = header["name"] as? String, let value = header["value"] as? String { request.setValue(value, forHTTPHeaderField: name) }
+    }
+    let done = DispatchSemaphore(value: 0)
+    var result: (URLResponse?, Error?)
+    URLSession.shared.uploadTask(with: request, from: data) { _, response, error in result = (response, error); done.signal() }.resume()
+    done.wait()
+    if let error = result.1 { throw error }
+    let status = (result.0 as? HTTPURLResponse)?.statusCode ?? 0
+    if !(200..<300).contains(status) { throw APIError(status: status, body: "upload") }
+}
+
+/// The App Store page of the version being prepared, from listing.json, and
+/// the iPhone screenshots in shots/ (1320x2868, in name order).
+func listing(_ file: String, _ shots: String) {
+    guard let raw = FileManager.default.contents(atPath: file),
+          let page = try? JSONSerialization.jsonObject(with: raw) as? [String: Any] else { die("cannot read \(file)") }
+    let locale = page["locale"] as? String ?? "en-US"
+    guard let appID = app()?["id"] as? String else { die("no app record") }
+
+    // The app's information: subtitle, privacy policy, categories, age rating.
+    let infos = list("/v1/apps/\(appID)/appInfos")
+    guard let info = infos.first(where: { (attributes($0)["state"] as? String ?? attributes($0)["appStoreState"] as? String) != "READY_FOR_DISTRIBUTION" }) ?? infos.first,
+          let infoID = info["id"] as? String else { die("no app info") }
+    if let loc = list("/v1/appInfos/\(infoID)/appInfoLocalizations").first(where: { attributes($0)["locale"] as? String == locale }), let id = loc["id"] as? String {
+        patch("appInfoLocalizations", id, attributes: ["subtitle": page["subtitle"] ?? "", "privacyPolicyUrl": page["privacyPolicyUrl"] ?? ""])
+        print("subtitle and privacy policy set")
+    }
+    if let c = page["categories"] as? [String: String] {
+        let category = { (id: String?) -> Any in id.map { ["data": ["type": "appCategories", "id": $0]] } ?? ["data": NSNull()] }
+        patch("appInfos", infoID, relationships: [
+            "primaryCategory": category(c["primary"]), "primarySubcategoryOne": category(c["one"]), "primarySubcategoryTwo": category(c["two"]),
+        ])
+        print("categories set")
+    }
+    if let rights = page["contentRights"] as? String {
+        patch("apps", appID, attributes: ["contentRightsDeclaration": rights])
+        print("content rights set")
+    }
+    if let rating = page["ageRating"] as? [String: Any] {
+        let declaration = one("/v1/appInfos/\(infoID)/ageRatingDeclaration")
+        if let id = declaration["id"] as? String {
+            patch("ageRatingDeclarations", id, attributes: rating)
+            print("age rating answers set")
+        }
+    }
+
+    // The version being prepared: copyright, texts, review notes, screenshots.
+    guard let version = list("/v1/apps/\(appID)/appStoreVersions?filter[platform]=IOS").first(where: {
+        ["PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"].contains(attributes($0)["appStoreState"] as? String ?? attributes($0)["appVersionState"] as? String ?? "")
+    }), let versionID = version["id"] as? String else { die("no version being prepared") }
+    if let copyright = page["copyright"] { patch("appStoreVersions", versionID, attributes: ["copyright": copyright]) }
+    guard let vloc = list("/v1/appStoreVersions/\(versionID)/appStoreVersionLocalizations").first(where: { attributes($0)["locale"] as? String == locale }),
+          let vlocID = vloc["id"] as? String else { die("no \(locale) texts for the version") }
+    var texts: [String: Any] = [:]
+    for key in ["description", "keywords", "promotionalText", "supportUrl", "marketingUrl"] { if let value = page[key] { texts[key] = value } }
+    patch("appStoreVersionLocalizations", vlocID, attributes: texts)
+    print("description, keywords and links set")
+
+    // The reviewer's contact stays out of this public repository, as for `public`.
+    let contact = reviewContact()
+    upsert("/v1/appStoreVersions/\(versionID)/appStoreReviewDetail", type: "appStoreReviewDetails", attributes: [
+        "contactFirstName": contact[0], "contactLastName": contact[1], "contactEmail": contact[2], "contactPhone": contact[3],
+        "demoAccountRequired": false, "notes": reviewNotes,
+    ], create: ["relationships": ["appStoreVersion": ["data": ["type": "appStoreVersions", "id": versionID]]]])
+    print("review contact and notes set")
+
+    let files = ((try? FileManager.default.contentsOfDirectory(atPath: shots)) ?? []).filter { $0.hasSuffix(".png") }.sorted()
+    guard !files.isEmpty else { return print("no screenshots in \(shots)") }
+    let displayType = "APP_IPHONE_67" // 6.9-inch (and 6.7-inch) iPhones
+    var set = list("/v1/appStoreVersionLocalizations/\(vlocID)/appScreenshotSets").first { attributes($0)["screenshotDisplayType"] as? String == displayType }
+    if set == nil {
+        do {
+            set = try call("POST", "/v1/appScreenshotSets", ["data": [
+                "type": "appScreenshotSets", "attributes": ["screenshotDisplayType": displayType],
+                "relationships": ["appStoreVersionLocalization": ["data": ["type": "appStoreVersionLocalizations", "id": vlocID]]],
+            ]])["data"] as? [String: Any]
+        } catch { die("screenshot set failed: \(error)") }
+    }
+    guard let setID = set?["id"] as? String else { die("no screenshot set") }
+    for old in list("/v1/appScreenshotSets/\(setID)/appScreenshots") {
+        if let id = old["id"] as? String { _ = try? call("DELETE", "/v1/appScreenshots/\(id)") }
+    }
+    for name in files {
+        let path = "\(shots)/\(name)"
+        guard let data = FileManager.default.contents(atPath: path) else { continue }
+        do {
+            let created = try call("POST", "/v1/appScreenshots", ["data": [
+                "type": "appScreenshots", "attributes": ["fileName": name, "fileSize": data.count],
+                "relationships": ["appScreenshotSet": ["data": ["type": "appScreenshotSets", "id": setID]]],
+            ]])["data"] as? [String: Any] ?? [:]
+            guard let id = created["id"] as? String else { die("no screenshot id for \(name)") }
+            for op in attributes(created)["uploadOperations"] as? [[String: Any]] ?? [] {
+                let offset = op["offset"] as? Int ?? 0
+                let length = op["length"] as? Int ?? data.count
+                try put(op["url"] as? String ?? "", data.subdata(in: offset..<(offset + length)), headers: op["requestHeaders"] as? [[String: Any]] ?? [])
+            }
+            let md5 = Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            patch("appScreenshots", id, attributes: ["uploaded": true, "sourceFileChecksum": md5])
+            print("screenshot \(name) uploaded")
+        } catch { die("screenshot \(name) failed: \(error)") }
+    }
+}
+
+func freeEverywhere() {
+    guard let appID = app()?["id"] as? String else { die("no app record") }
+    // The price: the USA's free price point, the base for every territory.
+    let points = list("/v1/apps/\(appID)/appPricePoints?filter[territory]=USA&limit=200")
+    guard let free = points.first(where: { Double(attributes($0)["customerPrice"] as? String ?? "") == 0 }),
+          let pointID = free["id"] as? String else { die("no free price point") }
+    do {
+        try call("POST", "/v1/appPriceSchedules", [
+            "data": [
+                "type": "appPriceSchedules",
+                "relationships": [
+                    "app": ["data": ["type": "apps", "id": appID]],
+                    "baseTerritory": ["data": ["type": "territories", "id": "USA"]],
+                    "manualPrices": ["data": [["type": "appPrices", "id": "${free}"]]],
+                ],
+            ],
+            "included": [[
+                "type": "appPrices", "id": "${free}", "attributes": ["startDate": NSNull()],
+                "relationships": ["appPricePoint": ["data": ["type": "appPricePoints", "id": pointID]]],
+            ]],
+        ])
+        print("price: free")
+    } catch { die("setting the price failed: \(error)") }
+    // Every territory there is, and new ones too.
+    let territories = list("/v1/territories?limit=200").compactMap { $0["id"] as? String }
+    do {
+        try call("POST", "/v2/appAvailabilities", [
+            "data": [
+                "type": "appAvailabilities",
+                "attributes": ["availableInNewTerritories": true],
+                "relationships": [
+                    "app": ["data": ["type": "apps", "id": appID]],
+                    "territoryAvailabilities": ["data": territories.map { ["type": "territoryAvailabilities", "id": "${\($0)}"] }],
+                ],
+            ],
+            "included": territories.map {
+                ["type": "territoryAvailabilities", "id": "${\($0)}", "attributes": ["available": true],
+                 "relationships": ["territory": ["data": ["type": "territories", "id": $0]]]]
+            },
+        ])
+        print("available in \(territories.count) territories")
+    } catch { die("setting availability failed: \(error)") }
+}
+
+func prepareVersion(_ versionString: String, _ buildNumber: String) {
+    guard let appID = app()?["id"] as? String else { die("no app record") }
+    guard let version = list("/v1/apps/\(appID)/appStoreVersions?filter[platform]=IOS").first(where: {
+        ["PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"].contains(attributes($0)["appStoreState"] as? String ?? "")
+    }), let versionID = version["id"] as? String else { die("no version being prepared") }
+    guard let build = list("/v1/builds?filter[app]=\(appID)&filter[version]=\(buildNumber)").first, let buildID = build["id"] as? String else {
+        die("no build \(buildNumber)")
+    }
+    patch("appStoreVersions", versionID, attributes: ["versionString": versionString],
+          relationships: ["build": ["data": ["type": "builds", "id": buildID]]])
+    print("version \(versionString) with build \(buildNumber), ready to submit")
+}
+
+/// Sends the version being prepared to App Review, in the open submission if
+/// there is one. Apple names anything still missing (App Privacy answers, say).
+func submit() {
+    guard let appID = app()?["id"] as? String else { die("no app record") }
+    guard let version = list("/v1/apps/\(appID)/appStoreVersions?filter[platform]=IOS").first(where: {
+        ["PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"].contains(attributes($0)["appStoreState"] as? String ?? "")
+    }), let versionID = version["id"] as? String else { die("no version being prepared") }
+    do {
+        var submission = list("/v1/reviewSubmissions?filter[app]=\(appID)&filter[platform]=IOS&filter[state]=READY_FOR_REVIEW").first
+        if submission == nil {
+            submission = try call("POST", "/v1/reviewSubmissions", ["data": [
+                "type": "reviewSubmissions", "attributes": ["platform": "IOS"],
+                "relationships": ["app": ["data": ["type": "apps", "id": appID]]],
+            ]])["data"] as? [String: Any]
+        }
+        guard let submissionID = submission?["id"] as? String else { die("no review submission") }
+        let items = list("/v1/reviewSubmissions/\(submissionID)/items?include=appStoreVersion")
+        if !items.contains(where: { (($0["relationships"] as? [String: Any])?["appStoreVersion"] as? [String: Any])?["data"] as? [String: Any] != nil }) {
+            try call("POST", "/v1/reviewSubmissionItems", ["data": [
+                "type": "reviewSubmissionItems",
+                "relationships": [
+                    "reviewSubmission": ["data": ["type": "reviewSubmissions", "id": submissionID]],
+                    "appStoreVersion": ["data": ["type": "appStoreVersions", "id": versionID]],
+                ],
+            ]])
+        }
+        patch("reviewSubmissions", submissionID, attributes: ["submitted": true])
+        print("version \(attributes(version)["versionString"] ?? "?") sent to App Review")
+    } catch let error as APIError {
+        die("not submitted (HTTP \(error.status)): \(error.body)")
+    } catch { die("not submitted: \(error)") }
+}
+
 let args = CommandLine.arguments.dropFirst()
 switch args.first {
 case "probe": probe()
@@ -286,5 +507,13 @@ case "tester":
 case "public":
     guard args.count == 2 else { die("usage: public <build number>") }
     publicBeta(args[args.startIndex + 1])
-default: die("usage: swift scripts/asc.swift probe|ensure-app|profile <sha1>|builds|tester <email>|public <build>")
+case "listing":
+    guard args.count == 3 else { die("usage: listing <listing.json> <screenshots dir>") }
+    listing(args[args.startIndex + 1], args[args.startIndex + 2])
+case "free-everywhere": freeEverywhere()
+case "version":
+    guard args.count == 3 else { die("usage: version <version> <build number>") }
+    prepareVersion(args[args.startIndex + 1], args[args.startIndex + 2])
+case "submit": submit()
+default: die("usage: swift scripts/asc.swift probe|ensure-app|profile <sha1>|builds|tester <email>|public <build>|listing <json> <shots>|free-everywhere|version <v> <n>|submit")
 }
