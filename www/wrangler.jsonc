@@ -1,0 +1,7 @@
+{
+  // The project website: static files only, served from Cloudflare Workers at runyard.cobanov.dev.
+  "name": "runyard-www",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./", "not_found_handling": "404-page" },
+  "routes": [{ "pattern": "runyard.cobanov.dev", "custom_domain": true }]
+}

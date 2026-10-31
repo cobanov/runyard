@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>runyard</title>
+  <meta name="description" content="A lightweight, self-hosted training tracker: one Go binary plus PostgreSQL. Runs, metrics, samples, logs, phone notifications, MCP for agents.">
+  <link rel="icon" href="img/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <meta property="og:title" content="runyard">
+  <meta property="og:description" content="A lightweight, self-hosted training tracker: one Go binary plus PostgreSQL.">
+  <meta property="og:image" content="https://runyard.cobanov.dev/img/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preload" href="fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="theme-color" content="#f9fafb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
+  <style>
+    /* Tokens from DESIGN.md in the repo: same ground, ink and hairline as the app, and the app's typeface. */
+    @font-face { font-family: "Atkinson Hyperlegible Next"; src: url(fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2) format("woff2"); font-weight: 200 800; font-display: swap; }
+    @font-face { font-family: "Atkinson Hyperlegible Mono"; src: url(fonts/atkinson-hyperlegible-mono-latin-wght-normal.woff2) format("woff2"); font-weight: 200 800; font-display: swap; }
+    :root {
+      color-scheme: light dark;
+      --paper: light-dark(#f9fafb, #09090b);
+      --panel: light-dark(#ffffff, #121214);
+      --ink: light-dark(#18181b, #fafafa);
+      --muted: light-dark(#6b7280, #a1a1aa);
+      --rule: light-dark(#e5e7eb, #27272a);
+      --soft: light-dark(#f3f4f6, #1c1c1f);
+      --running: light-dark(#0f9488, #2dd4bf);
+      --radius: 8px;
+      --radius-sm: 6px;
+      --sans: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --mono: "Atkinson Hyperlegible Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.5 var(--sans); font-variant-numeric: tabular-nums; }
+    a { color: inherit; }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+    header { display: flex; align-items: center; gap: 16px; padding: 20px 0; }
+    /* The logo: ink lanes and wordmark follow the theme; the inside lane is the running colour, as in the app. */
+    .brand { display: block; color: var(--ink); }
+    .brand svg { display: block; height: 28px; width: auto; }
+    .live { fill: var(--running); }
+    nav { margin-left: auto; display: flex; gap: 20px; font-size: 0.9375rem; }
+    nav a { text-decoration: none; color: var(--muted); }
+    nav a:hover { color: var(--ink); }
+    .hero { padding: 56px 0 32px; display: grid; grid-template-columns: minmax(0, 640px) auto; justify-content: space-between; align-items: center; gap: 48px; }
+    .hero-mark { width: 196px; color: var(--ink); }
+    @media (max-width: 760px) { .hero { grid-template-columns: minmax(0, 1fr); } .hero-mark { display: none; } }
+    h1 { font-size: clamp(2rem, 5vw, 3rem); line-height: 1.05; letter-spacing: -0.03em; margin: 0 0 16px; font-weight: 800; }
+    .lede { font-size: 1.125rem; color: var(--muted); margin: 0 0 24px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    .btn { display: inline-block; padding: 9px 16px; border-radius: var(--radius-sm); border: 1px solid var(--rule); background: var(--panel); text-decoration: none; font-size: 0.9375rem; font-weight: 500; }
+    .btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+    .shot { margin: 32px 0 64px; border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; background: var(--panel); }
+    .shot img { display: block; width: 100%; height: auto; }
+    .shot .dark, :root[data-theme="dark"] .shot .light { display: none; }
+    @media (prefers-color-scheme: dark) { .shot .light { display: none; } .shot .dark { display: block; } }
+    h2 { font-size: 1.5rem; letter-spacing: -0.02em; margin: 0 0 20px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 14px; margin-bottom: 64px; }
+    .card { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius); padding: 18px 20px; }
+    .card h3 { margin: 0 0 6px; font-size: 1rem; }
+    .card p { margin: 0; color: var(--muted); font-size: 0.9375rem; }
+    pre { margin: 0 0 14px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius); font: 0.875rem/1.55 var(--mono); overflow-x: auto; }
+    .c { color: var(--muted); }
+    .k { color: var(--running); }
+    .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 24px; margin-bottom: 64px; }
+    .two p { color: var(--muted); margin: 0 0 12px; }
+    ul.plain { list-style: none; padding: 0; margin: 0; color: var(--muted); display: grid; gap: 6px; font-size: 0.9375rem; }
+    ul.plain b { color: var(--ink); font-weight: 600; }
+    footer { border-top: 1px solid var(--rule); padding: 24px 0 48px; color: var(--muted); font-size: 0.875rem; display: flex; flex-wrap: wrap; gap: 8px 24px; }
+    footer a { text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <a class="brand" href="/"><svg viewBox="28 28 963.125 200" role="img" aria-label="runyard"><g><path fill="currentColor" d="M36 220 V144 A108 108 0 0 1 144 36 H220 L184 72 H144 A72 72 0 0 0 72 144 V220 Z"/><path class="live" d="M96 220 V144 A48 48 0 0 1 144 96 H220 L184 132 H144 A12 12 0 0 0 132 144 V220 Z"/></g><path fill="currentColor" transform="translate(267.53 185.74) scale(0.21149)" d="M58.93 0.0V-496.0H160.50L187.50 -404.68Q204.12 -441.56 227.56 -464.75Q251.00 -487.93 282.43 -498.71Q313.87 -509.50 352.81 -508.12V-376.43Q296.50 -381.24 260.43 -367.71Q224.37 -354.18 207.03 -322.09Q189.68 -290.00 189.68 -238.43V0.0ZM596.87 12.0Q533.37 12.0 496.65 -12.5Q459.93 -37.0 444.43 -82.90Q428.93 -128.81 428.93 -192.37V-496.0H559.68V-226.31Q559.68 -190.37 564.28 -159.43Q568.87 -128.50 586.90 -110.37Q604.93 -92.25 644.43 -92.25Q695.87 -92.25 720.09 -125.84Q744.31 -159.43 744.31 -231.56V-496.0H875.75V0.0H765.31L744.31 -70.62Q722.62 -33.93 689.03 -10.96Q655.43 12.0 596.87 12.0ZM983.93 0.0V-496.0H1094.75L1114.68 -427.18Q1126.62 -447.75 1148.12 -465.90Q1169.62 -484.06 1200.12 -496.09Q1230.62 -508.12 1269.87 -508.12Q1332.62 -508.12 1368.97 -484.12Q1405.31 -460.12 1420.62 -414.87Q1435.93 -369.62 1435.93 -305.74V0.0H1305.18V-271.81Q1305.18 -307.74 1300.24 -337.84Q1295.31 -367.93 1277.31 -386.21Q1259.31 -404.49 1218.87 -404.49Q1166.81 -404.49 1140.75 -367.81Q1114.68 -331.12 1114.68 -259.37V0.0ZM1527.81 162.0V63.24H1564.68Q1594.68 63.24 1611.50 59.96Q1628.31 56.68 1638.62 45.65Q1648.93 34.62 1656.56 12.18L1661.56 -1.75L1475.0 -496H1615.81L1722.18 -164.44L1824.37 -496.0H1965.19L1780.19 6.87Q1763.75 51.68 1747.34 81.78Q1730.93 111.87 1709.68 129.59Q1688.43 147.31 1657.84 154.65Q1627.25 162.0 1582.50 162.0ZM2146.12 12.0Q2099.12 12.0 2059.96 -5.53Q2020.81 -23.06 1997.65 -55.25Q1974.49 -87.43 1974.49 -132.43Q1974.49 -191.43 2015.84 -227.43Q2057.18 -263.43 2132.99 -283.09Q2208.81 -302.75 2310.68 -310.68V-324.50Q2310.68 -369.93 2286.28 -393.15Q2261.87 -416.37 2214.56 -416.37Q2178.87 -416.37 2153.65 -399.99Q2128.43 -383.62 2120.43 -351.74L2007.12 -390.87Q2029.87 -443.06 2085.5 -475.59Q2141.12 -508.12 2219.12 -508.12Q2325.56 -508.12 2380.47 -460.34Q2435.37 -412.56 2435.37 -303.0V-191.81Q2435.37 -157.00 2437.53 -121.09Q2439.68 -85.18 2443.84 -53.90Q2448.00 -22.62 2452.68 0.0H2331.68L2313.06 -62.49Q2287.24 -24.12 2245.06 -6.06Q2202.87 12.0 2146.12 12.0ZM2191.25 -80.43Q2225.06 -80.43 2252.18 -91.68Q2279.31 -102.93 2294.99 -129.93Q2310.68 -156.93 2310.68 -204.0V-227.87Q2216.06 -220.62 2163.78 -201.46Q2111.50 -182.31 2111.50 -140.62Q2111.50 -113.50 2133.53 -96.96Q2155.56 -80.43 2191.25 -80.43ZM2545.93 0.0V-496.0H2647.50L2674.50 -404.68Q2691.12 -441.56 2714.56 -464.75Q2738.00 -487.93 2769.43 -498.71Q2800.87 -509.50 2839.81 -508.12V-376.43Q2783.50 -381.24 2747.43 -367.71Q2711.37 -354.18 2694.03 -322.09Q2676.68 -290.00 2676.68 -238.43V0.0ZM3081.62 12.0Q3020.12 12.0 2970.78 -19.53Q2921.43 -51.06 2892.96 -109.93Q2864.49 -168.81 2864.49 -250.12Q2864.49 -331.43 2892.96 -388.93Q2921.43 -446.43 2970.78 -477.28Q3020.12 -508.12 3081.62 -508.12Q3128.24 -508.12 3170.31 -486.68Q3212.37 -465.25 3235.74 -424.87V-708.0H3366.50V-191.81Q3366.50 -158.56 3369.68 -108.34Q3372.87 -58.12 3383.50 0.0H3259.12L3239.18 -66.74Q3209.56 -26.74 3168.56 -7.37Q3127.56 12.0 3081.62 12.0ZM3122.18 -91.62Q3156.25 -91.62 3182.93 -108.47Q3209.62 -125.31 3225.40 -159.93Q3241.18 -194.56 3241.18 -248.06Q3241.18 -328.12 3206.81 -366.31Q3172.43 -404.49 3122.18 -404.49Q3071.25 -404.49 3036.87 -364.59Q3002.50 -324.68 3002.50 -250.12Q3002.50 -175.18 3036.87 -133.40Q3071.25 -91.62 3122.18 -91.62Z"/></svg></a>
+      <nav>
+        <a href="https://cobanov.github.io/runyard/">Docs</a>
+        <a href="https://github.com/cobanov/runyard">GitHub</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <div>
+      <h1>A training tracker that fits in one binary.</h1>
+      <p class="lede">runyard is a self-hosted tracker for ML and deep learning runs: status, metrics, samples, logs and checkpoints in a phone-first web UI, notifications when a run finishes, fails or goes silent, and an MCP server so agents can read everything. Far fewer features than W&amp;B or MLflow, on purpose.</p>
+      <div class="actions">
+        <a class="btn primary" href="https://cobanov.github.io/runyard/">Read the docs</a>
+        <a class="btn" href="https://github.com/cobanov/runyard">Source on GitHub</a>
+      </div>
+      </div>
+      <div class="hero-mark"><svg viewBox="28 28 200 200" aria-hidden="true"><g><path fill="currentColor" d="M36 220 V144 A108 108 0 0 1 144 36 H220 L184 72 H144 A72 72 0 0 0 72 144 V220 Z"/><path class="live" d="M96 220 V144 A48 48 0 0 1 144 96 H220 L184 132 H144 A12 12 0 0 0 132 144 V220 Z"/></g></svg></div>
+    </section>
+
+    <figure class="shot" aria-label="The Overview page: running runs with their main metric, machine load per host, recently ended runs and alerts">
+      <img class="light" src="img/overview-light.png" width="2880" height="1800" alt="runyard overview, light theme">
+      <img class="dark" src="img/overview-dark.png" width="2880" height="1800" alt="runyard overview, dark theme">
+    </figure>
+
+    <h2>Five minutes</h2>
+    <div class="two">
+      <div>
+        <p>Run the server with Docker Compose. One Go binary and PostgreSQL; media and artifacts go to a directory or an S3/R2 bucket.</p>
+<pre><span class="c"># server</span>
+git clone https://github.com/cobanov/runyard &amp;&amp; cd runyard
+docker compose up -d --build
+docker compose exec app /runyard-server key create my-laptop</pre>
+      </div>
+      <div>
+        <p>Log from Python in three lines. Calls are queued and sent from a background thread, so the library never stops training.</p>
+<pre><span class="c"># training script</span>
+<span class="k">import</span> runyard <span class="k">as</span> ry
+
+run = ry.init(project=<span class="c">"my-project"</span>, config={<span class="c">"lr"</span>: 3e-4})
+run.log({<span class="c">"loss"</span>: loss.item()}, step=step)
+run.image(<span class="c">"samples"</span>, grid, step=step)
+run.alert(<span class="c">"loss is NaN"</span>, level=<span class="c">"error"</span>)</pre>
+      </div>
+    </div>
+
+    <h2>What it does</h2>
+    <div class="grid">
+      <div class="card"><h3>Logging</h3><p>Three lines of Python, or no code change at all from tools that speak Weights &amp; Biases, TensorBoard or MLflow. Integrations for transformers, TRL, Accelerate, Lightning, Keras, XGBoost, LightGBM, scikit-learn and torchtune.</p></div>
+      <div class="card"><h3>Reading</h3><p>A phone-first web UI with live charts, samples, logs and config diffs between runs. A CLI with <code>--json</code>, and an MCP server so coding agents can read runs and alerts.</p></div>
+      <div class="card"><h3>Notifications</h3><p>ntfy, Slack, Discord, Telegram, a webhook or web push to the installed app. Checks raise alerts from the data: a NaN loss, a crossed threshold, a stuck run.</p></div>
+      <div class="card"><h3>Machine load</h3><p>GPU utilisation, memory, temperature and power per host from the runs themselves, next to CPU and RAM. One glance says what is training and how the machine is doing.</p></div>
+      <div class="card"><h3>Self-hosted</h3><p>PostgreSQL, a media directory or an S3-compatible bucket, optional users and teams. Reach it over Tailscale, a tunnel, or bind it to a port.</p></div>
+      <div class="card"><h3>Honest states</h3><p>A clean exit marks a run finished, an exception failed, and five minutes without a heartbeat crashed. What could not be sent is saved at exit for <code>runyard sync</code>.</p></div>
+    </div>
+
+    <footer>
+      <span>runyard, by <a href="https://cobanov.dev">Mert Cobanov</a></span>
+      <a href="https://cobanov.github.io/runyard/">Documentation</a>
+      <a href="https://github.com/cobanov/runyard">GitHub</a>
+      <span>Not released yet; APIs may still change.</span>
+    </footer>
+  </div>
+</body>
+</html>

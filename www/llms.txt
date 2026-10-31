@@ -1,0 +1,32 @@
+# runyard
+
+> A lightweight, self-hosted tracker for ML training runs: one Go binary plus PostgreSQL. A Python library logs
+> metrics, samples, logs and checkpoints; a web UI, an iOS app, a CLI and an MCP server read them; notifications go
+> to ntfy, Slack, Discord, Telegram, a webhook or web push when a run finishes, fails or goes silent.
+
+Key facts:
+
+- Log from Python: `pip install runyard`, set `RUNYARD_SERVER` and `RUNYARD_API_KEY`, then
+  `run = runyard.init(project=..., config=...)` and `run.log({...}, step=step)`. The library queues in a background
+  thread and never stops training.
+- No code change from tools that speak Weights & Biases (`RUNYARD_WANDB=1`), TensorBoard (`runyard watch ./logs`)
+  or MLflow (`MLFLOW_TRACKING_URI` pointed at the server).
+- Agents read through the MCP server at `<server>/mcp` (streamable HTTP, `Authorization: Bearer <key>` when the
+  server runs with `RUNYARD_AUTH`), or the `runyard` CLI with `--json`.
+- A run is finished on a clean exit, failed on an exception and crashed after five minutes without a heartbeat.
+
+## Docs
+
+- [Run the server](https://raw.githubusercontent.com/cobanov/runyard/main/docs/server.md): Docker Compose, storage, users and teams, API keys
+- [Log runs](https://raw.githubusercontent.com/cobanov/runyard/main/docs/logging.md): the Python library and every integration
+- [Read runs](https://raw.githubusercontent.com/cobanov/runyard/main/docs/reading.md): web UI, CLI, MCP tools and the REST API
+- [Notifications and checks](https://raw.githubusercontent.com/cobanov/runyard/main/docs/notifications.md): channels, rules and server-side checks
+
+## Agents
+
+- [SKILL.md](https://raw.githubusercontent.com/cobanov/runyard/main/SKILL.md): how an agent starts, watches and judges a training run with runyard
+
+## Optional
+
+- [README](https://raw.githubusercontent.com/cobanov/runyard/main/README.md): overview and quick start
+- [DESIGN.md](https://raw.githubusercontent.com/cobanov/runyard/main/DESIGN.md): the web UI's and iOS app's design tokens and rules
