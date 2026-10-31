@@ -91,7 +91,7 @@ Durum mantığı: `finish()` → `finished`; Python'da yakalanmayan hata veya s�
 |---|---|---|
 | **1. Python kütüphanesi** | Kodu sen yazıyorsan | Metrik, resim, video, metin örnekleri, terminal çıktısı (stdout/stderr tee), heartbeat, GPU/sistem, `alert()` |
 | **2. Framework adaptörleri** | Kodu değiştirebiliyorsan (tek satır) | HF `TrainerCallback` (transformers, TRL, Unsloth), Accelerate `GeneralTracker`, Lightning `Logger`, Keras `Callback`, XGBoost `TrainingCallback`, LightGBM callback, sklearn `autolog`, torchtune `MetricLogger` |
-| **3. W&B köprüsü** | Kodunu değiştiremediğin, W&B destekleyen araçlar | Ortam değişkeniyle açılır (`.pth` + import hook ile `import wandb` bize yönlenir). Alt küme: `init`, `log`, `finish`, `config(.update)`, `summary`, `run`, `Image`, `Video`, `Table`, `alert`, `define_metric` (no-op). Desteklenmeyen çağrı uyarı verip atlanır. Yalnız gerçek araçlarla test ederek büyür |
+| **3. W&B köprüsü** | Kodunu değiştiremediğin, W&B destekleyen araçlar | Ortam değişkeniyle açılır (`.pth` + import hook ile `import wandb` bize yönlenir). Alt küme: `init`, `log`, `finish`, `config(.update)`, `summary`, `run`, `Image`, `Video`, `Table`, `alert`, `define_metric` (yalnız `step_metric` kullanılır; HF'in `train/global_step`'i adım olur). Desteklenmeyen çağrı uyarı verip atlanır. Yalnız gerçek araçlarla test ederek büyür |
 | **4. MLflow uyumlu uç** | MLflow destekleyen araçlar | `/api/2.0/mlflow/...` alt kümesi; `MLFLOW_TRACKING_URI` bize gösterilir. `report_to="mlflow"`, Lightning MLflow logger, `mlflow.autolog` (sklearn, XGBoost, LightGBM, Keras) |
 | **5. TensorBoard izleyicisi** | Yalnız TensorBoard yazan araçlar | `<cli> watch ./logs`: tfevents dosyalarını okuyup gönderir (DeepSpeed, kohya, diffusers `--report_to tensorboard`) |
 

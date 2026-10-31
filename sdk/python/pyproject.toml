@@ -21,3 +21,10 @@ runyard = "runyard.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/cobanov/runyard"
+
+[tool.hatch.build.targets.wheel]
+packages = ["runyard"]
+
+# RUNYARD_WANDB=1 turns `import wandb` into runyard (runyard/wandb_hook.py)
+[tool.hatch.build.targets.wheel.force-include]
+"runyard_wandb.pth" = "runyard_wandb.pth"
