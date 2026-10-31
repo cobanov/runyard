@@ -8,11 +8,9 @@
   let alerts = $state([])
   let error = $state('')
 
-  // The list endpoint has no metrics, so each running run is fetched on its own: there are few of them.
   const loadRunning = throttle(async () => {
     try {
-      const list = await get('/runs?status=running&limit=50')
-      const full = await Promise.all(list.map((r) => get('/runs/' + r.id)))
+      const full = await get('/runs?status=running&limit=50&metrics=1')
       const sp = {}
       await Promise.all(
         full.map(async (r) => {
@@ -44,6 +42,9 @@
 
   const hosts = $derived(sysLoad(running || []))
   const pct = (v) => (typeof v === 'number' ? Math.max(0, Math.min(100, v)) : 0)
+  // Machine readings are glanced at, not compared: whole numbers, one decimal for gigabytes.
+  const n0 = (v, unit) => (typeof v === 'number' ? `${Math.round(v)}${unit}` : '–')
+  const n1 = (v, unit) => (typeof v === 'number' ? `${v.toFixed(1)}${unit}` : '–')
 </script>
 
 <div class="page-head">
@@ -97,24 +98,24 @@
           <div class="who">
             <strong>{h.host}</strong>
             <span class="muted small">
-              {#if h.cpu != null}CPU {fmt(h.cpu)}%{/if}{#if h.ram_gb != null}, RAM {fmt(h.ram_gb)} GB{/if}
+              {#if h.cpu != null}CPU {n0(h.cpu, '%')}{/if}{#if h.ram_gb != null}, RAM {n1(h.ram_gb, ' GB')}{/if}
             </span>
           </div>
           {#if h.gpus.length}
-            <table class="gpus">
+            <div class="table"><table class="gpus">
               <thead><tr><th>GPU</th><th class="bar">Util</th><th>Memory</th><th>Temp</th><th>Power</th></tr></thead>
               <tbody>
                 {#each h.gpus as g (g.i)}
                   <tr>
                     <td>{g.i}</td>
-                    <td class="bar"><span class="track"><span class="fill" style="width: {pct(g.util)}%"></span></span>{g.util != null ? `${fmt(g.util)}%` : '–'}</td>
-                    <td>{g.mem_gb != null ? `${fmt(g.mem_gb)} GB` : '–'}</td>
-                    <td>{g.temp_c != null ? `${fmt(g.temp_c)} °C` : '–'}</td>
-                    <td>{g.power_w != null ? `${fmt(g.power_w)} W` : '–'}</td>
+                    <td class="bar"><span class="track"><span class="fill" style="width: {pct(g.util)}%"></span></span>{n0(g.util, '%')}</td>
+                    <td>{n1(g.mem_gb, ' GB')}</td>
+                    <td>{n0(g.temp_c, ' °C')}</td>
+                    <td>{n0(g.power_w, ' W')}</td>
                   </tr>
                 {/each}
               </tbody>
-            </table>
+            </table></div>
           {/if}
         </div>
       {/each}
@@ -232,13 +233,10 @@
   .gpus td:first-child {
     padding-left: 0;
   }
-  .bar {
-    width: 40%;
-  }
   .track {
     display: inline-block;
     vertical-align: middle;
-    width: calc(100% - 48px);
+    width: 72px;
     height: 6px;
     margin-right: 8px;
     border-radius: 3px;
@@ -249,6 +247,15 @@
     display: block;
     height: 100%;
     background: var(--c2);
+  }
+  @media (max-width: 479px) {
+    .track {
+      display: none; /* the number alone fits a phone; the bar does not */
+    }
+    .gpus th,
+    .gpus td {
+      padding: 6px 5px;
+    }
   }
   .two {
     display: grid;
@@ -269,6 +276,10 @@
   .grow {
     flex: 1;
     min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 6px;
     overflow-wrap: anywhere;
   }
   .level-warn .name {

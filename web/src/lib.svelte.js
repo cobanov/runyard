@@ -114,3 +114,20 @@ export function sysLoad(runs) {
 
 export const palette = ['--c1', '--c2', '--c3', '--c4', '--c5', '--c6']
 export const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+
+// cssColor resolves a colour token to rgb(): the raw custom property still holds light-dark(...), which canvas cannot draw.
+const probe = document.createElement('i')
+probe.style.display = 'none'
+document.body.append(probe)
+export function cssColor(name) {
+  probe.style.color = `var(${name})`
+  return getComputedStyle(probe).color
+}
+export const withAlpha = (rgb, a) => rgb.replace(/^rgba?\((.+?)(?:\s*[,/]\s*[\d.]+)?\)$/, `rgba($1, ${a})`)
+
+// theme.dark flips with the OS setting or a data-theme attribute on <html>; charts redraw on it.
+const dark = matchMedia('(prefers-color-scheme: dark)')
+const isDark = () => (document.documentElement.dataset.theme || (dark.matches ? 'dark' : 'light')) === 'dark'
+export const theme = $state({ dark: isDark() })
+dark.addEventListener('change', () => (theme.dark = isDark()))
+new MutationObserver(() => (theme.dark = isDark())).observe(document.documentElement, { attributeFilter: ['data-theme'] })

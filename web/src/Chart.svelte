@@ -1,7 +1,7 @@
 <script>
   import uPlot from 'uplot'
   import 'uplot/dist/uPlot.min.css'
-  import { cssVar, fmt } from './lib.svelte.js'
+  import { cssVar, cssColor, withAlpha, theme, fmt } from './lib.svelte.js'
 
   // lines: [{label, color (css var name), x, y, min?, max?}]. A single line with min/max draws the bucket range as a band.
   let { title, lines, xLabel = 'step', height = 170 } = $props()
@@ -19,11 +19,11 @@
   }
 
   function build() {
-    const muted = cssVar('--muted')
-    const grid = { stroke: cssVar('--rule'), width: 1 }
+    const muted = cssColor('--muted')
+    const grid = { stroke: cssColor('--rule'), width: 1 }
     const font = `12px ${cssVar('--sans')}`
     const band = lines.length === 1 && lines[0].min
-    const color = (l) => cssVar(l.color)
+    const color = (l) => cssColor(l.color)
     const series = [{ label: xLabel }, ...lines.map((l) => ({ label: l.label, stroke: color(l), width: 1.5, points: { show: false }, spanGaps: true }))]
     if (band) series.push({ stroke: 'transparent', points: { show: false } }, { stroke: 'transparent', points: { show: false } })
     plot = new uPlot(
@@ -33,7 +33,7 @@
         series,
         legend: { show: false },
         scales: { x: { time: false } },
-        bands: band ? [{ series: [3, 2], fill: color(lines[0]) + '2e' }] : [],
+        bands: band ? [{ series: [3, 2], fill: withAlpha(color(lines[0]), 0.18) }] : [],
         axes: [
           { stroke: muted, grid, ticks: { show: false }, font, size: 28 },
           { stroke: muted, grid, ticks: { show: false }, font, size: 52, values: (u, vals) => vals.map(fmt) },
@@ -54,7 +54,7 @@
   }
 
   $effect(() => {
-    lines // rebuild when the data changes; uPlot redraws fast enough for live updates
+    lines, theme.dark // rebuild when the data or the theme changes; uPlot redraws fast enough for live updates
     build()
     const ro = new ResizeObserver(() => plot.setSize({ width: el.clientWidth, height }))
     ro.observe(el)

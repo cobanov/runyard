@@ -40,7 +40,7 @@
     ['logs', 'Logs'],
     ['config', 'Config'],
     ...(artifacts.length ? [['artifacts', 'Artifacts']] : []),
-    ...(sysKeys.length ? [['system', 'GPU & system']] : []),
+    ...(sysKeys.length ? [['system', 'System']] : []),
   ])
   const lineOf = (k) => {
     const s = series[k]
@@ -202,17 +202,10 @@
   }
   .tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 2px;
     margin: 20px 0 16px;
-    overflow-x: auto;
-    overflow-y: hidden;
     border-bottom: 1px solid var(--rule);
-  }
-  .tabs::-webkit-scrollbar {
-    display: none;
-  }
-  .tabs {
-    scrollbar-width: none;
   }
   .tabs button {
     white-space: nowrap;

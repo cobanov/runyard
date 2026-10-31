@@ -3,17 +3,10 @@
 
   let { project } = $props()
   let runs = $state(null)
-  let details = $state({}) // run id -> run with metric summaries
   let status = $state('')
   let picked = $state([])
 
-  // shortcut: the list has no metrics, so the first 60 runs are fetched one by one; add a summary to the list endpoint past that.
-  const load = throttle(async () => {
-    const list = await get(`/runs?project=${encodeURIComponent(project)}&status=${status}`)
-    runs = list
-    const full = await Promise.all(list.slice(0, 60).map((r) => get('/runs/' + r.id)))
-    details = Object.fromEntries(full.map((r) => [r.id, r]))
-  })
+  const load = throttle(() => get(`/runs?project=${encodeURIComponent(project)}&status=${status}&metrics=1`).then((r) => (runs = r)))
   $effect(() => {
     status
     load()
@@ -23,7 +16,7 @@
   // Metric columns: the three keys logged by most runs, losses first.
   const cols = $derived.by(() => {
     const n = {}
-    for (const r of Object.values(details)) for (const k of Object.keys(r.metrics || {})) if (!k.startsWith('sys/')) n[k] = (n[k] || 0) + 1
+    for (const r of runs || []) for (const k of Object.keys(r.metrics || {})) if (!k.startsWith('sys/')) n[k] = (n[k] || 0) + 1
     return Object.keys(n)
       .sort((a, b) => /loss/i.test(b) - /loss/i.test(a) || n[b] - n[a] || a.localeCompare(b))
       .slice(0, 3)
@@ -59,7 +52,7 @@
       </thead>
       <tbody>
         {#each runs as r (r.id)}
-          {@const m = details[r.id]?.metrics}
+          {@const m = r.metrics}
           <tr class="status-{r.status}">
             <td class="pick"><input type="checkbox" bind:group={picked} value={r.id} aria-label="Compare {r.name}" /></td>
             <td><span class="badge">{r.status}</span></td>
