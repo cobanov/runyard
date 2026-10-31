@@ -11,9 +11,11 @@ if the server has `RUNYARD_AUTH` on, and read your runs.
   with a slider through the steps), logs, config and summary, and artifacts.
 - **Alerts:** the server's alerts, newest first.
 
-It only reads; runs are written by the Python client. Screens refresh on their own while a run is running
-(every 3–10 seconds), and on pull. Notifications still come from the server's channels (ntfy, Slack, Telegram,
-web push).
+It reads, and deletes: swipe a project on the home screen or a run in a project's list, then confirm. Deleting
+takes the runs' metrics, logs, samples and artifacts with them, and needs an admin (the server says 403
+otherwise). Runs are written by the Python client. Screens refresh on their own while a run is running (every
+3–10 seconds), and on pull. Notifications still come from the server's channels (ntfy, Slack, Telegram, web
+push), which an admin manages on the web UI's Settings page.
 
 ## Connecting
 

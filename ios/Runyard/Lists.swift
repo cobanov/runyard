@@ -9,6 +9,8 @@ struct HomeView: View {
     @State private var projects: [Project] = []
     @State private var loaded = false
     @State private var error: String?
+    @State private var deleting: Project?
+    @State private var failure: String?
 
     var body: some View {
         List {
@@ -22,9 +24,20 @@ struct HomeView: View {
             Section("All projects") {
                 ForEach(projects) { p in
                     NavigationLink(value: Route.project(p.name)) { ProjectRow(project: p) }
+                        .swipeActions { Button("Delete", systemImage: "trash") { deleting = p }.tint(.red) }
                 }
             }
         }
+        .confirmationDialog("Delete \(deleting?.name ?? "")?", isPresented: Binding(present: $deleting), titleVisibility: .visible, presenting: deleting) { p in
+            Button("Delete project", role: .destructive) {
+                Task {
+                    do { try await store.delete("/api/v1/projects/\(q(p.name))"); await load() } catch { failure = error.localizedDescription }
+                }
+            }
+        } message: { p in
+            Text("Its \(p.runs == 1 ? "1 run" : "\(p.runs) runs"), with their metrics, logs, samples and artifacts, are deleted for good.")
+        }
+        .alert("Can't delete", isPresented: Binding(present: $failure), presenting: failure) { _ in } message: { Text($0) }
         .overlay {
             if loaded && projects.isEmpty {
                 ContentUnavailableView("No projects yet", systemImage: "chart.xyaxis.line",
@@ -180,6 +193,8 @@ struct RunsView: View {
     @State private var loaded = false
     @State private var error: String?
     @State private var search = ""
+    @State private var deleting: Run?
+    @State private var failure: String?
 
     private var shown: [Run] {
         search.isEmpty ? runs : runs.filter { r in
@@ -190,7 +205,18 @@ struct RunsView: View {
     var body: some View {
         List(shown) { run in
             NavigationLink(value: Route.run(run.id)) { RunRow(run: run) }
+                .swipeActions { Button("Delete", systemImage: "trash") { deleting = run }.tint(.red) }
         }
+        .confirmationDialog("Delete \(deleting?.name ?? "")?", isPresented: Binding(present: $deleting), titleVisibility: .visible, presenting: deleting) { run in
+            Button("Delete run", role: .destructive) {
+                Task {
+                    do { try await store.delete("/api/v1/runs/\(run.id)"); await load() } catch { failure = error.localizedDescription }
+                }
+            }
+        } message: { run in
+            Text("Its metrics, logs, samples and artifacts are deleted for good." + (run.running ? " It is still running; what it sends from now on is refused." : ""))
+        }
+        .alert("Can't delete", isPresented: Binding(present: $failure), presenting: failure) { _ in } message: { Text($0) }
         .overlay {
             if loaded && runs.isEmpty {
                 ContentUnavailableView("No runs", systemImage: "tray")

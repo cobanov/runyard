@@ -63,6 +63,13 @@ extension View {
     }
 }
 
+extension Binding where Value == Bool {
+    /// True while `item` is set; setting false clears it. For a dialog about an optional item.
+    init<T: Sendable>(present item: Binding<T?>) {
+        self.init(get: { item.wrappedValue != nil }, set: { if !$0 { item.wrappedValue = nil } })
+    }
+}
+
 struct MainView: View {
     var body: some View {
         TabView {

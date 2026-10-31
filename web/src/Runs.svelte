@@ -1,5 +1,5 @@
 <script>
-  import { get, onEvent, throttle, ago, runTime, live, fmt } from './lib.svelte.js'
+  import { get, send, why, onEvent, throttle, ago, runTime, live, fmt, store, loadProjects } from './lib.svelte.js'
 
   let { project } = $props()
   let runs = $state(null)
@@ -22,6 +22,22 @@
       .slice(0, 3)
   })
   const filters = ['', 'running', 'finished', 'failed', 'crashed']
+
+  // Deleting asks for the project's name, typed: it takes every run with it.
+  let confirming = $state(false)
+  let typed = $state('')
+  let failed = $state('')
+  const total = $derived(store.projects?.find((p) => p.name === project)?.runs ?? 0)
+  async function remove(e) {
+    e.preventDefault()
+    try {
+      await send('DELETE', '/projects/' + encodeURIComponent(project))
+      loadProjects()
+      location.hash = '#/projects'
+    } catch (err) {
+      failed = why(err)
+    }
+  }
 </script>
 
 <p class="crumb"><a href="#/projects">Projects</a> /</p>
@@ -68,6 +84,22 @@
   </div>
 {/if}
 
+<div class="remove">
+  {#if confirming}
+    <form class="card card-pad" onsubmit={remove}>
+      <p class="small">This deletes {project} and its {total === 1 ? '1 run' : `${total} runs`} with their metrics, logs, samples and artifacts, for good. Type the project's name to confirm.</p>
+      <div class="confirm">
+        <input class="field" bind:value={typed} aria-label="Project name" autocomplete="off" autocapitalize="none" spellcheck="false" />
+        <button class="danger" disabled={typed !== project}>Delete project</button>
+        <button type="button" onclick={() => ((confirming = false), (typed = failed = ''))}>Cancel</button>
+      </div>
+    </form>
+  {:else}
+    <button class="danger" onclick={() => (confirming = true)}>Delete project</button>
+  {/if}
+  {#if failed}<p class="small"><span class="danger">Failed.</span> {failed}</p>{/if}
+</div>
+
 {#if picked.length >= 2}
   <div class="compare">
     <a class="go" href="#/compare/{picked.join(',')}">Compare {picked.length} runs</a>
@@ -85,7 +117,7 @@
     width: 1px;
     padding-right: 0;
   }
-  input {
+  .pick input {
     display: block;
     width: 16px;
     height: 16px;
@@ -118,6 +150,20 @@
     height: 1px;
     overflow: hidden;
     clip: rect(0 0 0 0);
+  }
+  .remove {
+    margin-top: 24px;
+  }
+  .remove p {
+    margin: 0 0 10px;
+  }
+  .confirm {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .confirm input {
+    flex: 1 1 220px;
   }
   .compare {
     position: sticky;

@@ -85,6 +85,7 @@ func (s *srv) routes() http.Handler {
 	s.mlflowRoutes(mux)
 	s.pushRoutes(mux)
 	s.authRoutes(mux)
+	s.adminRoutes(mux)
 
 	mux.HandleFunc("GET /media/{key...}", func(w http.ResponseWriter, r *http.Request) {
 		key := r.PathValue("key")

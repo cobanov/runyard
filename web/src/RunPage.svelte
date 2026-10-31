@@ -1,5 +1,5 @@
 <script>
-  import { get, onEvent, throttle, runTime, ago, live, plotValue, fmt, flatten } from './lib.svelte.js'
+  import { get, send, why, onEvent, throttle, runTime, ago, live, plotValue, fmt, flatten } from './lib.svelte.js'
   import Chart from './Chart.svelte'
   import Samples from './Samples.svelte'
   import Logs from './Logs.svelte'
@@ -47,6 +47,17 @@
     return [{ label: k, color: '--c1', x: s.step, y: s.last.map(plotValue), min: s.min.map(plotValue), max: s.max.map(plotValue) }]
   }
   const bytes = (n) => (n < 1e3 ? `${n} B` : n < 1e6 ? `${(n / 1e3).toFixed(1)} kB` : n < 1e9 ? `${(n / 1e6).toFixed(1)} MB` : `${(n / 1e9).toFixed(2)} GB`)
+  let failed = $state('')
+  async function remove() {
+    const still = run.status === 'running' ? ' It is still running; what it sends from now on is refused.' : ''
+    if (!confirm(`Delete ${run.name} with its metrics, logs, samples and artifacts? This cannot be undone.${still}`)) return
+    try {
+      await send('DELETE', '/runs/' + run.id)
+      location.hash = '#/p/' + encodeURIComponent(run.project)
+    } catch (e) {
+      failed = why(e)
+    }
+  }
   const config = $derived(Object.entries(flatten(run?.config)))
   const summary = $derived(Object.entries(flatten(run?.summary)))
 </script>
@@ -59,7 +70,9 @@
     <div class="title">
       <h1>{run.name}</h1>
       <span class="badge">{run.status}</span>
+      <button class="danger delete" onclick={remove}>Delete run</button>
     </div>
+    {#if failed}<p class="small fail"><span class="danger">Failed.</span> {failed}</p>{/if}
     <dl class="facts small">
       <div><dt>Duration</dt><dd>{runTime(run, live.now)}</dd></div>
       <div><dt>Started</dt><dd>{ago(run.started_at, live.now)}</dd></div>
@@ -140,6 +153,12 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 6px 14px;
+  }
+  .delete {
+    margin-left: auto;
+  }
+  .fail {
+    margin: 8px 0 0;
   }
   .facts {
     display: flex;

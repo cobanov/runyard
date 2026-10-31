@@ -13,6 +13,8 @@ runyard-server channel test 1
 runyard-server channel rm 1
 ```
 
+The web UI's Settings page does the same for admins: add a channel, test it, remove it.
+
 Events: `finished`, `failed`, `crashed`, `alert`; `-events` picks some, `-project` limits a channel to one project.
 Messages carry the last metrics (or the last output lines of a failed run), the latest sample image where the
 channel can show it, and a link to the run when `RUNYARD_URL` is set. Tokens are read from the environment so

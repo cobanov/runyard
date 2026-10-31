@@ -82,6 +82,15 @@ final class Store {
         loadError = nil
     }
 
+    /// DELETE for the swipe actions. Only an admin may, so a 401 or 403 is answered with a sentence saying so.
+    func delete(_ path: String) async throws {
+        do {
+            _ = try await api.send(api.request(path, method: "DELETE"))
+        } catch let e as APIError where e.status == 401 || e.status == 403 {
+            throw APIError(status: 0, message: "Only an admin can delete. Sign in as one.")
+        }
+    }
+
     /// GET for the screens: a 401 means the session ended, so the app goes back to the login form.
     func get<T: Decodable>(_ path: String) async throws -> T {
         do {

@@ -1,10 +1,18 @@
 // Shared helpers: API calls, the live event stream, formatting.
 
-export async function get(path) {
-  const r = await fetch('/api/v1' + path)
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText)
-  return r.json()
+export const get = (path) => send('GET', path)
+
+// send calls the API; a failure throws an Error carrying the HTTP status.
+export async function send(method, path, body) {
+  const init = body ? { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : { method }
+  const r = await fetch('/api/v1' + path, init)
+  const out = await r.json().catch(() => ({}))
+  if (!r.ok) throw Object.assign(new Error(out.error || r.statusText), { status: r.status })
+  return out
 }
+
+// why puts a failed call in a sentence: 401 and 403 from a change mean it needs an admin.
+export const why = (e) => (e.status === 401 || e.status === 403 ? 'Only an admin can do this: log in as one (the server needs RUNYARD_AUTH on).' : e.message)
 
 export const live = $state({ connected: false, now: Date.now() })
 setInterval(() => (live.now = Date.now()), 10000)

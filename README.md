@@ -15,6 +15,8 @@ docker compose up -d --build                          # http://localhost:8080
 docker compose exec app /runyard-server key create my-laptop   # prints an API key (ry_...)
 ```
 
+An admin can also make and revoke keys on the web UI's Settings page, which shows the commands to connect with.
+
 Reading needs no key, so the port is bound to `127.0.0.1` by default. Reach it from elsewhere through
 `tailscale serve --bg --https=443 http://127.0.0.1:8080` or a tunnel, or set `RUNYARD_BIND=0.0.0.0:8080`.
 Set `RUNYARD_URL` (in `.env`) to the public address so notifications link to the run.
@@ -99,9 +101,10 @@ export MLFLOW_TRACKING_URI=https://my-server MLFLOW_TRACKING_TOKEN=ry_...
 
 - Web UI: an overview of what is running and how loaded each machine's GPUs are, runs by project, a run page
   with charts, samples, logs, config, system and artifacts, and run comparison. Live. Installs as an app on the
-  phone; the bell turns on push notifications for that device.
+  phone; the bell turns on push notifications for that device. Admins delete runs and projects there, and
+  manage API keys and notification channels on its Settings page.
 - iOS app ([ios/](ios/README.md)): type the server's address, sign in, and read runs, charts, GPU load,
-  samples, logs and alerts.
+  samples, logs and alerts; admins swipe to delete a project or a run.
 - CLI: `runyard runs ls`, `runyard runs show RUN`, `runyard logs RUN -f`, `runyard samples RUN`,
   `runyard artifacts RUN [--get NAME]`; `--json` everywhere.
 - MCP for agents, at `/mcp`: `list_runs`, `get_run`, `get_metrics`, `get_samples` (returns the images),
@@ -119,6 +122,7 @@ TELEGRAM_TOKEN=123:abc docker compose exec -e TELEGRAM_TOKEN app /runyard-server
 docker compose exec app /runyard-server channel test 1
 ```
 
+The web UI's Settings page adds, tests and removes the same channels, for admins.
 Kinds: `ntfy`, `webhook`, `slack`, `discord`, `telegram`; the web UI's bell adds a web push subscription
 (over HTTPS, or an app installed to the home screen on iOS). Events: `finished`, `failed`, `crashed`, `alert`.
 Messages carry the last metrics, the latest sample image where the channel allows it, and a link to the run.
@@ -150,7 +154,8 @@ docker compose exec app /runyard-server key create -user ege ege-laptop
 ```
 
 A project without a team is seen by every user; a user's new project goes to their first team. A key made
-without `-user` acts as the server and sees everything.
+without `-user` acts as the server and sees everything. Deleting runs and projects, keys and channels (the web
+UI's Settings page, or the API in [docs/server.md](docs/server.md#admin-api)) is for admins and such keys.
 
 ## Layout
 

@@ -303,8 +303,8 @@ func keyHash(key string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// createKey stores a new write key and returns it; only its hash is kept.
-// createKey makes a write API key; with a user name it acts as that user (empty: a server key that sees everything).
+// createKey makes a write API key and returns it, keeping only its hash; with a user name it acts as that user
+// (empty: a server key that sees everything).
 func createKey(ctx context.Context, db *pgxpool.Pool, name, user string) (string, error) {
 	b := make([]byte, 24)
 	rand.Read(b)
@@ -312,7 +312,7 @@ func createKey(ctx context.Context, db *pgxpool.Pool, name, user string) (string
 	tag, err := db.Exec(ctx, `INSERT INTO api_keys (name, hash, user_id) SELECT $1, $2, (SELECT id FROM users WHERE name = $3)
 		WHERE $3 = '' OR EXISTS (SELECT 1 FROM users WHERE name = $3)`, name, keyHash(key), user)
 	if err == nil && tag.RowsAffected() == 0 {
-		return "", errors.New("no such user " + user)
+		return "", noSuch("user " + user)
 	}
 	return key, err
 }

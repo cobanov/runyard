@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-// The runyard REST API (server/api.go), read side only: the app never writes runs.
+// The runyard REST API (server/api.go): the app reads, and deletes runs and projects (server/admin.go); it never writes runs.
 
 nonisolated struct Me: Decodable, Sendable {
     let auth: Bool

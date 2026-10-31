@@ -29,6 +29,8 @@ The server is an MCP server at `/mcp`:
 claude mcp add --transport http runyard https://my-server/mcp --header "Authorization: Bearer $RUNYARD_API_KEY"
 ```
 
+The web UI's Settings page shows this command with the server's address and a key filled in.
+
 | Tool | What it returns |
 |---|---|
 | `list_projects`, `list_runs` | projects with run counts; runs with status, config and summary |

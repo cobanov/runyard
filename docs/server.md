@@ -53,7 +53,23 @@ runyard-server user ls; runyard-server team ls
 ```
 
 A key made without `-user` acts as the server: it sees and writes everything. Inside compose, prefix the commands
-with `docker compose exec app /runyard-server`.
+with `docker compose exec app /runyard-server`. Logged in as an admin, the web UI's Settings page makes and revokes
+keys too.
+
+## Admin API
+
+Deleting and the server's keys and channels, for scripts and agents. With `RUNYARD_AUTH`, the caller is an admin
+(session cookie or key) or a key made without `-user`; without it, any API key. Others get 403.
+
+| Endpoint | Does |
+|---|---|
+| `DELETE /api/v1/runs/{id}` | deletes a run (exact id) with its metrics, logs, alerts, media and artifact files |
+| `DELETE /api/v1/projects/{name}` | the same for every run of the project, then the project |
+| `GET /api/v1/keys`, `POST /api/v1/keys` `{"name", "user"}`, `DELETE /api/v1/keys/{id}` | list (never the key), create (returns the key once), revoke |
+| `GET /api/v1/channels`, `POST /api/v1/channels`, `DELETE /api/v1/channels/{id}`, `POST /api/v1/channels/{id}/test` | as `channel ls/add/rm/test`; the list leaves out tokens |
+
+`POST /api/v1/channels` takes `{"kind", "target", "token", "project", "events"}`: target is the URL, or the chat
+id for telegram; no project means every project, no events all four.
 
 ## Backup
 
@@ -64,7 +80,7 @@ with `docker compose exec app /runyard-server`.
 ```text
 runyard-server                      serve
 runyard-server key create [-user U] NAME
-runyard-server channel add|ls|rm|test ...   see Notifications
+runyard-server channel add|ls|rm|test ...   see Notifications (or the web UI's Settings page)
 runyard-server check add|ls|rm ...          see Notifications
 runyard-server user|team|project ...        see above
 ```

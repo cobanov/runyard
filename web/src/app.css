@@ -47,6 +47,7 @@ button {
   cursor: pointer;
 }
 button:hover { background: var(--soft); }
+button:disabled { opacity: 0.5; cursor: default; }
 button[aria-pressed="true"], button[aria-selected="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 :focus-visible { outline: 2px solid var(--c1); outline-offset: 2px; }
 h1 { font-size: 1.5rem; line-height: 1.2; margin: 0; font-weight: 700; letter-spacing: -0.02em; overflow-wrap: anywhere; }
@@ -75,6 +76,8 @@ tbody tr:hover { background: var(--soft); }
 .tag { display: inline-block; border: 1px solid var(--rule); border-radius: var(--radius-sm); padding: 0 6px; font-size: 0.75rem; line-height: 1.6; color: var(--muted); }
 .btn-primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .btn-primary:hover { background: var(--ink); opacity: 0.9; }
+.danger { color: var(--failed); } /* a destructive button's word, or the word naming a failure */
+.field { height: 40px; padding: 0 12px; border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--paper); min-width: 0; }
 
 /* Status: a dot and a word, in the state's colour. A running dot breathes. */
 .status-running { --state: var(--running); }

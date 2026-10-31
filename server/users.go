@@ -32,10 +32,16 @@ func password() string {
 func exec(ctx context.Context, db *pgxpool.Pool, what, sql string, args ...any) error {
 	tag, err := db.Exec(ctx, sql, args...)
 	if err == nil && tag.RowsAffected() == 0 {
-		return errors.New("no such " + what)
+		return noSuch(what)
 	}
 	return err
 }
+
+// noSuch is a missing row: "no such channel" on the command line, a 404 from the API.
+type noSuch string
+
+func (n noSuch) Error() string      { return "no such " + string(n) }
+func (noSuch) Is(target error) bool { return target == pgx.ErrNoRows }
 
 func userCmd(ctx context.Context, db *pgxpool.Pool, args []string) error {
 	if len(args) == 0 {
