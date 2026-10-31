@@ -1,5 +1,5 @@
 <script>
-  import { get, send, why, onEvent, throttle, ago, runTime, live, fmt, store, loadProjects } from './lib.svelte.js'
+  import { get, send, why, onEvent, throttle, ago, runTime, live, fmt, plotValue, store, loadProjects } from './lib.svelte.js'
 
   let { project } = $props()
   let runs = $state(null)
@@ -23,6 +23,30 @@
   })
   const filters = ['', 'running', 'finished', 'failed', 'crashed']
 
+  // Search by name or tag, then sort by a clicked column; null keeps the server's order (newest first).
+  let query = $state('')
+  let sort = $state(null) // {key, dir: 1 | -1}
+  const value = {
+    status: (r) => r.status,
+    run: (r) => r.name,
+    duration: (r) => (r.ended_at ? new Date(r.ended_at) : live.now) - new Date(r.started_at),
+    started: (r) => -new Date(r.started_at), // ascending reads as the column does: fewest minutes ago first
+  }
+  const by = (key) => (sort = { key, dir: sort?.key === key ? -sort.dir : 1 })
+  const aria = (key) => (sort?.key === key ? (sort.dir > 0 ? 'ascending' : 'descending') : null)
+  const shown = $derived.by(() => {
+    const q = query.trim().toLowerCase()
+    const out = (runs || []).filter((r) => !q || r.name.toLowerCase().includes(q) || r.tags?.some((t) => t.toLowerCase().includes(q)))
+    if (!sort) return out
+    const v = value[sort.key] || ((r) => plotValue(r.metrics?.[sort.key.slice(2)]?.last)) // 'm:<metric>', so a metric named "status" can't clash
+    const cmp = (a, b) => (typeof a === 'string' ? a.localeCompare(b, undefined, { numeric: true }) : a - b)
+    // Missing values (no metric, NaN) go last in either direction.
+    return out
+      .map((r) => [v(r), r])
+      .sort(([a], [b]) => (a == null) - (b == null) || (a == null ? 0 : cmp(a, b) * sort.dir))
+      .map(([, r]) => r)
+  })
+
   // Deleting asks for the project's name, typed: it takes every run with it.
   let confirming = $state(false)
   let typed = $state('')
@@ -43,35 +67,46 @@
 <p class="crumb"><a href="#/projects">Projects</a> /</p>
 <div class="page-head">
   <h1>{project}</h1>
-  <div class="filters" role="group" aria-label="Show runs by status">
-    {#each filters as f}
-      <button aria-pressed={status === f} onclick={() => (status = f)}>{f || 'All'}</button>
-    {/each}
+  <div class="tools">
+    <input class="field" type="search" bind:value={query} placeholder="Search runs" aria-label="Search runs by name or tag" />
+    <div class="filters" role="group" aria-label="Show runs by status">
+      {#each filters as f}
+        <button aria-pressed={status === f} onclick={() => (status = f)}>{f || 'All'}</button>
+      {/each}
+    </div>
   </div>
 </div>
 
+{#snippet head(key, label, cls = '')}
+  <th class={cls} aria-sort={aria(key)}>
+    <button class="sort" onclick={() => by(key)}>{label}{#if sort?.key === key}<span aria-hidden="true">{sort.dir > 0 ? ' ↑' : ' ↓'}</span>{/if}</button>
+  </th>
+{/snippet}
+
 {#if runs?.length === 0}
   <p class="empty">No {status} runs in this project.</p>
+{:else if runs && !shown.length}
+  <p class="empty">No runs match “{query.trim()}”.</p>
 {:else if runs}
   <div class="card table">
     <table>
       <thead>
         <tr>
           <th class="pick"><span class="sr">Compare</span></th>
-          <th>Status</th>
-          <th>Run</th>
-          <th>Duration</th>
-          <th>Started</th>
+          {@render head('status', 'Status', 'st')}
+          {@render head('run', 'Run', 'name')}
+          {@render head('duration', 'Duration')}
+          {@render head('started', 'Started')}
           <th>Tags</th>
-          {#each cols as c}<th class="num">{c}</th>{/each}
+          {#each cols as c}{@render head('m:' + c, c, 'num')}{/each}
         </tr>
       </thead>
       <tbody>
-        {#each runs as r (r.id)}
+        {#each shown as r (r.id)}
           {@const m = r.metrics}
           <tr class="status-{r.status}">
             <td class="pick"><input type="checkbox" bind:group={picked} value={r.id} aria-label="Compare {r.name}" /></td>
-            <td><span class="badge">{r.status}</span></td>
+            <td class="st"><span class="badge">{r.status}</span></td>
             <td class="name"><a href="#/r/{r.id}">{r.name}</a>{#if r.host}<span class="muted small host">{r.host}</span>{/if}</td>
             <td>{runTime(r, live.now)}</td>
             <td class="muted">{ago(r.started_at, live.now)}</td>
@@ -108,14 +143,71 @@
 {/if}
 
 <style>
+  .tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .tools input {
+    flex: 1 1 200px;
+  }
   .filters {
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
   }
+  /* The compare box, status and name stay put while wide metric columns scroll under them. */
+  .pick,
+  .st,
+  .name {
+    position: sticky;
+    z-index: 1;
+    background: var(--panel);
+  }
+  tr:hover > td:is(.pick, .st, .name) {
+    background: var(--soft);
+  }
   .pick {
-    width: 1px;
+    left: 0;
+    width: 30px;
+    min-width: 30px;
     padding-right: 0;
+  }
+  .st {
+    left: 30px;
+    width: 108px;
+    min-width: 108px;
+  }
+  .name {
+    left: 138px;
+  }
+  /* A phone has no room for three pinned columns: only the name stays, shortened. */
+  @media (max-width: 767px) {
+    .pick,
+    .st {
+      position: static;
+    }
+    .name {
+      left: 0;
+    }
+    .name > * {
+      display: block;
+      max-width: 40vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+  .sort {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: inherit;
+  }
+  .sort:hover {
+    background: none;
+    color: var(--ink);
   }
   .pick input {
     display: block;
@@ -124,7 +216,7 @@
     margin: 0;
     accent-color: var(--ink);
   }
-  .name {
+  td.name {
     font-weight: 600;
   }
   .host {

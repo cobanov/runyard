@@ -28,7 +28,21 @@
   }
 
   // Small images (pixel art, tiny diffusion samples) stay crisp when scaled up.
-  const crisp = (e) => e.target.naturalWidth < 256 && e.target.classList.add('crisp')
+  const crisp = (e) => e.target.classList.toggle('crisp', e.target.naturalWidth < 256)
+  const isImage = (m) => m.kind !== 'video' || m.url.endsWith('.gif')
+
+  // The viewer walks through every image of one key, oldest step first.
+  let dialog
+  let at = $state(null) // {key, i}
+  const list = $derived(at ? groups[at.key].steps.flatMap((s) => groups[at.key].at[s]).filter(isImage) : [])
+  const cur = $derived(list[at?.i])
+  function show(key, m) {
+    at = { key, i: 0 }
+    at.i = list.findIndex((x) => x.id === m.id)
+    dialog.showModal()
+  }
+  const go = (d) => at && list[at.i + d] && (at.i += d)
+  const keys = (e) => (e.key === 'ArrowLeft' ? go(-1) : e.key === 'ArrowRight' && go(1))
 </script>
 
 {#if media?.length === 0}
@@ -59,10 +73,12 @@
       <div class="gallery">
         {#each g.at[step] as m (m.id)}
           <figure>
-            {#if m.kind === 'video' && !m.url.endsWith('.gif')}
+            {#if !isImage(m)}
               <video src={m.url} controls loop muted playsinline></video>
             {:else}
-              <a href={m.url} target="_blank"><img src={m.url} alt={m.meta.caption || key} loading="lazy" onload={crisp} /></a>
+              <button class="thumb" onclick={() => show(key, m)} aria-label="View {m.meta.caption || key} large"
+                ><img src={m.url} alt={m.meta.caption || key} loading="lazy" onload={crisp} /></button
+              >
             {/if}
             {#if m.meta.caption}<figcaption class="small muted">{m.meta.caption}</figcaption>{/if}
           </figure>
@@ -71,6 +87,24 @@
     {/if}
   </section>
 {/each}
+
+<dialog bind:this={dialog} aria-label="Sample viewer" onclose={() => (at = null)} onclick={(e) => e.target === dialog && dialog.close()} onkeydown={keys}>
+  {#if cur}
+    <img src={cur.url} alt={cur.meta.caption || cur.key} onload={crisp} />
+    <div class="info">
+      <div>
+        <strong>{cur.key}</strong> <span class="muted">step {cur.step.toLocaleString('en-US')}, {at.i + 1} of {list.length}</span>
+        {#if cur.meta.caption}<p class="small muted">{cur.meta.caption}</p>{/if}
+      </div>
+      <div class="nav">
+        <a class="small" href={cur.url} target="_blank" rel="noopener">Open original</a>
+        <button onclick={() => go(-1)} disabled={!at.i} aria-label="Previous sample">←</button>
+        <button onclick={() => go(1)} disabled={at.i === list.length - 1} aria-label="Next sample">→</button>
+        <button onclick={() => dialog.close()}>Close</button>
+      </div>
+    </div>
+  {/if}
+</dialog>
 
 <style>
   section {
@@ -104,6 +138,58 @@
   }
   :global(img.crisp) {
     image-rendering: pixelated;
+  }
+  .thumb {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: zoom-in;
+  }
+  dialog {
+    width: calc(100vw - 32px);
+    height: calc(100dvh - 32px);
+    max-width: none;
+    max-height: none;
+    padding: 0;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--ink);
+    outline: none;
+  }
+  dialog[open] {
+    display: flex;
+    flex-direction: column;
+  }
+  dialog::backdrop {
+    background: rgb(0 0 0 / 0.6);
+  }
+  /* The image takes what the info row leaves, scaled to fit, small samples up too. */
+  dialog img {
+    flex: 1;
+    min-height: 0;
+    object-fit: contain;
+    border-radius: 0;
+    background: var(--paper);
+  }
+  .info {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px 16px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--rule);
+  }
+  .info p {
+    margin: 2px 0 0;
+  }
+  .nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
   figcaption {
     margin-top: 4px;

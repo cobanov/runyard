@@ -62,14 +62,14 @@
       <button class="icon" onclick={() => (open = !open)} aria-expanded={open} aria-controls="nav" aria-label="Menu">
         <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
       </button>
-      <a href="#/" class="brand">runyard</a>
+      <a href="#/" class="brand"><svg class="mark" viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M36 220 V144 A108 108 0 0 1 144 36 H220 L184 72 H144 A72 72 0 0 0 72 144 V220 Z" /><path fill="var(--running)" d="M96 220 V144 A48 48 0 0 1 144 96 H220 L184 132 H144 A12 12 0 0 0 132 144 V220 Z" /></svg>runyard</a>
       <span class="live" class:on={live.connected} title={live.connected ? 'Live' : 'Reconnecting'}></span>
     </header>
     {#if open}<div class="scrim" onclick={() => (open = false)} aria-hidden="true"></div>{/if}
 
     <nav id="nav" class="side" class:open aria-label="Main">
       <a href="#/" class="brand">
-        runyard
+        <svg class="mark" viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M36 220 V144 A108 108 0 0 1 144 36 H220 L184 72 H144 A72 72 0 0 0 72 144 V220 Z" /><path fill="var(--running)" d="M96 220 V144 A48 48 0 0 1 144 96 H220 L184 132 H144 A12 12 0 0 0 132 144 V220 Z" /></svg>runyard
         <span class="live" class:on={live.connected} title={live.connected ? 'Live: updates arrive as they happen' : 'Reconnecting to the server'}></span>
       </a>
       <a href="#/" class="item" aria-current={!route.kind || null}>
@@ -166,6 +166,11 @@
     text-decoration: none;
     padding: 6px 10px;
     margin-bottom: 12px;
+  }
+  .mark {
+    width: 22px;
+    height: 22px;
+    flex: none;
   }
   .live {
     width: 7px;
