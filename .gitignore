@@ -1,0 +1,20 @@
+# Go
+/server/runyard-server
+# web build output is embedded into the Go binary
+/server/webdist/dist/
+node_modules/
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+dist/
+build/
+# local data
+/media/
+/pg/
+.env
+.DS_Store
+
+# private environment notes, see plan.md §16
+/ops-notes.md
