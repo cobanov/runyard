@@ -46,6 +46,21 @@
     const s = series[k]
     return [{ label: k, color: '--c1', x: s.step, y: s.last.map(plotValue), min: s.min.map(plotValue), max: s.max.map(plotValue) }]
   }
+
+  // Chart view: smoothing and the log axis are remembered per browser; storage may be blocked, so every access is guarded.
+  let view = $state({ smooth: 0, log: false })
+  try {
+    const s = JSON.parse(localStorage.getItem('runyard.charts'))
+    view = { smooth: Math.min(0.99, Math.max(0, +s.smooth || 0)), log: s.log === true }
+  } catch {}
+  $effect(() => {
+    const v = JSON.stringify(view)
+    try {
+      localStorage.setItem('runyard.charts', v)
+    } catch {}
+  })
+  let filter = $state('')
+  const chartKeys = $derived(trainKeys.filter((k) => k.toLowerCase().includes(filter.trim().toLowerCase())))
   const bytes = (n) => (n < 1e3 ? `${n} B` : n < 1e6 ? `${(n / 1e3).toFixed(1)} kB` : n < 1e9 ? `${(n / 1e6).toFixed(1)} MB` : `${(n / 1e9).toFixed(2)} GB`)
   let failed = $state('')
   async function remove() {
@@ -103,9 +118,18 @@
 
   {#if tab === 'charts'}
     {#if trainKeys.length}
+      <div class="view">
+        {#if trainKeys.length > 6}<input class="field" type="search" bind:value={filter} placeholder="Filter metrics" aria-label="Filter metrics by name" />{/if}
+        <label class="small muted"
+          >Smoothing <input type="range" min="0" max="0.99" step="0.01" bind:value={view.smooth} /><output>{view.smooth ? view.smooth.toFixed(2) : 'off'}</output></label
+        >
+        <button aria-pressed={view.log} onclick={() => (view.log = !view.log)}>Log scale</button>
+      </div>
       <div class="grid">
-        {#each trainKeys as k (k)}
-          <Chart title={k} lines={lineOf(k)} />
+        {#each chartKeys as k (k)}
+          <Chart title={k} lines={lineOf(k)} smooth={view.smooth} log={view.log} />
+        {:else}
+          <p class="empty">No metric matches “{filter.trim()}”.</p>
         {/each}
       </div>
     {:else}
@@ -114,7 +138,7 @@
   {:else if tab === 'system'}
     <div class="grid">
       {#each sysKeys as k (k)}
-        <Chart title={k.slice(4)} lines={lineOf(k)} xLabel="second" />
+        <Chart title={k.slice(4)} lines={lineOf(k)} xLabel="elapsed" elapsed />
       {/each}
     </div>
   {:else if tab === 'samples'}
@@ -243,6 +267,29 @@
     background: none;
     color: var(--ink);
     border-bottom-color: var(--ink);
+  }
+  .view {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    margin: 0 0 12px;
+  }
+  .view .field {
+    flex: 1 1 200px;
+  }
+  .view label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .view input[type='range'] {
+    width: 140px;
+    accent-color: var(--ink);
+  }
+  .view output {
+    min-width: 3ch;
+    color: var(--ink);
   }
   .grid {
     display: grid;

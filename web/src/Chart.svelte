@@ -1,21 +1,33 @@
 <script>
   import uPlot from 'uplot'
   import 'uplot/dist/uPlot.min.css'
-  import { cssVar, cssColor, withAlpha, theme, fmt } from './lib.svelte.js'
+  import { cssVar, cssColor, withAlpha, theme, fmt, duration } from './lib.svelte.js'
 
   // lines: [{label, color (css var name), x, y, min?, max?}]. A single line with min/max draws the bucket range as a band.
-  let { title, lines, xLabel = 'step', height = 170 } = $props()
+  // smooth: EMA weight, 0 is off; log: a log10 y axis; elapsed: x is seconds since the run started.
+  let { title, lines, xLabel = 'step', height = 170, smooth = 0, log = false, elapsed = false } = $props()
 
   let el = $state()
   let hover = $state(null)
   let plot
 
   const last = $derived(lines.length === 1 ? lines[0].y.findLast((v) => v != null) : undefined)
+  const xFmt = (x) => (elapsed ? duration(x * 1000) : fmt(x))
 
+  // TensorBoard's debiased EMA, so the start isn't dragged towards zero; gaps (null) pass through.
+  function ema(ys, w) {
+    let acc = 0
+    let n = 0
+    return ys.map((v) => (v == null ? null : ((acc = acc * w + (1 - w) * v), acc / (1 - w ** ++n))))
+  }
+
+  // With smoothing each line is two series: the raw one, then its EMA on top.
   function data() {
+    const pos = (ys) => (log ? ys.map((v) => (v > 0 ? v : null)) : ys) // a log axis has no place for zero or below
+    const ys = (l) => (smooth ? [l.y, ema(l.y, smooth)] : [l.y]).map(pos)
     const l = lines[0]
-    if (lines.length === 1) return l.min ? [l.x, l.y, l.min, l.max] : [l.x, l.y]
-    return uPlot.join(lines.map((l) => [l.x, l.y]))
+    if (lines.length === 1) return [l.x, ...ys(l), ...(l.min ? [pos(l.min), pos(l.max)] : [])]
+    return uPlot.join(lines.map((l) => [l.x, ...ys(l)]))
   }
 
   function build() {
@@ -24,7 +36,14 @@
     const font = `12px ${cssVar('--sans')}`
     const band = lines.length === 1 && lines[0].min
     const color = (l) => cssColor(l.color)
-    const series = [{ label: xLabel }, ...lines.map((l) => ({ label: l.label, stroke: color(l), width: 1.5, points: { show: false }, spanGaps: true }))]
+    const per = smooth ? 2 : 1
+    const series = [
+      { label: xLabel },
+      ...lines.flatMap((l) => {
+        const line = { label: l.label, stroke: color(l), width: 1.5, points: { show: false }, spanGaps: true }
+        return smooth ? [{ ...line, stroke: withAlpha(color(l), 0.3), width: 1 }, line] : [line]
+      }),
+    ]
     if (band) series.push({ stroke: 'transparent', points: { show: false } }, { stroke: 'transparent', points: { show: false } })
     plot = new uPlot(
       {
@@ -32,18 +51,18 @@
         height,
         series,
         legend: { show: false },
-        scales: { x: { time: false } },
-        bands: band ? [{ series: [3, 2], fill: withAlpha(color(lines[0]), 0.14) }] : [],
+        scales: { x: { time: false }, y: { distr: log ? 3 : 1 } },
+        bands: band ? [{ series: [per + 2, per + 1], fill: withAlpha(color(lines[0]), 0.14) }] : [],
         axes: [
-          { stroke: muted, grid, ticks: { show: false }, border: { show: false }, font, size: 28 },
-          { stroke: muted, grid, ticks: { show: false }, border: { show: false }, font, size: 52, values: (u, vals) => vals.map(fmt) },
+          { stroke: muted, grid, ticks: { show: false }, border: { show: false }, font, size: 28, ...(elapsed && { incrs: secs, values: (u, v) => v.map(short) }) },
+          { stroke: muted, grid, ticks: { show: false }, border: { show: false }, font, size: 52, values: (u, vals) => vals.map((v) => (v == null ? '' : fmt(v))), ...(log && { splits: decades }) },
         ],
         cursor: { points: { size: 6 } },
         hooks: {
           setCursor: [
             (u) => {
               const i = u.cursor.idx
-              hover = i == null ? null : { x: u.data[0][i], ys: lines.map((_, j) => u.data[j + 1][i]) }
+              hover = i == null ? null : { x: u.data[0][i], ys: lines.map((_, j) => u.data[(j + 1) * per][i]), raw: smooth ? u.data[1][i] : null }
             },
           ],
         },
@@ -53,8 +72,18 @@
     )
   }
 
+  // Elapsed seconds tick at round minutes and hours.
+  const secs = [1, 5, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400]
+  const short = (s) => (s < 60 ? `${s}s` : s < 3600 ? `${+(s / 60).toFixed(1)}m` : `${+(s / 3600).toFixed(1)}h`)
+  // A log axis gets one gridline per power of ten (uPlot widens its range to whole decades), not nine.
+  function decades(u, i, min, max) {
+    const out = []
+    for (let p = Math.ceil(Math.log10(min)); p <= Math.floor(Math.log10(max)); p++) out.push(10 ** p)
+    return out
+  }
+
   $effect(() => {
-    lines, theme.dark // rebuild when the data or the theme changes; uPlot redraws fast enough for live updates
+    lines, theme.dark, smooth, log // rebuild when the data, the view or the theme changes; uPlot redraws fast enough for live updates
     build()
     const ro = new ResizeObserver(() => plot.setSize({ width: el.clientWidth, height }))
     ro.observe(el)
@@ -69,7 +98,9 @@
   <figcaption>
     <span class="title">{title}</span>
     {#if hover}
-      <span class="muted small">{xLabel} {fmt(hover.x)}{#if lines.length === 1}: <b>{hover.ys[0] == null ? '–' : fmt(hover.ys[0])}</b>{/if}</span>
+      <span class="muted small"
+        >{xLabel} {xFmt(hover.x)}{#if lines.length === 1}: <b>{hover.ys[0] == null ? '–' : fmt(hover.ys[0])}</b>{#if hover.raw != null}, raw {fmt(hover.raw)}{/if}{/if}</span
+      >
     {:else if last !== undefined}
       <b>{fmt(last)}</b>
     {/if}
