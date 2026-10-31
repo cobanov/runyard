@@ -2,6 +2,7 @@
 //
 //	runyard-server                  serve (default)
 //	runyard-server key create NAME  print a new write API key
+//	runyard-server channel ...      manage notification channels, see channelCmd
 package main
 
 import (
@@ -51,8 +52,14 @@ func main() {
 		}
 		fmt.Println(key)
 		return
+	case args[0] == "channel":
+		if err := channelCmd(ctx, db, args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		return
 	default:
-		fmt.Fprintln(os.Stderr, "usage: runyard-server [serve] | key create NAME")
+		fmt.Fprintln(os.Stderr, "usage: runyard-server [serve] | key create NAME | channel add|ls|rm|test")
 		os.Exit(2)
 	}
 
@@ -60,6 +67,7 @@ func main() {
 	if err := os.MkdirAll(s.media, 0o755); err != nil {
 		log.Fatal(err)
 	}
+	go s.watchCrashes(ctx)
 	mux := s.routes()
 	static, _ := fs.Sub(webdist, "webdist/dist")
 	mux.Handle("/", http.FileServerFS(static))
