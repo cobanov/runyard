@@ -1,0 +1,82 @@
+:root {
+  --paper: #f3f6f9;
+  --panel: #ffffff;
+  --ink: #14324f;
+  --muted: #5b6f83;
+  --rule: #d6dfe8;
+  --running: #0e8a8c;
+  --finished: #14324f;
+  --failed: #c4513a;
+  --crashed: #b4770f;
+  --c1: #1f5f99;
+  --c2: #0e8a8c;
+  --c3: #c4513a;
+  --c4: #7a4f9a;
+  --c5: #b4770f;
+  --c6: #3b7d3b;
+  --sans: "Atkinson Hyperlegible Next Variable", system-ui, sans-serif;
+  --mono: "Atkinson Hyperlegible Mono Variable", ui-monospace, monospace;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0f2236;
+    --panel: #132b44;
+    --ink: #e4edf5;
+    --muted: #93a8bc;
+    --rule: #24425f;
+    --running: #3cc6c8;
+    --finished: #c9d7e4;
+    --failed: #f07f69;
+    --crashed: #e9b55a;
+    --c1: #74ade6;
+    --c2: #3cc6c8;
+    --c3: #f07f69;
+    --c4: #b892dc;
+    --c5: #e9b55a;
+    --c6: #7cc47c;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px/1.45 var(--sans);
+  font-variant-numeric: tabular-nums;
+}
+a { color: inherit; }
+button, input, select { font: inherit; color: inherit; }
+button {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+button[aria-pressed="true"], button[aria-selected="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+:focus-visible { outline: 2px solid var(--c1); outline-offset: 2px; }
+h1 { font-size: 1.5625rem; line-height: 1.2; margin: 0; font-weight: 700; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+h2 { font-size: 1rem; margin: 0 0 8px; font-weight: 700; }
+.muted { color: var(--muted); }
+.small { font-size: 0.8125rem; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px 48px; }
+.empty { padding: 32px 0; color: var(--muted); max-width: 60ch; }
+.empty code, pre { font-family: var(--mono); font-size: 0.875rem; }
+.row-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+
+/* The status edge: the one loud thing. A run's state reads at a glance from across the room. */
+.status-running { --state: var(--running); }
+.status-finished { --state: var(--finished); }
+.status-failed { --state: var(--failed); }
+.status-crashed { --state: var(--crashed); }
+.edge { border-left: 6px solid var(--state, var(--rule)); }
+.state { color: var(--state); font-weight: 700; }
+@media (prefers-reduced-motion: no-preference) {
+  .status-running .edge, .edge.status-running { animation: breathe 2.4s ease-in-out infinite; }
+}
+@keyframes breathe { 50% { border-left-color: color-mix(in srgb, var(--running) 35%, transparent); } }
+
+.uplot { font-family: var(--sans); }
