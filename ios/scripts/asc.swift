@@ -5,6 +5,7 @@
 //   swift scripts/asc.swift ensure-app      register the bundle id; create the app record if the API allows
 //   swift scripts/asc.swift profile <sha1>  App Store profile for the distribution certificate with that SHA-1
 //   swift scripts/asc.swift builds          the latest builds and their processing state
+//   swift scripts/asc.swift status          App Review and TestFlight beta review, where each stands
 //   swift scripts/asc.swift tester <email>  add a team member to the internal group that gets every build
 //   swift scripts/asc.swift public <build>  open TestFlight to anyone: test information, the external group
 //                                           "Public" with a public link, that build in it, sent to beta review
@@ -163,6 +164,21 @@ func builds() {
     for build in list("/v1/builds?filter[app]=\(id)&sort=-uploadedDate&limit=5") {
         let a = attributes(build)
         print("build \(a["version"] ?? "?"): \(a["processingState"] ?? "?"), uploaded \(a["uploadedDate"] ?? "?")")
+    }
+}
+
+// Where review stands: the App Store versions, and each recent build's TestFlight beta review.
+func status() {
+    guard let id = app()?["id"] as? String else { die("no app record") }
+    for version in list("/v1/apps/\(id)/appStoreVersions?limit=3") {
+        let a = attributes(version)
+        print("App Store \(a["versionString"] ?? "?"): \(a["appStoreState"] ?? a["appVersionState"] ?? "?")")
+    }
+    for build in list("/v1/builds?filter[app]=\(id)&sort=-uploadedDate&limit=3") {
+        let number = attributes(build)["version"] ?? "?"
+        let review = list("/v1/betaAppReviewSubmissions?filter[build]=\(build["id"] ?? "")").first.map { attributes($0)["betaReviewState"] ?? "?" }
+        let detail = one("/v1/builds/\(build["id"] ?? "")/buildBetaDetail")
+        print("build \(number): beta review \(review ?? "not submitted"), external \(attributes(detail)["externalBuildState"] ?? "?")")
     }
 }
 
@@ -501,6 +517,7 @@ case "profile":
     guard args.count == 2 else { die("usage: profile <certificate sha1>") }
     profile(certSHA1: args[args.startIndex + 1])
 case "builds": builds()
+case "status": status()
 case "tester":
     guard args.count == 2 else { die("usage: tester <email>") }
     tester(args[args.startIndex + 1])
@@ -515,5 +532,5 @@ case "version":
     guard args.count == 3 else { die("usage: version <version> <build number>") }
     prepareVersion(args[args.startIndex + 1], args[args.startIndex + 2])
 case "submit": submit()
-default: die("usage: swift scripts/asc.swift probe|ensure-app|profile <sha1>|builds|tester <email>|public <build>|listing <json> <shots>|free-everywhere|version <v> <n>|submit")
+default: die("usage: swift scripts/asc.swift probe|ensure-app|profile <sha1>|builds|status|tester <email>|public <build>|listing <json> <shots>|free-everywhere|version <v> <n>|submit")
 }
