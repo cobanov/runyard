@@ -188,7 +188,7 @@ RUNYARD_SERVER={location.origin} RUNYARD_API_KEY=ry_... runyard agent</pre>
     gap: 8px;
     margin: 0;
     font-size: 1.0625rem;
-    font-weight: 700;
+    font-weight: 600;
     color: var(--ink);
     overflow-wrap: anywhere;
   }
@@ -242,7 +242,7 @@ RUNYARD_SERVER={location.origin} RUNYARD_API_KEY=ry_... runyard agent</pre>
   .fill {
     display: block;
     height: 100%;
-    background: var(--c2);
+    background: var(--muted);
   }
   .hot .fill {
     background: var(--crashed);

@@ -36,13 +36,12 @@
   }
   .brand {
     margin: 0;
-    font-weight: 800;
-    letter-spacing: -0.02em;
+    font-weight: 600;
   }
   label {
     display: grid;
     gap: 4px;
-    font-weight: 700;
+    font-weight: 500;
   }
   input {
     padding: 10px 12px;

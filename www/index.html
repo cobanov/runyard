@@ -50,37 +50,36 @@
     nav { margin-left: auto; display: flex; gap: 20px; font-size: 0.9375rem; }
     nav a { text-decoration: none; color: var(--muted); }
     nav a:hover { color: var(--ink); }
-    @media (max-width: 480px) { nav { gap: 14px; } nav .wide { display: none; } }
-    .hero { padding: 56px 0 32px; display: grid; grid-template-columns: minmax(0, 620px) auto; justify-content: space-between; align-items: center; gap: 48px; }
-    .hero-mark { width: 196px; color: var(--ink); }
-    @media (max-width: 760px) { .hero { grid-template-columns: minmax(0, 1fr); padding-top: 32px; } .hero-mark { display: none; } }
-    h1 { font-size: clamp(2.125rem, 5.5vw, 3.25rem); line-height: 1.04; letter-spacing: -0.03em; margin: 0 0 16px; font-weight: 800; text-wrap: balance; }
+    @media (max-width: 480px) { nav { gap: 16px; } nav .wide { display: none; } }
+    .hero { padding: 56px 0 0; max-width: 680px; }
+    @media (max-width: 760px) { .hero { padding-top: 32px; } }
+    h1 { font-size: clamp(2.125rem, 5.5vw, 3.25rem); line-height: 1.04; letter-spacing: -0.02em; margin: 0 0 16px; font-weight: 600; text-wrap: balance; }
     .lede { font-size: 1.1875rem; color: var(--muted); margin: 0 0 28px; max-width: 34ch; text-wrap: pretty; }
-    .actions { display: flex; flex-wrap: wrap; gap: 10px; }
-    .btn { display: inline-block; padding: 10px 18px; border-radius: var(--radius-sm); border: 1px solid var(--rule); background: var(--panel); text-decoration: none; font-size: 0.9375rem; font-weight: 600; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+    .btn { display: inline-block; padding: 12px 20px; border-radius: var(--radius-sm); border: 1px solid var(--rule); background: var(--panel); text-decoration: none; font-size: 0.9375rem; font-weight: 600; }
     .btn:hover { border-color: var(--muted); }
     .btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-    .shot { margin: 32px 0 56px; border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; background: var(--panel); }
+    .shot { margin: 40px 0 56px; border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; background: var(--panel); }
     .shot img { display: block; width: 100%; height: auto; }
     .shot .dark, :root[data-theme="dark"] .shot .light { display: none; }
     @media (prefers-color-scheme: dark) { .shot .light { display: none; } .shot .dark { display: block; } }
     section { margin-bottom: 72px; }
-    h2 { font-size: clamp(1.5rem, 3vw, 1.875rem); letter-spacing: -0.02em; margin: 0 0 8px; text-wrap: balance; }
+    h2 { font-size: clamp(1.5rem, 3vw, 1.875rem); font-weight: 600; letter-spacing: -0.01em; margin: 0 0 8px; text-wrap: balance; }
     .sub { color: var(--muted); margin: 0 0 24px; font-size: 1.0625rem; }
     /* One line each: a reader takes in all six at a glance. */
     .points { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 28px 32px; margin: 0; padding: 0; list-style: none; }
-    .points li { border-top: 2px solid var(--running); padding-top: 12px; }
-    .points b { display: block; font-size: 1.0625rem; margin-bottom: 2px; }
+    .points li { border-top: 1px solid var(--rule); padding-top: 12px; }
+    .points b { display: block; font-size: 1.0625rem; font-weight: 600; margin-bottom: 2px; }
     .points span { color: var(--muted); }
     /* Code: a labelled panel, lines wrap with a hanging indent, a copy button. */
     .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 20px; }
     .code { border: 1px solid var(--rule); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
-    .code-head { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--rule); font-size: 0.875rem; }
-    .code-head .num { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--soft); font-weight: 700; font-size: 0.8125rem; }
+    .code-head { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-bottom: 1px solid var(--rule); font-size: 0.875rem; }
+    .code-head .num { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--soft); font-weight: 500; font-size: 0.8125rem; }
     .code-head .file { color: var(--muted); font: 0.8125rem var(--mono); }
-    .copy { margin-left: auto; font: inherit; font-size: 0.8125rem; padding: 4px 10px; border: 1px solid var(--rule); border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
+    .copy { margin-left: auto; font: inherit; font-size: 0.8125rem; padding: 4px 12px; border: 1px solid var(--rule); border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
     .copy:hover { color: var(--ink); border-color: var(--muted); }
-    .code pre { margin: 0; padding: 14px 16px; font: 0.875rem/1.65 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+    .code pre { margin: 0; padding: 16px; font: 0.875rem/1.65 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
     @media (max-width: 480px) { .code pre { font-size: 0.75rem; padding: 12px; } } /* the 44-character lines fit a phone */
     .ln { display: block; padding-left: 2ch; text-indent: -2ch; }
     .code .c { color: var(--muted); }
@@ -92,37 +91,37 @@
     /* Comparison: marks, not sentences. Scrolls inside its frame on a phone; the row names stay put. */
     .compare { position: relative; overflow-x: auto; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--panel); }
     .compare table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 640px; font-size: 0.9375rem; }
-    .compare th, .compare td { padding: 12px 14px; border-bottom: 1px solid var(--rule); text-align: center; vertical-align: middle; }
+    .compare th, .compare td { padding: 12px 16px; border-bottom: 1px solid var(--rule); text-align: center; vertical-align: middle; }
     .compare tbody tr:last-child > * { border-bottom: 0; }
-    .compare thead th { font-size: 0.875rem; white-space: nowrap; }
+    .compare thead th { font-size: 0.875rem; font-weight: 500; white-space: nowrap; }
     .compare tbody th { text-align: left; font-weight: 500; }
     .compare th:first-child { position: sticky; left: 0; z-index: 1; background: var(--panel); border-right: 1px solid var(--rule); width: 34%; }
     .compare .us { background: var(--soft); }
-    .compare thead .us { font-weight: 800; }
-    .y { color: var(--running); font-weight: 800; font-size: 1.0625rem; }
+    .compare thead .us { font-weight: 600; }
+    .y { color: var(--running); font-weight: 600; font-size: 1.0625rem; }
     .no { color: var(--muted); opacity: 0.6; }
     .q { color: var(--muted); font-size: 0.8125rem; white-space: nowrap; }
-    .note { color: var(--muted); font-size: 0.8125rem; margin: 10px 0 0; }
-    .hint { display: none; color: var(--muted); font-size: 0.8125rem; margin: 0 0 10px; }
+    .note { color: var(--muted); font-size: 0.8125rem; margin: 12px 0 0; }
+    .hint { display: none; color: var(--muted); font-size: 0.8125rem; margin: 0 0 12px; }
     @media (max-width: 700px) { .hint { display: block; } }
     .apps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; }
-    .app { display: flex; align-items: center; gap: 14px; padding: 16px 18px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--panel); text-decoration: none; }
+    .app { display: flex; align-items: center; gap: 16px; padding: 16px 20px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--panel); text-decoration: none; }
     .app:hover { border-color: var(--muted); }
-    .app svg { flex: none; width: 40px; height: 40px; border-radius: 10px; background: #09090b; color: #fafafa; padding: 7px; }
-    .app b { display: block; font-size: 1.0625rem; }
+    .app svg { flex: none; width: 40px; height: 40px; border-radius: 10px; background: #09090b; color: #fafafa; padding: 8px; }
+    .app b { display: block; font-size: 1.0625rem; font-weight: 600; }
     .app span { color: var(--muted); font-size: 0.9375rem; }
     .app .go { margin-left: auto; color: var(--muted); font-size: 1.25rem; }
     .cta { text-align: center; padding: 48px 20px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--panel); }
-    .cta .sub { margin: 0 auto 22px; }
+    .cta .sub { margin: 0 auto 24px; }
     footer { border-top: 1px solid var(--rule); background: var(--panel); margin-top: 24px; }
     .foot { display: grid; grid-template-columns: 1.6fr repeat(3, 1fr); gap: 32px; padding: 40px 0 32px; font-size: 0.9375rem; }
     @media (max-width: 760px) { .foot { grid-template-columns: repeat(2, 1fr); } .foot .about { grid-column: 1 / -1; } }
-    .foot h3 { margin: 0 0 10px; font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+    .foot h3 { margin: 0 0 12px; font-size: 0.875rem; font-weight: 500; color: var(--muted); }
     .foot ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
     .foot a { text-decoration: none; }
     .foot a:hover { text-decoration: underline; }
-    .about svg { width: 36px; height: 36px; color: var(--ink); margin-bottom: 10px; }
-    .about p { margin: 0 0 6px; color: var(--muted); max-width: 30ch; }
+    .about svg { width: 36px; height: 36px; color: var(--ink); margin-bottom: 12px; }
+    .about p { margin: 0 0 8px; color: var(--muted); max-width: 30ch; }
     .legal { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding: 16px 0 28px; border-top: 1px solid var(--rule); color: var(--muted); font-size: 0.875rem; }
     .legal a { text-decoration: none; }
     .legal a:hover { text-decoration: underline; }
@@ -143,14 +142,13 @@
 
     <div class="hero">
       <div>
-        <h1>Your training runs, live, on your own machines.</h1>
+        <h1>Your training runs, live, on your own machines</h1>
         <p class="lede">A self-hosted tracker for ML runs. Check them from your phone, and know the moment one dies.</p>
         <div class="actions">
           <a class="btn primary" href="/demo/">Try the live demo</a>
           <a class="btn" href="https://cobanov.github.io/runyard/">Read the docs</a>
         </div>
       </div>
-      <div class="hero-mark"><svg viewBox="28 28 200 200" aria-hidden="true"><g><path fill="currentColor" d="M36 220 V144 A108 108 0 0 1 144 36 H220 L184 72 H144 A72 72 0 0 0 72 144 V220 Z"/><path class="live" d="M96 220 V144 A48 48 0 0 1 144 96 H220 L184 132 H144 A12 12 0 0 0 132 144 V220 Z"/></g></svg></div>
     </div>
 
     <figure class="shot" aria-label="The Overview page: running runs with their main metric, machine load per host, recently ended runs and alerts">
@@ -160,18 +158,18 @@
 
     <section aria-label="What it does">
       <ul class="points">
-        <li><b>Three lines of Python</b><span>Or none: W&amp;B, TensorBoard and MLflow code works as is.</span></li>
-        <li><b>Your phone knows</b><span>When a run finishes, fails, crashes or stalls.</span></li>
-        <li><b>Every GPU in view</b><span>Who is using it, training or not.</span></li>
-        <li><b>Agents can read it</b><span>A built-in MCP server for Claude Code and others.</span></li>
-        <li><b>One binary</b><span>Go and PostgreSQL. Your data stays with you.</span></li>
-        <li><b>Free</b><span>Open source, Apache-2.0. No account to make.</span></li>
+        <li><b>Three lines of Python</b><span>Or none: W&amp;B, TensorBoard and MLflow code works as is</span></li>
+        <li><b>Your phone knows</b><span>When a run finishes, fails, crashes or stalls</span></li>
+        <li><b>Every GPU in view</b><span>Who is using it, training or not</span></li>
+        <li><b>Agents can read it</b><span>A built-in MCP server for Claude Code and others</span></li>
+        <li><b>One binary</b><span>Go and PostgreSQL, and your data stays with you</span></li>
+        <li><b>Free</b><span>Open source under Apache-2.0, no account to make</span></li>
       </ul>
     </section>
 
     <section>
       <h2>Up in a minute</h2>
-      <p class="sub">Start the server once, then log from any training script.</p>
+      <p class="sub">Start the server once, then log from any training script</p>
       <div class="steps">
         <div class="code">
           <div class="code-head"><span class="num">1</span>Start the server<button class="copy" type="button">Copy</button></div>
@@ -197,7 +195,7 @@
     <section>
       <h2 id="compare">How it compares</h2>
       <p class="sub">Fewer features than W&amp;B, on purpose. More of what matters when the GPUs are yours.</p>
-      <p class="hint">Swipe the table to see the others.</p>
+      <p class="hint">Swipe the table to see the others</p>
       <div class="compare">
         <table aria-labelledby="compare">
           <thead>
@@ -214,12 +212,12 @@
           </tbody>
         </table>
       </div>
-      <p class="note">From each project's docs and releases, October 2026. <a href="https://github.com/cobanov/runyard/issues">Spot a mistake?</a></p>
+      <p class="note">From each project's docs and releases, October 2026 · <a href="https://github.com/cobanov/runyard/issues">Spot a mistake?</a></p>
     </section>
 
     <section class="cta">
       <h2>See it before you install it</h2>
-      <p class="sub">The real interface, with runs training in your browser.</p>
+      <p class="sub">The real interface, with runs training in your browser</p>
       <a class="btn primary" href="/demo/">Open the demo</a>
     </section>
   </div>
@@ -229,8 +227,8 @@
       <div class="foot">
         <div class="about">
           <svg viewBox="28 28 200 200" aria-hidden="true"><g><path fill="currentColor" d="M36 220 V144 A108 108 0 0 1 144 36 H220 L184 72 H144 A72 72 0 0 0 72 144 V220 Z"/><path class="live" d="M96 220 V144 A48 48 0 0 1 144 96 H220 L184 132 H144 A12 12 0 0 0 132 144 V220 Z"/></g></svg>
-          <p>Your training runs, live, on your own machines.</p>
-          <p>Free and open source, Apache-2.0.</p>
+          <p>Your training runs, live, on your own machines</p>
+          <p>Free and open source, Apache-2.0</p>
         </div>
         <div>
           <h3>Product</h3>

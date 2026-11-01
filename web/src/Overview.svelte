@@ -204,8 +204,8 @@
   }
   .value {
     font-size: 1.75rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
+    font-weight: 600;
+    letter-spacing: -0.01em;
     line-height: 1.1;
   }
   .nometric {
@@ -237,6 +237,9 @@
   .host .who {
     margin-bottom: 8px;
   }
+  .who .badge {
+    margin-left: 8px; /* Svelte drops the space at the start of the {#if} */
+  }
   .gpus th,
   .gpus td {
     padding: 6px 8px;
@@ -258,7 +261,7 @@
   .fill {
     display: block;
     height: 100%;
-    background: var(--c2);
+    background: var(--muted);
   }
   @media (max-width: 479px) {
     .track {

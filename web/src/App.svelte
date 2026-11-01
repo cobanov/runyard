@@ -160,9 +160,8 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-weight: 800;
+    font-weight: 600;
     font-size: 1.125rem;
-    letter-spacing: -0.02em;
     text-decoration: none;
     padding: 6px 10px;
     margin-bottom: 12px;
