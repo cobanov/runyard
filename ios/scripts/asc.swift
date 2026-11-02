@@ -178,7 +178,8 @@ func status() {
     for build in list("/v1/builds?filter[app]=\(id)&sort=-uploadedDate&limit=3") {
         let number = attributes(build)["version"] ?? "?"
         let review = list("/v1/betaAppReviewSubmissions?filter[build]=\(build["id"] ?? "")").first.map { attributes($0)["betaReviewState"] ?? "?" }
-        let detail = one("/v1/builds/\(build["id"] ?? "")/buildBetaDetail")
+        // Apple sometimes answers 404 for an older build's detail: show "?" rather than stop the whole report
+        let detail = (try? call("GET", "/v1/builds/\(build["id"] ?? "")/buildBetaDetail"))?["data"] as? [String: Any] ?? [:]
         print("build \(number): beta review \(review ?? "not submitted"), external \(attributes(detail)["externalBuildState"] ?? "?")")
     }
 }
