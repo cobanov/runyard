@@ -1,0 +1,54 @@
+/* DESIGN.md's dark tokens on the kit's stage: the ground is --paper, the caption --ink over --muted. */
+
+.ry-store .ss-stage {
+  --ss-font: "Atkinson Hyperlegible Next", system-ui, -apple-system, sans-serif;
+  background: #09090b;
+  color: #fafafa;
+  font-family: var(--ss-font);
+}
+
+/* The og image's lockup, small: the mark and the wordmark */
+.ry-store .ry-lockup {
+  position: absolute;
+  left: 106px;
+  top: 150px;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  font-size: 64px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* At one height in every shot, so the set lines up in the store. One line each: nowrap makes a caption
+   that grows too long run off rather than shift the set */
+.ry-store .ry-caption {
+  position: absolute;
+  left: 106px;
+  right: 106px;
+  top: 320px;
+  white-space: nowrap;
+}
+
+/* "What the model makes", the widest, ends about 160px from the right edge at this size */
+.ry-store h1 {
+  margin: 0;
+  font-size: 100px;
+  line-height: 1.1;
+  font-weight: 600;
+}
+
+.ry-store p {
+  margin: 32px 0 0;
+  font-size: 54px;
+  line-height: 1.3;
+  color: #a1a1aa;
+}
+
+/* Pinned from the top and run off the bottom: the crop falls in the content about 740pt down the screen,
+   above the demo bar. The lockup and caption start at the screen's left edge (70 + 13pt × 2.76) */
+.ry-store .ry-phone {
+  position: absolute;
+  top: 792px;
+  left: 70px;
+}

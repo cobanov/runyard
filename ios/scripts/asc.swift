@@ -11,6 +11,7 @@
 //                                           "Public" with a public link, that build in it, sent to beta review
 //   swift scripts/asc.swift listing <json> <shots>  the App Store page: texts, category, age rating, review notes
 //                                           (ios/AppStore/listing.json) and the iPhone screenshots (*.png)
+//                                           REVIEW_VIDEO: link to a screen recording on an iPhone, for review notes
 //   swift scripts/asc.swift free-everywhere free, in every territory (and new ones as they come)
 //   swift scripts/asc.swift version <v> <n> the version being prepared becomes <v>, with build <n> (not submitted)
 //   swift scripts/asc.swift submit          sends the version being prepared to App Review
@@ -221,10 +222,28 @@ let testerInfo = """
 runyard shows your ML training runs live: metrics, logs, samples, GPU load and alerts, from your own runyard \
 server (github.com/cobanov/runyard). No server yet? Tap "Try the demo" on the first screen.
 """
+// Answers App Review's 2.1 "Information Needed" questions 2 to 6; `listing` puts the screen recording first as 1.
 let reviewNotes = """
-runyard is the companion app for a self-hosted server (https://github.com/cobanov/runyard), so there is no account \
-to sign in with. To review it, tap "Try the demo" on the first screen: the whole app opens on built-in sample \
-training runs, with no server and no network. "Leave demo" goes back to the first screen.
+2. Purpose and audience: runyard is the iPhone companion of runyard, a free, open-source (Apache-2.0) tracker for \
+machine learning training runs that people host on their own machine (https://github.com/cobanov/runyard). It is for \
+ML engineers and researchers who train models on GPU machines. Training runs last hours or days and can crash, stall \
+or diverge at any time; the app lets them check a run's loss curves, GPU load, logs and sample images, and see its \
+alerts, away from the desk, so a broken run is noticed and stopped instead of wasting GPU time.
+
+3. How to review: no account or server is needed. On the first screen tap "Try the demo": the whole app opens on \
+built-in sample training runs that keep updating, generated on the device with no network. Runs: tap a run for its \
+charts, system load, samples, logs, config and files. Alerts: what the runs raised. Server: the machines, their \
+GPUs and processes. "Leave demo" at the bottom goes back to the first screen. With a real server, the user types its address on \
+the first screen; if that server's owner turned sign-in on, the app asks for the name and password the owner created \
+on the server (runyard-server user add). The app has no registration, so no account deletion; no paid content, no \
+in-app purchases and no user-generated content shared between users.
+
+4. External services: none. The app connects only to the runyard server address the user enters, which they run \
+themselves. No third-party SDKs, analytics, advertising, sign-in providers, payment processors or AI services.
+
+5. Regions: the app works and shows the same content in every region.
+
+6. Not a regulated industry, and no protected third-party material: the app shows only the user's own training data.
 """
 
 /// Creates or updates the one item at `listPath` (a to-one or a list) with these attributes.
@@ -376,9 +395,10 @@ func listing(_ file: String, _ shots: String) {
 
     // The reviewer's contact stays out of this public repository, as for `public`.
     let contact = reviewContact()
+    guard let video = env["REVIEW_VIDEO"], !video.isEmpty else { die("set REVIEW_VIDEO: a link to a screen recording of the app on an iPhone") }
     upsert("/v1/appStoreVersions/\(versionID)/appStoreReviewDetail", type: "appStoreReviewDetails", attributes: [
         "contactFirstName": contact[0], "contactLastName": contact[1], "contactEmail": contact[2], "contactPhone": contact[3],
-        "demoAccountRequired": false, "notes": reviewNotes,
+        "demoAccountRequired": false, "notes": "1. Screen recording on an iPhone: \(video)\n\n" + reviewNotes,
     ], create: ["relationships": ["appStoreVersion": ["data": ["type": "appStoreVersions", "id": versionID]]]])
     print("review contact and notes set")
 
@@ -484,7 +504,8 @@ func submit() {
         ["PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"].contains(attributes($0)["appStoreState"] as? String ?? "")
     }), let versionID = version["id"] as? String else { die("no version being prepared") }
     do {
-        var submission = list("/v1/reviewSubmissions?filter[app]=\(appID)&filter[platform]=IOS&filter[state]=READY_FOR_REVIEW").first
+        // A rejected submission stays open as UNRESOLVED_ISSUES: resubmit that one, as the website's "Resubmit to App Review" does
+        var submission = list("/v1/reviewSubmissions?filter[app]=\(appID)&filter[platform]=IOS&filter[state]=READY_FOR_REVIEW,UNRESOLVED_ISSUES").first
         if submission == nil {
             submission = try call("POST", "/v1/reviewSubmissions", ["data": [
                 "type": "reviewSubmissions", "attributes": ["platform": "IOS"],
@@ -493,6 +514,10 @@ func submit() {
         }
         guard let submissionID = submission?["id"] as? String else { die("no review submission") }
         let items = list("/v1/reviewSubmissions/\(submissionID)/items?include=appStoreVersion")
+        // Its rejected item goes back only once marked resolved; until then Apple answers "not ready to be submitted"
+        for item in items where attributes(item)["state"] as? String == "REJECTED" {
+            if let id = item["id"] as? String { patch("reviewSubmissionItems", id, attributes: ["resolved": true]) }
+        }
         if !items.contains(where: { (($0["relationships"] as? [String: Any])?["appStoreVersion"] as? [String: Any])?["data"] as? [String: Any] != nil }) {
             try call("POST", "/v1/reviewSubmissionItems", ["data": [
                 "type": "reviewSubmissionItems",
