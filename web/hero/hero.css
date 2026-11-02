@@ -1,0 +1,324 @@
+/* runyard's look (DESIGN.md, web/src/app.css) mapped onto the kit's tokens,
+   then the Overview as the web UI draws it. Everything nests under .ry-hero. */
+
+.ry-hero .ss-stage {
+  --ry-paper: #f9fafb;
+  --ry-panel: #ffffff;
+  --ry-soft: #f3f4f6;
+  --ry-rule: #e5e7eb;
+  --ry-ink: #18181b;
+  --ry-muted: #6b7280;
+  --ry-running: #0f9488;
+  --ry-crashed: #d97706;
+  --ry-c2: #0f9488;
+
+  --ss-canvas: var(--ry-paper);
+  --ss-surface: var(--ry-panel);
+  --ss-chrome: var(--ry-paper);
+  --ss-well: var(--ry-soft);
+  --ss-line: var(--ry-rule);
+  --ss-text: var(--ry-muted);
+  --ss-text-strong: var(--ry-ink);
+  --ss-font: "Atkinson Hyperlegible Next", system-ui, -apple-system, sans-serif;
+
+  overflow: hidden;
+  /* The frame is the stage's own, an inset hairline drawn over the bleed, so
+     a compact stage narrower than its slot keeps it */
+  border-radius: 8px;
+  outline: 1px solid var(--ry-rule);
+  outline-offset: -1px;
+  background: var(--ry-soft);
+  color: var(--ry-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.ry-hero .ss-stage[data-theme="dark"] {
+  --ry-paper: #09090b;
+  --ry-panel: #121214;
+  --ry-soft: #1c1c1f;
+  --ry-rule: #27272a;
+  --ry-ink: #fafafa;
+  --ry-muted: #a1a1aa;
+  --ry-running: #2dd4bf;
+  --ry-crashed: #fbbf24;
+  --ry-c2: #2dd4bf;
+}
+
+/* The window: inset top and left, off the right and the bottom */
+.ry-hero .ry-win {
+  position: absolute;
+  top: 40px;
+  left: 152px;
+  width: 1098px;
+  height: 640px;
+  box-shadow: var(--ss-shadow-hero);
+}
+
+.ry-hero .ry-win .ss-window__main {
+  background: var(--ry-paper);
+}
+
+.ry-hero .ry-side {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 12px;
+}
+
+.ry-hero .ry-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ry-ink);
+}
+
+.ry-hero .ry-brand svg {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.ry-hero .ry-live {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ry-running);
+}
+
+.ry-hero .ry-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 21px;
+  color: var(--ry-ink);
+}
+
+.ry-hero .ry-item[data-current] {
+  background: var(--ry-soft);
+  font-weight: 500;
+}
+
+.ry-hero .ry-item svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  fill: none;
+  stroke: var(--ry-muted);
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.ry-hero .ry-item[data-current] svg {
+  stroke: var(--ry-ink);
+}
+
+/* The Overview */
+.ry-hero .ry-body {
+  padding: 20px 28px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.ry-hero .ry-cards,
+.ry-hero .ry-hosts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ry-hero .ry-card {
+  background: var(--ry-panel);
+  border: 1px solid var(--ry-rule);
+  border-radius: 8px;
+}
+
+.ry-hero .ry-muted {
+  color: var(--ry-muted);
+  font-size: 13px;
+}
+
+.ry-hero .ry-run {
+  --state: var(--ry-running);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px 14px;
+}
+
+.ry-hero .ry-run[data-crashed] {
+  --state: var(--ry-crashed);
+}
+
+.ry-hero .ry-who {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ry-hero .ry-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--state);
+  transition: color 0.2s ease;
+}
+
+.ry-hero .ry-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ry-breathe 2s ease-in-out infinite;
+}
+
+.ry-hero .ry-run[data-crashed] .ry-dot {
+  animation: none;
+}
+
+@keyframes ry-breathe {
+  50% { opacity: 0.35; }
+}
+
+.ry-hero .ry-name {
+  font-weight: 600;
+}
+
+.ry-hero .ry-metric {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+}
+
+.ry-hero .ry-value {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+.ry-hero .ry-spark {
+  display: block;
+  width: 100%;
+}
+
+.ry-hero .ry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-height: 19.5px;
+  gap: 4px 12px;
+  margin-top: 8px;
+}
+
+.ry-hero .ry-h2 {
+  margin: 28px 0 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ry-muted);
+}
+
+.ry-hero .ry-host {
+  padding: 16px 18px;
+}
+
+.ry-hero .ry-host .ry-who {
+  margin-bottom: 8px;
+}
+
+.ry-hero .ry-host strong {
+  font-weight: 600;
+}
+
+/* The GPU table: one grid template for every row */
+.ry-hero .ry-gpu {
+  display: grid;
+  grid-template-columns: 48px 126px 84px 64px auto;
+  align-items: center;
+  height: 33px;
+  border-bottom: 1px solid var(--ry-rule);
+  font-size: 14px;
+}
+
+.ry-hero .ry-gpu:last-child {
+  border-bottom: 0;
+}
+
+.ry-hero .ry-gpu--head {
+  height: 30px;
+  font-weight: 400;
+}
+
+.ry-hero .ry-util {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ry-hero .ry-track {
+  width: 72px;
+  height: 6px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--ry-soft);
+}
+
+.ry-hero .ry-fill {
+  display: block;
+  height: 100%;
+  background: var(--ry-muted);
+  transform-origin: 0 50%;
+  transition: transform 0.5s cubic-bezier(0.45, 0, 0.1, 1);
+}
+
+/* The phone: its right edge on the sidebar's line, a third of it outside */
+.ry-hero .ry-phone {
+  position: absolute;
+  top: 168px;
+  left: 40px;
+  box-shadow: var(--ss-shadow-satellite), 0 30px 50px -20px rgba(50, 50, 93, 0.35);
+}
+
+.ry-hero .ss-notification__body {
+  white-space: pre-line;
+}
+
+/* Narrow: stacked. No sidebar; the window holds the run card and runs off
+   the right; the phone, whole across, sits a gutter under it and runs off
+   the bottom */
+.ry-hero .ss-stage[data-layout="compact"] .ry-win {
+  top: 16px;
+  left: 16px;
+  width: 400px;
+  height: auto;
+}
+
+/* The card keeps the phone's width, so both end a gutter from the edge */
+.ry-hero .ss-stage[data-layout="compact"] .ry-cards {
+  width: 286px;
+}
+
+.ry-hero .ss-stage[data-layout="compact"] .ry-body {
+  padding: 16px;
+}
+
+.ry-hero .ss-stage[data-layout="compact"] .ry-cards {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ry-hero .ss-stage[data-layout="compact"] .ry-phone {
+  top: 314px;
+  left: 16px;
+}

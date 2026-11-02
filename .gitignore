@@ -20,8 +20,9 @@ build/
 /ops-notes.md
 /server/server
 .wrangler/
-# the demo, built into the website by wrangler (web/demo)
+# the demo and the hero, built into the website by wrangler (web/demo, web/hero)
 /www/demo/
+/www/hero/
 # Android (android/): Gradle output and the SDK path; the release key lives in ~/.config/runyard
 /android/build/
 /android/app/build/

@@ -59,9 +59,11 @@
     .btn { display: inline-block; padding: 12px 20px; border-radius: var(--radius-sm); border: 1px solid var(--rule); background: var(--panel); text-decoration: none; font-size: 0.9375rem; font-weight: 600; }
     .btn:hover { border-color: var(--muted); }
     .btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-    .shot { margin: 40px 0 56px; border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; background: var(--panel); }
-    .shot img { display: block; width: 100%; height: auto; }
-    .shot .dark, :root[data-theme="dark"] .shot .light { display: none; }
+    /* The hero (web/hero, built to hero/) draws its own frame; the figure only holds its size so nothing moves when it mounts */
+    .shot { margin: 40px 0 56px; aspect-ratio: 1000 / 560; }
+    @media (max-width: 739px) { .shot { max-width: 350px; margin-inline: auto; aspect-ratio: 350 / 550; } }
+    .shot img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; border: 1px solid var(--rule); border-radius: var(--radius); }
+    .shot .dark { display: none; }
     @media (prefers-color-scheme: dark) { .shot .light { display: none; } .shot .dark { display: block; } }
     section { margin-bottom: 72px; }
     h2 { font-size: clamp(1.5rem, 3vw, 1.875rem); font-weight: 600; letter-spacing: -0.01em; margin: 0 0 8px; text-wrap: balance; }
@@ -126,6 +128,8 @@
     .legal a { text-decoration: none; }
     .legal a:hover { text-decoration: underline; }
   </style>
+  <link rel="stylesheet" href="hero/hero.css">
+  <script type="module" src="hero/hero.js"></script>
 </head>
 <body>
   <div class="wrap">
@@ -151,9 +155,11 @@
       </div>
     </div>
 
-    <figure class="shot" aria-label="The Overview page: running runs with their main metric, machine load per host, recently ended runs and alerts">
-      <img class="light" src="img/overview-light.png" width="2880" height="1800" alt="runyard overview, light theme">
-      <img class="dark" src="img/overview-dark.png" width="2880" height="1800" alt="runyard overview, dark theme">
+    <figure class="shot" id="hero" role="img" aria-label="The Overview page with runs training live; one run stops sending heartbeats, its badge turns to Crashed and the alert lands on a phone">
+      <noscript>
+        <img class="light" src="img/overview-light.png" width="2880" height="1800" alt="runyard overview, light theme">
+        <img class="dark" src="img/overview-dark.png" width="2880" height="1800" alt="runyard overview, dark theme">
+      </noscript>
     </figure>
 
     <section aria-label="What it does">
