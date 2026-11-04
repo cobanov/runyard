@@ -7,8 +7,10 @@ sign in if the server has `RUNYARD_AUTH` on, and read your runs. Kotlin and Jetp
 Get it: [runyard-0.4.0.apk](https://github.com/cobanov/runyard/releases/download/v0.4.0/runyard-0.4.0.apk) from the
 v0.4.0 release (allow installs from your browser when Android asks).
 
-- **Projects:** a card per running run (its main metric with a sparkline, heartbeat, host, and the machine's CPU
-  and per-GPU load), then every project with its run count.
+- **Projects:** a card per coding agent session from the last day, most urgent first, as the kiosk shows them
+  (`docs/agents.md`; a server before 0.5.0 has none, and the section stays away); tap one for its last run. Then a
+  card per running run (its main metric with a sparkline, heartbeat, host, and the machine's CPU and per-GPU load),
+  then every project with its run count.
 - **A project:** its runs, newest first, with status, duration, start and main metric.
 - **A run:** status, duration, heartbeat and alerts, then tabs for charts (touch a chart for a value), system load
   (CPU, RAM, and a row per GPU), samples (images and text tables, with a slider through the steps), logs, and
@@ -56,4 +58,4 @@ update one already installed. The version is `appVersion` in `app/build.gradle.k
 ## Tests
 
 `app/src/test/ApiTest.kt` parses the server's JSON shapes (Go's nine-digit dates, NaN as a string), checks the
-main-metric rule and the number format, and plays the demo's story through the same parsers.
+main-metric rule, the agent cards' order and the number format, and plays the demo's story through the same parsers.

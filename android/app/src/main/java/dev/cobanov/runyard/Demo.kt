@@ -277,6 +277,14 @@ class Demo(private val t0: Long = System.currentTimeMillis()) : Backend {
         Scripted(t0 + 50 * S, "qwen3-8b-full-lr2e-5", "warn", "train/grad_norm above 4", "check: train/grad_norm > 4; the loss is climbing too"),
     )
 
+    // Coding agent sessions, one per project; a card goes with its run. The done card's run ended long before its report.
+    private class Session(val id: String, val label: String, val cwd: String, val metric: String, val state: String, val said: String, val report: String, val run: String, val at: Long)
+    private val sessions = listOf(
+        Session("codex:0199c2e4", "", "/data/src/pixel32-dit", "eval/fid", "training", "", "FID is down to 21 at 80k steps and still falling, so this run goes on to 200k.", "dit-s-pixel32", t0 - 9 * M),
+        Session("claude:7e41b0c2", "rank sweep", "/data/src/qwen-lora", "eval/loss", "done", "", "Rank 64 lands 0.06 below rank 16 on eval/loss for 4x the adapter. Keeping rank 64.", "qwen3-8b-lora-r64", t0 - 12 * M),
+        Session("claude:a03f9d16", "resnet depth", "/data/src/cifar", "val/acc", "waiting", "resnet50 is about to finish near 0.96 val/acc. OK to start resnet101 on GPU 1?", "", "resnet50-cosine", t0 - 3 * M),
+    )
+
     private fun add(
         seed: Int, project: String, name: String, host: String, gpus: List<Int>, start: Long, secPerStep: Double, endStep: Int?,
         model: Model, prof: Prof, proc: String, user: String, config: JSONObject, tags: List<String>, notes: String = "",
@@ -499,6 +507,14 @@ class Demo(private val t0: Long = System.currentTimeMillis()) : Backend {
                         return JSONArray(out.take(query["limit"]?.toIntOrNull() ?: 100))
                     }
                     path == "/hosts" -> return JSONArray(boxes.map { hostOut(it, now) })
+                    path == "/agents" -> return JSONArray(sessions.mapNotNull { s ->
+                        runs.values.find { it.name == s.run }?.let { r ->
+                            JSONObject().put("id", s.id).put("tool", s.id.substringBefore(':')).put("label", s.label).put("host", r.host).put("cwd", s.cwd)
+                                .put("project", r.project).put("metric", s.metric).put("state", s.state).put("said", s.said).put("report", s.report)
+                                .put("runs", runs.values.count { it.project == r.project }).put("last_run", JSONObject().put("id", r.id).put("name", r.name))
+                                .put("active_at", iso(max(s.at, r.beat)))
+                        }
+                    })
                 }
                 throw notFound
             }

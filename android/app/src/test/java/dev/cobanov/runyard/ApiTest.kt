@@ -64,6 +64,59 @@ class ApiTest {
         assertEquals(listOf("GPU 0 · python serve.py · lee · 0.5 GB"), m.procs)
     }
 
+    // GET /api/v1/agents as the Go server sends it, in its order: newest activity first.
+    private val agents = """
+        [{"id":"claude:a1","tool":"claude","label":"","host":"","cwd":"/data/src/sweep/","project":null,"metric":"","goal":"min","state":"ended",
+          "said":"","report":"","next":"","report_run":null,"report_at":null,"runs":1,"running":0,"kept":0,"last_run":null,
+          "started_at":"2026-11-04T09:00:00Z","active_at":"2026-11-04T12:00:00.123456789Z"},
+         {"id":"codex:b2","tool":"codex","label":"lr sweep","host":"toji","cwd":"/x","project":"qwen-sft","metric":"eval/acc","goal":"max","state":"working",
+          "said":"thinking","report":"lr 2e-5 wins","next":"try 1e-5","report_run":"r9","report_at":"2026-11-04T10:00:00Z","runs":3,"running":1,"kept":1,
+          "last_run":{"id":"7f3a","name":"r9","status":"running","ended_at":null},"started_at":"2026-11-04T09:00:00Z","active_at":"2026-11-04T11:00:00Z"},
+         {"id":"opencode:c3","tool":"opencode","label":"","host":"","cwd":"","project":null,"metric":"","goal":"min","state":"training",
+          "said":"","report":"","next":"","report_run":null,"report_at":null,"runs":0,"running":0,"kept":0,"last_run":null,
+          "started_at":"2026-11-04T09:00:00Z","active_at":"2026-11-04T11:30:00Z"},
+         {"id":"gemini:d4","tool":"gemini","label":"","host":"","cwd":"/d","project":null,"metric":"","goal":"min","state":"new-in-a-later-server",
+          "said":"","report":"","next":"","report_run":null,"report_at":null,"runs":0,"running":0,"kept":0,"last_run":null,
+          "started_at":"2026-11-04T09:00:00Z","active_at":"2026-11-04T10:30:00Z"},
+         {"id":"claude:e5","tool":"claude","label":"","host":"","cwd":"/e","project":null,"metric":"","goal":"min","state":"waiting",
+          "said":"","report":"","next":"","report_run":null,"report_at":null,"runs":0,"running":0,"kept":0,"last_run":null,
+          "started_at":"2026-11-04T09:00:00Z","active_at":"2026-11-04T08:00:00Z"}]
+    """.trimIndent()
+
+    @Test fun parsesAgents() {
+        val a = parseAgents(agents)
+        // Whoever needs a person first; training and working tie, so the newest leads; a state this app does not know goes last.
+        assertEquals(listOf("claude:e5", "opencode:c3", "codex:b2", "claude:a1", "gemini:d4"), a.map { it.id })
+        assertEquals(listOf("Waiting for you", "Training", "Working", "Ended", "new-in-a-later-server"), a.map { it.word })
+        // The title: the label, else the last part of cwd, else the tool.
+        assertEquals(listOf("e", "opencode", "lr sweep", "sweep", "d"), a.map { it.title })
+        val b = a[2]
+        assertEquals("qwen-sft", b.project)
+        assertEquals(Agent.LastRun("7f3a", "r9"), b.lastRun)
+        assertNull(a[3].project)
+        assertNull(a[3].lastRun)
+    }
+
+    @Test fun agentScore() {
+        val run = parseRuns(runs).single()
+        val card = parseAgents(agents).single { it.id == "claude:a1" }
+        // The project names the metric; the run has not logged it, so there is no number.
+        assertNull(card.copy(metric = "eval/acc").score(run))
+        assertEquals("eval/loss" to 1.2, card.copy(metric = "eval/loss").score(run))
+        // No metric named: the run's own.
+        assertEquals(run.mainMetric, card.score(run))
+    }
+
+    // A server before 0.5.0 has no /agents, and a failure here must never reach the screen.
+    @Test fun agentsNeverFail() = runBlocking {
+        val last = parseAgents(agents)
+        assertEquals(emptyList<Agent>(), loadAgents({ throw ApiError(404, "not found") }, last))
+        assertEquals(last, loadAgents({ throw ApiError(500, "boom") }, last))
+        assertEquals(last, loadAgents({ throw java.io.IOException("offline") }, last))
+        assertEquals(last, loadAgents({ "<html>a proxy's page</html>" }, last))
+        assertEquals(emptyList<Agent>(), loadAgents({ "[]" }, last))
+    }
+
     @Test fun formats() {
         assertEquals("0.5", fmt(0.5))
         assertEquals("1.235", fmt(1.23456))
@@ -95,5 +148,14 @@ class ApiTest {
         assertTrue(series.getValue("train/loss").step.size in 2..300)
         assertTrue(parseLogs(demo.get("/api/v1/runs/${live.id}/logs?tail&limit=50")).isNotEmpty())
         assertTrue(parseMedia(demo.get("/api/v1/runs/${live.id}/media")).any { it.kind == "image" })
+        val cards = parseAgents(demo.get("/api/v1/agents?hours=24"))
+        assertEquals(listOf("waiting", "done", "training"), cards.map { it.state })
+        assertTrue(cards.all { c -> all.any { it.id == c.lastRun?.id && it.project == c.project && it.host == c.host } })
+        val training = cards.last()
+        assertEquals("pixel32-dit", training.title)
+        assertEquals("eval/fid", training.score(live)!!.first)
+        // A card goes with its run, as the alerts do.
+        demo.send("/api/v1/runs/${live.id}", "DELETE")
+        assertEquals(listOf("waiting", "done"), parseAgents(demo.get("/api/v1/agents")).map { it.state })
     }
 }

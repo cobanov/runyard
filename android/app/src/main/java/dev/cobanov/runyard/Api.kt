@@ -94,6 +94,27 @@ data class Machine(
     val procs: List<String>, val runs: List<String>,
 )
 
+// web/src/Kiosk.svelte's order and words: whatever needs a person comes first.
+private val agentOrder = mapOf("waiting" to 0, "error" to 1, "done" to 2, "training" to 3, "working" to 3, "idle" to 4, "stale" to 5, "ended" to 6)
+private val agentWords = mapOf(
+    "waiting" to "Waiting for you", "error" to "Error", "done" to "Done", "training" to "Training", "working" to "Working",
+    "idle" to "Idle", "stale" to "Quiet", "ended" to "Ended",
+)
+
+/** A coding agent session's card (docs/agents.md). */
+data class Agent(
+    val id: String, val tool: String, val label: String, val host: String, val cwd: String, val project: String?, val metric: String,
+    val state: String, val said: String, val report: String, val runs: Int, val lastRun: LastRun?, val activeAt: Long,
+) {
+    data class LastRun(val id: String, val name: String)
+
+    val title get() = label.ifEmpty { cwd.split('/').lastOrNull { it.isNotEmpty() } ?: tool }
+    val word get() = agentWords[state] ?: state
+
+    /** The project's main metric on this run; while the project names none, the run's own. */
+    fun score(r: Run) = if (metric.isEmpty()) r.mainMetric else r.metrics?.get(metric)?.let { metric to it.last }
+}
+
 // ---- parsing ----
 
 /** Go sends up to nine fraction digits and an offset; OffsetDateTime takes both. */
@@ -186,6 +207,24 @@ fun parseMachines(s: String) = JSONArray(s).list { m ->
         }.flatten(),
         runs = m.optJSONArray("runs").list { it.optString("name") },
     )
+}
+
+/** The cards, most urgent first, then the newest. */
+fun parseAgents(s: String) = JSONArray(s).list {
+    Agent(
+        id = it.getString("id"), tool = it.str("tool").orEmpty(), label = it.str("label").orEmpty(), host = it.str("host").orEmpty(),
+        cwd = it.str("cwd").orEmpty(), project = it.str("project"), metric = it.str("metric").orEmpty(), state = it.str("state").orEmpty(),
+        said = it.str("said").orEmpty(), report = it.str("report").orEmpty(), runs = it.optInt("runs"),
+        lastRun = it.obj("last_run")?.let { r -> Agent.LastRun(r.getString("id"), r.str("name").orEmpty()) },
+        activeAt = date(it.getString("active_at"))!!,
+    )
+}.sortedWith(compareBy({ agentOrder[it.state] ?: agentOrder.size }, { -it.activeAt }))
+
+/** Cards are extra, so this never fails: a server before 0.5.0 answers 404 and has none, any other failure keeps `last`. */
+suspend fun loadAgents(get: suspend (String) -> String, last: List<Agent>): List<Agent> = try {
+    parseAgents(get("/api/v1/agents?hours=24"))
+} catch (e: Exception) {
+    if ((e as? ApiError)?.status == 404) emptyList() else last
 }
 
 /** Nested objects as dotted keys, sorted, as the web UI's Config tab shows them. */

@@ -38,6 +38,14 @@ fun Tokens.status(s: String) = when (s) {
     else -> muted
 }
 
+fun Tokens.agent(state: String) = when (state) {
+    "waiting" -> crashed
+    "error" -> failed
+    "done" -> finished
+    "training", "working" -> running
+    else -> muted
+}
+
 fun Tokens.level(l: String) = when (l) {
     "error" -> failed
     "warn" -> crashed

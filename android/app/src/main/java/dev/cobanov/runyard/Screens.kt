@@ -190,12 +190,13 @@ fun Failure(text: String?, onDismiss: () -> Unit) {
 
 // ---- home ----
 
-/** Home: what is training now, each at a glance, then every project. */
+/** Home: the coding agents, then what is training now, each at a glance, then every project. */
 @Composable
 fun HomeScreen(store: Store, open: (Route) -> Unit) {
     var running by remember { mutableStateOf(listOf<Run>()) }
     var spark by remember { mutableStateOf(mapOf<String, List<Double>>()) }
     var projects by remember { mutableStateOf(listOf<Project>()) }
+    var agents by remember { mutableStateOf(listOf<Agent>()) }
     var loaded by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<Project?>(null) }
@@ -209,7 +210,8 @@ fun HomeScreen(store: Store, open: (Route) -> Unit) {
                 val k = r.mainMetric?.first ?: return@mapNotNull null
                 runCatching { r.id to parseSeries(store.get("/api/v1/runs/${r.id}/metrics?points=40&keys=${q(k)}"))[k]!!.last.filter { it.isFinite() } }.getOrNull()
             }.toMap()
-            running = runs; spark = sp; projects = ps
+            val ag = loadAgents(store::get, agents)
+            running = runs; spark = sp; projects = ps; agents = ag
             loaded = true; error = null
         } catch (e: Exception) {
             error = e.message
@@ -219,6 +221,12 @@ fun HomeScreen(store: Store, open: (Route) -> Unit) {
     Screen("Projects") {
         Refreshable(load) {
             LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+                if (agents.isNotEmpty()) {
+                    item { SectionTitle("Agents") }
+                    items(agents, key = { it.id }) { a ->
+                        AgentCard(a, running.find { it.id == a.lastRun?.id }) { a.lastRun?.let { open(Route.RunR(it.id)) } }
+                    }
+                }
                 if (running.isNotEmpty()) {
                     item { SectionTitle("Running") }
                     items(running, key = { it.id }) { r -> LiveRunCard(r, spark[r.id].orEmpty()) { open(Route.RunR(r.id)) } }
@@ -247,6 +255,29 @@ fun HomeScreen(store: Store, open: (Route) -> Unit) {
         }
     }
     Failure(failure) { failure = null }
+}
+
+/** A coding agent session, as the kiosk shows it. `run` is its last run if that is still running: only those have metrics here. */
+@Composable
+fun AgentCard(a: Agent, run: Run?, onClick: () -> Unit) {
+    Panel(Modifier.combinedClickable(enabled = a.lastRun != null, onClick = onClick)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(a.title, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Dot(T.agent(a.state))
+            Text(a.word, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = T.agent(a.state), maxLines = 1, modifier = Modifier.padding(start = 6.dp))
+        }
+        Text(listOfNotNull(a.tool, a.project, a.host).filter { it.isNotEmpty() }.joinToString(" · "),
+            fontSize = 12.sp, color = T.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        run?.let(a::score)?.let { (key, value) ->
+            Text(fmt(value), fontSize = 24.sp, fontWeight = FontWeight.Bold, style = Num, modifier = Modifier.padding(top = 10.dp))
+            Text(key, fontSize = 12.sp, color = T.muted, maxLines = 1)
+        }
+        a.report.ifEmpty { a.said }.takeIf { it.isNotEmpty() }?.let {
+            Text(it, fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
+        }
+        Text(listOfNotNull(a.lastRun?.name, plural(a.runs, "run"), ago(a.activeAt)).joinToString(" · "),
+            fontSize = 12.sp, color = T.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
+    }
 }
 
 /** A running run on the home screen: enough to see how it is going without opening it. */
