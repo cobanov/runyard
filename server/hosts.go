@@ -14,11 +14,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Machines: `runyard agent` on each training machine posts what its GPUs, CPU, memory and disk are doing every
+// Machines: `runyard beacon` on each training machine posts what its GPUs, CPU, memory and disk are doing every
 // few seconds, whether or not a run is training there. The server keeps the latest reading per host and a day of
 // history, and tells the channels when a host goes silent and when it is back.
 
-// hostSilentAfter is how long a host may go without a reading (the agent sends one every 10 s) before it counts as silent.
+// hostSilentAfter is how long a host may go without a reading (the beacon sends one every 10 s) before it counts as silent.
 const hostSilentAfter = 2 * time.Minute
 
 var hostName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
@@ -183,7 +183,7 @@ func (s *srv) markSilentHosts(ctx context.Context) {
 	var name string
 	var seen time.Time
 	_, err := pgx.ForEachRow(rows, []any{&name, &seen}, func() error {
-		go s.notifyHost(name+" went silent", fmt.Sprintf("No machine stats for %s: the machine may be down, or runyard agent stopped.",
+		go s.notifyHost(name+" went silent", fmt.Sprintf("No machine stats for %s: the machine may be down, or runyard beacon stopped.",
 			fmtDuration(time.Since(seen))), true)
 		s.hub.publish(event{Type: "host"})
 		return nil

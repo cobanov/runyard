@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import signal
 import socket
@@ -202,7 +203,8 @@ class Run:
         self.summary = _Synced(self, "summary", {})
         self._sender.put("create", {"id": self.id, "project": self.project, "name": self.name, "config": dict(self.config),
                                     "tags": list(tags or []), "notes": notes, "host": socket.gethostname(), "git": _git(),
-                                    "started_at": _now()})
+                                    "started_at": _now(), "agent": _agent()})
+        _check_sandbox()
         self._system = _System() if system else None
         self._t0 = time.time()
         _active.append(self)
@@ -360,6 +362,41 @@ def _git():
                 "remote": git("config", "--get", "remote.origin.url")}
     except Exception:
         return None
+
+
+# Coding agent CLIs that put their session id in the environment of every command they run.
+_AGENT_SESSIONS = (("claude", "CLAUDE_CODE_SESSION_ID"), ("codex", "CODEX_SESSION_ID"), ("opencode", "OPENCODE_SESSION_ID"))
+
+
+def _agent():
+    """The coding agent session this run was started from, so the server can put the run on that agent's card.
+    RUNYARD_AGENT names it by hand (runs with the same name share a card); None outside an agent."""
+    env = os.environ
+    tool, session = next(((t, env[v]) for t, v in _AGENT_SESSIONS if env.get(v)), (None, None))
+    if not tool and env.get("GEMINI_CLI"):
+        tool = "gemini"
+    if not tool and env.get("AI_AGENT"):  # the proposed cross-CLI variable: "claude-code_2-1-316_agent" -> "claude-code"
+        tool = re.sub(r"[^a-z0-9.-]", "", re.split(r"[_\s/@]", env["AI_AGENT"].strip().lower())[0])[:40] or None
+    label = env.get("RUNYARD_AGENT", "").strip()[:100]
+    if label:
+        tool, session = tool or "agent", label
+    if not tool:
+        return None
+    cwd = os.getcwd()
+    # shortcut: a CLI that names no session (Gemini CLI) gets one card per machine and directory; RUNYARD_AGENT splits it
+    return {"tool": tool, "session": (session or f"{socket.gethostname()}:{cwd}")[:200], "label": label, "cwd": cwd[:1000]}
+
+
+def _check_sandbox():
+    """Says why a run inside a sandbox will not arrive, instead of failing quietly at exit."""
+    if os.environ.get("CODEX_SANDBOX_NETWORK_DISABLED") == "1":
+        warn("Codex's sandbox has no network, so this run cannot reach the server: set network_access = true under "
+             "[sandbox_workspace_write] in ~/.codex/config.toml", once=True)
+    try:
+        CACHE.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        warn(f"{CACHE} is not writable (a sandbox?), so images and unsent data have nowhere to go: "
+             "set RUNYARD_CACHE to a directory the run may write", once=True)
 
 
 class _System:

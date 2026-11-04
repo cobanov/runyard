@@ -59,5 +59,13 @@ Without touching the code:
 Report what you saw, not just the numbers: "loss flat since step 30k, samples sharp but repetitive". Record a verdict
 with `add_note`, and mark the keeper with `add_tags` (for example `best`).
 
+## Report as you go
+
+Runs you start land on your agent card, which people watch on a TV (`/#/kiosk`). After each run, call `report`
+with what you tried, what came out (the numbers) and what you will try next, and pass the run as `run` (Claude Code
+needs it to know which session you are). Tag the runs worth keeping `keep`. If the project has no main metric yet,
+set the one you are optimizing with `set_metric` (for example `eval/acc`, `max`); the card's score comes from it,
+not from your report. `list_agents` shows what the other agents are doing.
+
 If something is wrong mid-run (NaN loss, exploding grad norm, samples collapsed to noise), say so plainly and
 suggest stopping it; do not kill a run yourself unless asked.

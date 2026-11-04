@@ -1,15 +1,17 @@
-"""runyard agent: a reading lands on the Machines endpoint; GPU processes are named without their arguments."""
+"""runyard beacon: a reading lands on the Machines endpoint; GPU processes are named without their arguments."""
 from types import SimpleNamespace
 
 from conftest import get
-from runyard.agent import Machine
+from runyard.beacon import Machine
 from runyard.cli import main
 
 
-def test_agent_once(server):
-    assert main(["agent", "--name", "box-1", "--once"]) == 0
+def test_beacon_once(server, capsys):
+    assert main(["beacon", "--name", "box-1", "--once"]) == 0
+    assert main(["agent", "--name", "box-2", "--once"]) == 0  # the old name, which services set up before keep using
+    assert "now `runyard beacon`" in capsys.readouterr().err
     hosts = get(server + "/api/v1/hosts")
-    assert [h["name"] for h in hosts] == ["box-1"]
+    assert [h["name"] for h in hosts] == ["box-1", "box-2"]
     assert isinstance(hosts[0]["stats"].get("gpus", []), list)
 
 

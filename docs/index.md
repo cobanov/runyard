@@ -35,6 +35,8 @@ without a heartbeat crashed.
 - **Logging** from Python in three lines, or with no code change at all from tools that speak Weights & Biases,
   TensorBoard or MLflow. [Log runs](logging.md)
 - **Reading** in a phone-first web UI, a CLI and an MCP server for agents. [Read runs](reading.md)
+- **Coding agents**: a run Claude Code, Codex or OpenCode starts lands on that agent's card, with its report and the
+  project's best score; a kiosk page puts the cards on a TV. [Coding agents](agents.md)
 - **Notifications** to ntfy, Slack, Discord, Telegram, a webhook or the installed web app, plus checks that raise
   alerts from the data: a NaN loss, a crossed threshold, a stuck run. [Notifications](notifications.md)
 - **Self-hosted**: PostgreSQL, a media directory or an S3/R2 bucket, optional users and teams. [Run the server](server.md)

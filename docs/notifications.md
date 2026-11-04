@@ -21,7 +21,7 @@ channel can show it, and a link to the run when `RUNYARD_URL` is set. Tokens are
 they stay out of the process list. A webhook gets the whole event as JSON.
 
 Channels that hear `alert` for every project also hear about machines: "toji went silent" when its
-[`runyard agent`](server.md#machines) has sent nothing for 2 minutes, and "toji is back" when it sends again (event
+[`runyard beacon`](server.md#machines) has sent nothing for 2 minutes, and "toji is back" when it sends again (event
 `host` in a webhook's JSON).
 
 ## Web push

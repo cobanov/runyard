@@ -45,12 +45,14 @@ agents read all of it over MCP. Far fewer features than W&B or MLflow, on purpos
   and "no progress" means the process is alive but the loop stopped logging.
 - **Live on every screen.** A phone-first web UI with charts, samples, logs, config diffs and run comparison, and a
   native iPhone app that shows each running run's loss, progress, time left and the machine's GPUs at a glance.
-- **Your machines too.** `runyard agent` on each box shows its GPUs, every process on them (whoever started it), CPU,
+- **Your machines too.** `runyard beacon` on each box shows its GPUs, every process on them (whoever started it), CPU,
   memory and disk, training or not, and the server tells you when a machine goes silent.
 - **It tells you.** ntfy, Slack, Discord, Telegram, a webhook or web push when a run ends, and checks that raise
   alerts from the data: a NaN loss, a crossed threshold, a stuck run.
 - **Your agents read it.** An MCP server at `/mcp` and a `--json` CLI: list runs, read curves, look at the samples,
-  tail the logs, compare runs, leave a verdict. [SKILL.md](SKILL.md) teaches an agent the routine.
+  tail the logs, compare runs, leave a verdict. [SKILL.md](SKILL.md) teaches an agent the routine. A run an agent
+  starts lands on that agent's card, with its report and the project's best score, and `/#/kiosk` puts the cards
+  on a TV. [Coding agents](docs/agents.md)
 - **Yours.** Docker Compose with PostgreSQL, media on disk or in an S3 or R2 bucket, optional users and teams. API
   keys, notification channels and deleting old runs are on the Settings page.
 

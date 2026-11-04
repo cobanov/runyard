@@ -159,7 +159,7 @@ nonisolated struct Alert: Decodable, Identifiable, Sendable {
     enum CodingKeys: String, CodingKey { case id, run, project, ts, level, title, body, runName = "run_name", dismissedAt = "dismissed_at" }
 }
 
-/// A machine running `runyard agent` (server/hosts.go): its latest reading, every process on its GPUs, and the runs on it.
+/// A machine running `runyard beacon` (server/hosts.go): its latest reading, every process on its GPUs, and the runs on it.
 nonisolated struct Machine: Decodable, Identifiable, Sendable {
     struct Proc: Decodable, Sendable {
         let pid: Int

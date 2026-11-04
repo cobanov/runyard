@@ -6,7 +6,7 @@
   let spark = $state({}) // run id -> last values of its main metric
   let recent = $state([])
   let alerts = $state([])
-  let machines = $state([]) // hosts running `runyard agent`
+  let machines = $state([]) // hosts running `runyard beacon`
   let error = $state('')
 
   const loadRunning = throttle(async () => {
@@ -45,10 +45,10 @@
     }),
   )
 
-  // The agent's machines, then any other host a running run reports sys/ metrics from.
+  // The beacons' machines, then any other host a running run reports sys/ metrics from.
   const hosts = $derived.by(() => {
-    const agent = machines.map((m) => ({ host: m.name, silent: m.silent, ...m.stats, gpus: m.stats.gpus || [] }))
-    return [...agent, ...sysLoad(running || []).filter((h) => !machines.some((m) => m.name === h.host))]
+    const beacons = machines.map((m) => ({ host: m.name, silent: m.silent, ...m.stats, gpus: m.stats.gpus || [] }))
+    return [...beacons, ...sysLoad(running || []).filter((h) => !machines.some((m) => m.name === h.host))]
   })
   const pct = (v) => (typeof v === 'number' ? Math.max(0, Math.min(100, v)) : 0)
   // Machine readings are glanced at, not compared: whole numbers, one decimal for gigabytes.
@@ -99,7 +99,7 @@
 <section>
   <h2><a href="#/machines" class="h2link">Machine load</a></h2>
   {#if !hosts.length}
-    <p class="empty">No machines yet. Run <code>runyard agent</code> on each one to see its GPUs, CPU and memory here, training or not: <a href="#/machines">Machines</a>.</p>
+    <p class="empty">No machines yet. Run <code>runyard beacon</code> on each one to see its GPUs, CPU and memory here, training or not: <a href="#/machines">Machines</a>.</p>
   {:else}
     <div class="hosts">
       {#each hosts as h (h.host)}

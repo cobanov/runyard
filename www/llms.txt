@@ -14,8 +14,11 @@ Key facts:
 - Agents read through the MCP server at `<server>/mcp` (streamable HTTP, `Authorization: Bearer <key>` when the
   server runs with `RUNYARD_AUTH`), or the `runyard` CLI with `--json`.
 - A run is finished on a clean exit, failed on an exception and crashed after five minutes without a heartbeat.
-- `runyard agent` on each training machine reports its GPUs (with every process on them), CPU, memory and disk,
+- `runyard beacon` on each training machine reports its GPUs (with every process on them), CPU, memory and disk,
   training or not; MCP `list_machines` reads them, and the server notifies when a machine goes silent.
+- A run started from Claude Code, Codex or OpenCode lands on that agent session's card on its own (the library
+  reads the session id the CLI sets); the MCP tool `report` writes the agent's findings there, `list_agents` and
+  `/#/kiosk` show the cards, and `runyard hooks install claude|codex` adds "waiting for you".
 
 ## Docs
 
@@ -23,6 +26,7 @@ Key facts:
 - [Log runs](https://raw.githubusercontent.com/cobanov/runyard/main/docs/logging.md): the Python library and every integration
 - [Read runs](https://raw.githubusercontent.com/cobanov/runyard/main/docs/reading.md): web UI, CLI, MCP tools and the REST API
 - [Notifications and checks](https://raw.githubusercontent.com/cobanov/runyard/main/docs/notifications.md): channels, rules and server-side checks
+- [Coding agents](https://raw.githubusercontent.com/cobanov/runyard/main/docs/agents.md): agent cards, reports, hooks and the kiosk page
 
 ## Agents
 

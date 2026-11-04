@@ -124,6 +124,7 @@ func (s *srv) routes() http.Handler {
 	s.authRoutes(mux)
 	s.adminRoutes(mux)
 	s.hostRoutes(mux)
+	s.agentRoutes(mux)
 
 	mux.HandleFunc("GET /media/{key...}", func(w http.ResponseWriter, r *http.Request) {
 		key := r.PathValue("key")
@@ -196,8 +197,7 @@ func (s *srv) fail(w http.ResponseWriter, err error) {
 // write guards a handler with the API key; a handler returns the response body or an error.
 func (s *srv) write(f func(*http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if key == "" || !validKey(r.Context(), s.db, key) {
+		if !s.keyOK(r) {
 			httpError(w, http.StatusUnauthorized, "missing or invalid API key")
 			return
 		}
@@ -209,6 +209,11 @@ func (s *srv) write(f func(*http.Request) (any, error)) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, v)
 	}
+}
+
+func (s *srv) keyOK(r *http.Request) bool {
+	key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return key != "" && validKey(r.Context(), s.db, key)
 }
 
 type badRequest struct{ error }
@@ -231,6 +236,7 @@ func (s *srv) createRun(r *http.Request) (any, error) {
 		Host      string          `json:"host"`
 		Git       json.RawMessage `json:"git"`
 		StartedAt *time.Time      `json:"started_at"`
+		Agent     *runAgent       `json:"agent"`
 	}
 	if err := decode(r, &in); err != nil {
 		return nil, err
@@ -251,14 +257,18 @@ func (s *srv) createRun(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	agent := s.recordAgent(r.Context(), in.Agent, project, in.Host)
 	// ON CONFLICT DO NOTHING: a client retrying a create it already sent gets the same run back.
-	_, err = s.db.Exec(r.Context(), `INSERT INTO runs (id, project_id, name, config, tags, notes, host, git, started_at)
-		VALUES ($1::uuid, $2, $3, coalesce($4::jsonb, '{}'), $5, $6, $7, $8::jsonb, coalesce($9, now())) ON CONFLICT (id) DO NOTHING`,
-		in.ID, project, in.Name, nullJSON(in.Config), in.Tags, in.Notes, in.Host, nullJSON(in.Git), in.StartedAt)
+	_, err = s.db.Exec(r.Context(), `INSERT INTO runs (id, project_id, name, config, tags, notes, host, git, started_at, agent)
+		VALUES ($1::uuid, $2, $3, coalesce($4::jsonb, '{}'), $5, $6, $7, $8::jsonb, coalesce($9, now()), $10) ON CONFLICT (id) DO NOTHING`,
+		in.ID, project, in.Name, nullJSON(in.Config), in.Tags, in.Notes, in.Host, nullJSON(in.Git), in.StartedAt, agent)
 	if err != nil {
 		return nil, err
 	}
 	s.hub.publish(event{Type: "run", Run: in.ID})
+	if agent != nil {
+		s.hub.publish(event{Type: "agent"})
+	}
 	return map[string]string{"id": in.ID}, nil
 }
 

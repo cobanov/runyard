@@ -90,6 +90,7 @@ type Run struct {
 	StartedAt       time.Time                `json:"started_at"`
 	EndedAt         *time.Time               `json:"ended_at"`
 	LastHeartbeatAt time.Time                `json:"last_heartbeat_at"`
+	Agent           *string                  `json:"agent"` // the agent session that started it, "<tool>:<session>"
 	Metrics         map[string]metricSummary `json:"metrics,omitempty"`
 }
 
@@ -102,12 +103,12 @@ type metricSummary struct {
 }
 
 const runSelect = `SELECT r.id::text, p.name, r.name, r.status, r.config, r.summary, r.tags, r.notes, r.host, r.git,
-	r.started_at, r.ended_at, r.last_heartbeat_at FROM runs r JOIN projects p ON p.id = r.project_id `
+	r.started_at, r.ended_at, r.last_heartbeat_at, r.agent FROM runs r JOIN projects p ON p.id = r.project_id `
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.Project, &r.Name, &r.Status, &r.Config, &r.Summary, &r.Tags, &r.Notes, &r.Host, &r.Git,
-		&r.StartedAt, &r.EndedAt, &r.LastHeartbeatAt)
+		&r.StartedAt, &r.EndedAt, &r.LastHeartbeatAt, &r.Agent)
 	return r, err
 }
 
@@ -117,14 +118,16 @@ type Project struct {
 	Runs      int64      `json:"runs"`
 	Running   int64      `json:"running"`
 	LastRunAt *time.Time `json:"last_run_at"`
+	Metric    string     `json:"metric"` // the number its runs are judged by ('': a loss), and min or max
+	Goal      string     `json:"goal"`
 }
 
 func listProjects(ctx context.Context, db *pgxpool.Pool) ([]Project, error) {
-	rows, _ := db.Query(ctx, `SELECT p.name, p.created_at, count(r.id), count(r.id) FILTER (WHERE r.status = 'running'), max(r.started_at)
+	rows, _ := db.Query(ctx, `SELECT p.name, p.created_at, count(r.id), count(r.id) FILTER (WHERE r.status = 'running'), max(r.started_at), p.metric, p.goal
 		FROM projects p LEFT JOIN runs r ON r.project_id = p.id WHERE ($1::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($1))
 		GROUP BY p.id ORDER BY max(r.started_at) DESC NULLS LAST, p.name`, vis(ctx))
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (p Project, err error) {
-		err = row.Scan(&p.Name, &p.CreatedAt, &p.Runs, &p.Running, &p.LastRunAt)
+		err = row.Scan(&p.Name, &p.CreatedAt, &p.Runs, &p.Running, &p.LastRunAt, &p.Metric, &p.Goal)
 		return
 	})
 }

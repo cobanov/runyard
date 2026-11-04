@@ -9,9 +9,11 @@
   import Login from './Login.svelte'
   import Settings from './Settings.svelte'
   import Machines from './Machines.svelte'
+  import Kiosk from './Kiosk.svelte'
   import { pushSupported, pushOn, setPush } from './push.js'
 
-  // Hash routes: #/ overview, #/projects, #/machines, #/alerts, #/settings, #/p/<project> runs, #/r/<run id>, #/compare/<id>,<id>...
+  // Hash routes: #/ overview, #/projects, #/machines, #/alerts, #/settings, #/p/<project> runs, #/r/<run id>, #/compare/<id>,<id>...,
+  // and #/kiosk?project=<name>, the agent cards full screen without the menu
   let hash = $state(location.hash)
   let open = $state(false) // the drawer on narrow screens
   window.addEventListener('hashchange', () => ((hash = location.hash), (open = false)))
@@ -56,6 +58,8 @@
 
 {#if me && !ready}
   <main class="login"><Login onlogin={(user) => (me = { ...me, user })} /></main>
+{:else if ready && route.kind === 'kiosk'}
+  {#key hash}<Kiosk />{/key}
 {:else if ready}
   <div class="shell">
     <header class="top">
@@ -90,6 +94,9 @@
           {/each}
         </ul>
       {/if}
+      <a href="#/kiosk" class="item">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v14H3zM7 10l3 2-3 2M13 15h4" /></svg>Agents
+      </a>
       <a href="#/machines" class="item" aria-current={route.kind === 'machines' || null}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v10H4zM8 19h8M12 15v4M8 12V9M12 12V8M16 12v-2" /></svg>Machines
       </a>

@@ -9,9 +9,13 @@
     runyard watch DIR [--project P] [--once] [--interval 10]
                                      sends TensorBoard event files under DIR, one run per directory, until Ctrl-C;
                                      --once reads them once and exits (needs the tensorboard package)
-    runyard agent [--name NAME] [--interval 10]
+    runyard beacon [--name NAME] [--interval 10]
                                      sends this machine's GPU, CPU, memory and disk to the server until stopped,
                                      for the Machines page (run it as a service, see docs/server.md)
+    runyard hooks install claude|codex [--project] [--remove]
+                                     hooks that tell the server what a coding agent is doing (working, waiting
+                                     for you, done) for its card on the kiosk page (see docs/agents.md);
+                                     --project: this repository only, the better choice (claude)
 """
 import argparse
 import json
@@ -168,18 +172,69 @@ def cmd_watch(a):
     watch(a.dir, a.project, a.once, a.interval)
 
 
-def cmd_agent(a):
+def cmd_beacon(a):
     """Sends this machine's GPU, CPU, memory and disk to the server every few seconds, until stopped."""
     if not key():
-        print("runyard: agent needs RUNYARD_API_KEY, a key from `runyard-server key create`", file=sys.stderr)
+        print("runyard: beacon needs RUNYARD_API_KEY, a key from `runyard-server key create`", file=sys.stderr)
         return 1
-    from .agent import agent
+    from .beacon import beacon
 
     signal.signal(signal.SIGTERM, signal.default_int_handler)  # systemd and launchd stop it like Ctrl-C
     try:
-        agent(server(), key(), a.name, a.interval, a.once, a.disk)
+        beacon(server(), key(), a.name, a.interval, a.once, a.disk)
     except KeyboardInterrupt:
         pass
+
+
+# The hook events each CLI sends; the server turns them into working, waiting, idle, error and ended.
+HOOK_EVENTS = {
+    "claude": ("UserPromptSubmit", "PostToolUse", "PermissionRequest", "Notification", "Stop", "StopFailure", "SessionEnd"),  # its http hooks skip SessionStart
+    "codex": ("SessionStart", "UserPromptSubmit", "PostToolUse", "PermissionRequest", "Stop", "SessionEnd"),
+}
+HOOK_URL = "/api/v1/agents/events"
+
+
+def cmd_hooks(a):
+    """Adds hooks that tell the server what a coding agent is doing, or with --remove takes them out."""
+    url = f"{server()}{HOOK_URL}?tool={a.cli}"
+    if a.project and a.cli != "claude":
+        print(f"runyard: --project only works for claude so far; {a.cli}'s hooks are per user", file=sys.stderr)
+        return 1
+    if a.cli == "claude":  # an http hook: no script, and a failed one never holds Claude up
+        path = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "settings.json"
+        if a.project:  # settings.local.json stays out of git: the hooks need this person's key, and a teammate has none
+            path, url = Path(".claude/settings.local.json"), url + "&card=1"
+        hook = {"type": "http", "url": url, "headers": {"Authorization": "Bearer $RUNYARD_API_KEY"},
+                "allowedEnvVars": ["RUNYARD_API_KEY"], "timeout": 3}
+    else:  # sh -c, so the key comes from the environment whether or not Codex runs the command in a shell
+        path = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "hooks.json"
+        hook = {"type": "command", "command": "sh -c 'curl -s -o /dev/null -m 3 -H \"Authorization: Bearer $RUNYARD_API_KEY\" "
+                f"-H \"Content-Type: application/json\" --data-binary @- \"{url}\" || true'"}
+    try:
+        cfg = json.loads(path.read_text()) if path.exists() else {}
+    except ValueError as e:
+        print(f"runyard: {path} is not JSON ({e}), left as it is", file=sys.stderr)
+        return 1
+    hooks = cfg.get("hooks", {})
+    for event in list(hooks):  # take out runyard's own hooks first, so installing twice changes nothing
+        hooks[event] = [g for g in hooks[event] if not any(HOOK_URL in h.get("url", "") + h.get("command", "") for h in g.get("hooks", []))]
+        if not hooks[event]:
+            del hooks[event]
+    if not a.remove:
+        for event in HOOK_EVENTS[a.cli]:
+            hooks.setdefault(event, []).append({"hooks": [hook]})
+    cfg["hooks"] = hooks
+    if not hooks:
+        del cfg["hooks"]
+    if path.exists():
+        path.with_name(path.name + ".bak").write_bytes(path.read_bytes())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(cfg, indent=2) + "\n")
+    if a.remove:
+        return print(f"removed runyard's hooks from {path}")
+    print(f"{path}: {len(HOOK_EVENTS[a.cli])} hooks post to {url}")
+    if not key():
+        print("runyard: set RUNYARD_API_KEY where you start the agent, or the server refuses its hooks", file=sys.stderr)
 
 
 def main(argv=None):
@@ -226,12 +281,25 @@ def main(argv=None):
     watch.add_argument("--interval", type=float, default=10, help="seconds between polls (default 10)")
     watch.set_defaults(fn=cmd_watch)
 
-    ag = sub.add_parser("agent", help=cmd_agent.__doc__)
-    ag.add_argument("--name", default=socket.gethostname(), help="this machine's name (default: its hostname, as runs record it)")
-    ag.add_argument("--interval", type=float, default=10, help="seconds between readings (default 10)")
-    ag.add_argument("--disk", default="/", help="the filesystem whose usage to report (default /)")
-    ag.add_argument("--once", action="store_true", help="send one reading and exit")
-    ag.set_defaults(fn=cmd_agent)
+    bc = sub.add_parser("beacon", help=cmd_beacon.__doc__)
+    bc.add_argument("--name", default=socket.gethostname(), help="this machine's name (default: its hostname, as runs record it)")
+    bc.add_argument("--interval", type=float, default=10, help="seconds between readings (default 10)")
+    bc.add_argument("--disk", default="/", help="the filesystem whose usage to report (default /)")
+    bc.add_argument("--once", action="store_true", help="send one reading and exit")
+    bc.set_defaults(fn=cmd_beacon)
+
+    hooks = sub.add_parser("hooks", help="hooks that tell the server what a coding agent is doing").add_subparsers(dest="sub", required=True)
+    hi = hooks.add_parser("install", help=cmd_hooks.__doc__)
+    hi.add_argument("cli", choices=sorted(HOOK_EVENTS))
+    hi.add_argument("--project", action="store_true", help="for this repository only, so no other session reaches the server (claude)")
+    hi.add_argument("--remove", action="store_true", help="take runyard's hooks out instead")
+    hi.set_defaults(fn=cmd_hooks)
+
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["agent"]:  # the old name; services set up with it keep working
+        # shortcut: an alias forever; drop it once no installed service runs `runyard agent`
+        print("runyard: `runyard agent` is now `runyard beacon`", file=sys.stderr)
+        argv[0] = "beacon"
     a = p.parse_args(argv)
     try:
         return a.fn(a) or 0

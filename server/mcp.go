@@ -19,7 +19,8 @@ import (
 func (s *srv) mcpHandler() http.Handler {
 	server := mcp.NewServer(&mcp.Implementation{Name: "runyard", Version: "0.1.0"}, &mcp.ServerOptions{
 		Instructions: "runyard tracks training runs. Start with list_runs (or list_projects), then get_run for status, config and " +
-			"final metrics, get_metrics for curves, tail_logs for output and errors, get_samples to look at generated images.",
+			"final metrics, get_metrics for curves, tail_logs for output and errors, get_samples to look at generated images. " +
+			"When you run experiments, call report after each one with what you tried and found; list_agents shows every agent's card.",
 	})
 	type listRunsIn struct {
 		Project string `json:"project,omitempty" jsonschema:"only runs of this project"`
@@ -57,6 +58,21 @@ func (s *srv) mcpHandler() http.Handler {
 		Run  string `json:"run" jsonschema:"run id, id prefix or name"`
 		Note string `json:"note" jsonschema:"text appended to the run's notes"`
 	}
+	type reportIn struct {
+		Text    string `json:"text" jsonschema:"what you tried and what came out of it, in a sentence or two, for the people watching"`
+		Next    string `json:"next,omitempty" jsonschema:"what you will try next"`
+		Run     string `json:"run,omitempty" jsonschema:"the run this is about (id, id prefix or name); it also tells runyard which agent session you are"`
+		Session string `json:"session,omitempty" jsonschema:"your session, when no run says it: claude:$CLAUDE_CODE_SESSION_ID in Claude Code (Codex and OpenCode need nothing)"`
+	}
+	type agentsIn struct {
+		Project string `json:"project,omitempty" jsonschema:"only agents working on this project"`
+		Hours   int    `json:"hours,omitempty" jsonschema:"active in the last this many hours (default 24)"`
+	}
+	type metricIn struct {
+		Project string `json:"project" jsonschema:"project name"`
+		Metric  string `json:"metric" jsonschema:"the metric runs are judged by, e.g. eval/acc; empty goes back to a loss"`
+		Goal    string `json:"goal,omitempty" jsonschema:"min or max: which way is better (default min)"`
+	}
 	type tagsIn struct {
 		Run  string   `json:"run" jsonschema:"run id, id prefix or name"`
 		Tags []string `json:"tags" jsonschema:"tags to add"`
@@ -66,7 +82,7 @@ func (s *srv) mcpHandler() http.Handler {
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 			return jsonResult(listProjects(ctx, s.db))
 		})
-	mcp.AddTool(server, &mcp.Tool{Name: "list_machines", Description: "The machines running `runyard agent`: latest CPU, RAM, disk and per-GPU utilization, memory, temperature, power and the processes on each GPU (any user's, not only runyard runs), the running runs on each, and whether it went silent. Use it to see whether a GPU is free before starting a run."},
+	mcp.AddTool(server, &mcp.Tool{Name: "list_machines", Description: "The machines running `runyard beacon`: latest CPU, RAM, disk and per-GPU utilization, memory, temperature, power and the processes on each GPU (any user's, not only runyard runs), the running runs on each, and whether it went silent. Use it to see whether a GPU is free before starting a run."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 			return jsonResult(listHosts(ctx, s))
 		})
@@ -164,6 +180,25 @@ func (s *srv) mcpHandler() http.Handler {
 			s.hub.publish(event{Type: "run", Run: id})
 			return jsonResult(map[string]any{"run": id, "tags": tags}, err)
 		})
+	mcp.AddTool(server, &mcp.Tool{Name: "report", Description: "Writes what you just tried and found on your agent card, which people watch on the kiosk page " +
+		"and list_agents shows. Call it after each experiment. The card's score comes from the project's main metric, not from the report. " +
+		"Needs the API key as a Bearer token."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in reportIn) (*mcp.CallToolResult, any, error) {
+			return jsonResult(s.report(ctx, req, in.Text, in.Next, in.Run, in.Session))
+		})
+	mcp.AddTool(server, &mcp.Tool{Name: "list_agents", Description: "Coding agent sessions (Claude Code, Codex, OpenCode, ...) that started runs, newest first: " +
+		"what each is doing (waiting for a person, working, training, done, error, idle, stale, ended), its runs, the runs tagged keep, its last report."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in agentsIn) (*mcp.CallToolResult, any, error) {
+			return jsonResult(listAgents(ctx, s.db, in.Project, min(or(in.Hours, 24), 24*30)))
+		})
+	mcp.AddTool(server, &mcp.Tool{Name: "set_metric", Description: "Sets the metric a project's runs are judged by and whether lower (min) or higher (max) is better; " +
+		"agent cards show its last value and the best so far. Needs the API key as a Bearer token."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in metricIn) (*mcp.CallToolResult, any, error) {
+			if err := s.mcpKey(ctx, req); err != nil {
+				return nil, nil, err
+			}
+			return jsonResult(in, s.setMetric(ctx, in.Project, in.Metric, in.Goal))
+		})
 
 	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 }
@@ -196,11 +231,18 @@ func (s *srv) resolveRun(ctx context.Context, ref string) (string, error) {
 }
 
 func (s *srv) authorizedRun(ctx context.Context, req *mcp.CallToolRequest, ref string) (string, error) {
-	key, _ := strings.CutPrefix(req.Extra.Header.Get("Authorization"), "Bearer ")
-	if key == "" || !validKey(ctx, s.db, key) {
-		return "", errors.New("writing needs the runyard API key: configure the MCP server with the header Authorization: Bearer <key>")
+	if err := s.mcpKey(ctx, req); err != nil {
+		return "", err
 	}
 	return s.resolveRun(ctx, ref)
+}
+
+func (s *srv) mcpKey(ctx context.Context, req *mcp.CallToolRequest) error {
+	key, _ := strings.CutPrefix(req.Extra.Header.Get("Authorization"), "Bearer ")
+	if key == "" || !validKey(ctx, s.db, key) {
+		return errors.New("writing needs the runyard API key: configure the MCP server with the header Authorization: Bearer <key>")
+	}
+	return nil
 }
 
 type curve struct {

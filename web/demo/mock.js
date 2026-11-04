@@ -433,7 +433,7 @@ const machines = new Map(
   ].map((m) => [m.name, m]),
 )
 
-// load is what a machine's agent reads at time t: whatever runs on each GPU then, or the idle card.
+// load is what a machine's beacon reads at time t: whatever runs on each GPU then, or the idle card.
 function load(m, t) {
   const i = Math.floor(t / (10 * S))
   const on = [...runs.values()].filter((r) => r.host === m.name && r.start <= t && t <= endMs(r))
@@ -640,6 +640,7 @@ function route(method, path, q, body) {
       if (q.has('active')) as = as.filter((a) => !a.dismissed_at)
       return ok(as.slice(0, +q.get('limit') || 100))
     }
+    if (path === '/agents') return ok([]) // shortcut: an empty kiosk, until the demo has agent cards (COB-634)
     if (path === '/hosts') return ok([...machines.values()].map((m) => hostOut(m, now)).sort((a, b) => a.name.localeCompare(b.name)))
     if (p[0] === 'hosts' && p[2] === 'history') {
       const m = machines.get(p[1])
@@ -666,6 +667,10 @@ function route(method, path, q, body) {
   if (method === 'DELETE' && run) {
     runs.delete(run.id)
     publish({ type: 'run' })
+    return ok({})
+  }
+  if (method === 'PATCH' && p[0] === 'projects') {
+    Object.assign(projects.get(p[1]) || {}, { metric: body.metric, goal: body.goal })
     return ok({})
   }
   if (method === 'DELETE' && p[0] === 'projects') {

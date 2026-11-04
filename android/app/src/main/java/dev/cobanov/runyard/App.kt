@@ -280,7 +280,7 @@ fun ServerScreen(store: Store) {
                 if (machines.isNotEmpty()) {
                     item { SectionTitle("Machines") }
                     items(machines, key = { it.name }) { MachineRow(it) }
-                    item { Text("From runyard agent on each machine: every process on its GPUs, whoever started it.", fontSize = 12.sp, color = T.muted) }
+                    item { Text("From runyard beacon on each machine: every process on its GPUs, whoever started it.", fontSize = 12.sp, color = T.muted) }
                 }
                 item { SectionTitle("Server") }
                 item {

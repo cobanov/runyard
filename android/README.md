@@ -14,7 +14,7 @@ v0.4.0 release (allow installs from your browser when Android asks).
   (CPU, RAM, and a row per GPU), samples (images and text tables, with a slider through the steps), logs, and
   config and summary.
 - **Alerts:** the server's alerts, newest first; tap one for its run.
-- **Server:** the machines running `runyard agent`, the address, sign out and change server.
+- **Server:** the machines running `runyard beacon`, the address, sign out and change server.
 
 It reads, and deletes: long-press a project on the home screen or a run in a project's list, then confirm.
 Deleting needs an admin (the server says 403 otherwise). Screens refresh on their own while a run is running

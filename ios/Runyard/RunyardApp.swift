@@ -115,7 +115,7 @@ struct ServerView: View {
                 } header: {
                     Text("Machines")
                 } footer: {
-                    Text("From runyard agent on each machine: every process on its GPUs, whoever started it.")
+                    Text("From runyard beacon on each machine: every process on its GPUs, whoever started it.")
                 }
             }
             Section("Server") {

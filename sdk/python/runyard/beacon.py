@@ -1,4 +1,4 @@
-"""runyard agent: posts this machine's GPUs, CPU, memory and disk to the server every few seconds, training or not,
+"""runyard beacon: posts this machine's GPUs, CPU, memory and disk to the server every few seconds, training or not,
 so the Machines page shows who is using a GPU (any process, not only runyard runs) and the server can tell you when
 the machine goes silent. GPUs need nvidia-ml-py, CPU/RAM/disk and process names need psutil: pip install 'runyard[system]'."""
 import os
@@ -89,11 +89,11 @@ def _text(s):
     return s.decode() if isinstance(s, bytes) else s
 
 
-def agent(server, key, name, interval=10, once=False, disk="/"):
+def beacon(server, key, name, interval=10, once=False, disk="/"):
     """Posts a reading every interval seconds until stopped; a failure is reported once and retried."""
     m = Machine(disk)
     url = f"{server}/api/v1/hosts/{urllib.parse.quote(name)}"
-    print(f"runyard agent: {name} -> {server}, every {interval:g}s ({len(m.gpus)} GPUs"
+    print(f"runyard beacon: {name} -> {server}, every {interval:g}s ({len(m.gpus)} GPUs"
           f"{'' if m.psutil else ', no psutil: no CPU, RAM or disk'})", file=sys.stderr, flush=True)
     failing = False
     while True:
@@ -101,13 +101,13 @@ def agent(server, key, name, interval=10, once=False, disk="/"):
         try:
             request("POST", url, key, m.read())
             if failing:
-                print("runyard agent: sending again", file=sys.stderr, flush=True)
+                print("runyard beacon: sending again", file=sys.stderr, flush=True)
             failing = False
         except Exception as e:
             if once:
                 raise
             if not failing:
-                print(f"runyard agent: {e}; retrying", file=sys.stderr, flush=True)
+                print(f"runyard beacon: {e}; retrying", file=sys.stderr, flush=True)
             failing = True
         if once:
             return

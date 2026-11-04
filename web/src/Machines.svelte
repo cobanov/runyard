@@ -2,7 +2,7 @@
   import { get, send, why, onEvent, throttle, ago, live } from './lib.svelte.js'
   import Chart from './Chart.svelte'
 
-  // Each machine running `runyard agent`: its latest reading, the runs training on it, and every process on its GPUs.
+  // Each machine running `runyard beacon`: its latest reading, the runs training on it, and every process on its GPUs.
   let hosts = $state(null)
   let error = $state('')
   const load = throttle(
@@ -46,7 +46,7 @@
   }
 
   const remove = (h) =>
-    confirm(`Remove ${h.name}? It comes back when its agent sends again.`) &&
+    confirm(`Remove ${h.name}? It comes back when its beacon sends again.`) &&
     send('DELETE', '/hosts/' + encodeURIComponent(h.name)).then(load, (e) => (error = why(e)))
 
   const pct = (v, total) => (typeof v === 'number' && total ? Math.max(0, Math.min(100, (100 * v) / total)) : 0)
@@ -75,9 +75,9 @@
 {/if}
 {#if hosts?.length === 0}
   <div class="card card-pad intro">
-    <p>No machines yet. Run the agent on each machine you train on: it sends GPU, CPU, memory and disk every 10 seconds, training or not, and lists every process on the GPUs, whoever started it.</p>
+    <p>No machines yet. Run the beacon on each machine you train on: it sends GPU, CPU, memory and disk every 10 seconds, training or not, and lists every process on the GPUs, whoever started it.</p>
     <pre class="small">pip install "runyard[system]"
-RUNYARD_SERVER={location.origin} RUNYARD_API_KEY=ry_... runyard agent</pre>
+RUNYARD_SERVER={location.origin} RUNYARD_API_KEY=ry_... runyard beacon</pre>
     <p class="small muted">To keep it running, install it as a service: <a href="https://cobanov.github.io/runyard/server/#machines">Run the server, Machines</a>. The server tells your channels when a machine goes silent.</p>
   </div>
 {:else if hosts}

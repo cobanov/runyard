@@ -88,7 +88,7 @@ data class Alert(
     val level: String, val title: String, val body: String, val dismissedAt: Long?,
 )
 
-/** A machine running `runyard agent`: its latest reading, every process on its GPUs, and the runs on it. */
+/** A machine running `runyard beacon`: its latest reading, every process on its GPUs, and the runs on it. */
 data class Machine(
     val name: String, val seenAt: Long, val silent: Boolean, val load: SysLoad,
     val procs: List<String>, val runs: List<String>,

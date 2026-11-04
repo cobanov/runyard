@@ -383,7 +383,7 @@ class Demo(private val t0: Long = System.currentTimeMillis()) : Backend {
         }
     }
 
-    // load is what a machine's agent reads at time t: whatever runs on each GPU then, or the idle card.
+    // load is what a machine's beacon reads at time t: whatever runs on each GPU then, or the idle card.
     private fun hostOut(b: Box, now: Long): JSONObject {
         val t = min(b.gone ?: Long.MAX_VALUE, now / (10 * S) * 10 * S)
         val i = t / (10 * S)

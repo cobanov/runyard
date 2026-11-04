@@ -47,6 +47,20 @@
       .map(([, r]) => r)
   })
 
+  // The project's main metric: agent cards on the kiosk score by it. '' leaves it to a loss.
+  const proj = $derived(store.projects?.find((p) => p.name === project))
+  const keys = $derived([...new Set((runs || []).flatMap((r) => Object.keys(r.metrics || {}).filter((k) => !k.startsWith('sys/'))))].sort())
+  let metricFailed = $state('')
+  async function judge(metric, goal) {
+    try {
+      await send('PATCH', '/projects/' + encodeURIComponent(project), { metric, goal })
+      metricFailed = ''
+      loadProjects()
+    } catch (err) {
+      metricFailed = why(err)
+    }
+  }
+
   // Deleting asks for the project's name, typed: it takes every run with it.
   let confirming = $state(false)
   let typed = $state('')
@@ -76,6 +90,21 @@
     </div>
   </div>
 </div>
+
+{#if keys.length}
+  <p class="judge muted small">
+    <label for="judge-metric">Judged by</label>
+    <select id="judge-metric" class="field" value={proj?.metric || ''} onchange={(e) => judge(e.target.value, proj?.goal || 'min')}>
+      <option value="">a loss</option>
+      {#each keys as k}<option value={k}>{k}</option>{/each}
+    </select>
+    <select class="field" value={proj?.goal || 'min'} disabled={!proj?.metric} onchange={(e) => judge(proj.metric, e.target.value)} aria-label="Which way is better">
+      <option value="min">lower is better</option>
+      <option value="max">higher is better</option>
+    </select>
+    {#if metricFailed}<span><span class="danger">Failed.</span> {metricFailed}</span>{/if}
+  </p>
+{/if}
 
 {#snippet head(key, label, cls = '')}
   <th class={cls} aria-sort={aria(key)}>
@@ -143,6 +172,16 @@
 {/if}
 
 <style>
+  .judge {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: -8px 0 16px;
+  }
+  .judge .field {
+    height: 32px;
+  }
   .tools {
     display: flex;
     flex-wrap: wrap;
