@@ -67,10 +67,21 @@ function project(name, t) {
   if (!projects.has(name)) projects.set(name, { name, created_at: iso(t) })
 }
 
+// The coding agents behind the runs, by run seed; agentOut works out their cards from those runs, as the server does.
+const agents = [
+  { id: 'claude:7f3a', tool: 'claude', cwd: '/work/qwen-sft', project: 'qwen-sft', host: 'a100-node', metric: 'eval/loss', goal: 'min', seeds: [11, 12, 13],
+    report: 'Rank 64 finished at 1.128 eval loss. Rank 16 without packing crashed at 1.222, so this run puts packing back.', next: 'If rank 16 stays above 1.15, back to rank 64' },
+  { id: 'codex:c21e', tool: 'codex', cwd: '/work/pixel-diffusion', project: 'pixel-diffusion', host: 'lab-4090', metric: 'eval/fid', goal: 'min', seeds: [21, 22, 23],
+    report: 'EMA 0.999 took FID from 26.4 with the U-Net to 20.3. Saving samples for the next run needs 40 GB of disk, so I am asking first.', next: 'Keep the DiT, try a longer EMA', waiting: true },
+  { id: 'claude:b04d', tool: 'claude', cwd: '/work/cifar10', project: 'cifar10-resnet', host: 'lab-4090', metric: 'val/acc', goal: 'max', seeds: [31, 32],
+    report: 'lr 0.1 reached 96.1% against 94.9% for 0.05, in the same 30 minutes. lr 0.1 stays and the sweep stops here.' },
+]
+
 // addRun starts a run at o.start; advance() then plays its steps up to any moment, history and live alike.
 function addRun(o) {
   const r = {
     id: uuid(o.seed),
+    agent: agents.find((a) => a.seeds.includes(o.seed))?.id ?? null,
     project: o.project,
     name: o.name,
     status: 'running',
@@ -564,10 +575,23 @@ export function startRun() {
 // ---- the API ----
 
 const pub = (r, withMetrics) => {
-  const { id, project, name, status, config, summary, tags, notes, host, git, started_at, ended_at, last_heartbeat_at } = r
-  return { id, project, name, status, config, summary, tags, notes, host, git, started_at, ended_at, last_heartbeat_at, ...(withMetrics && { metrics: r.sums }) }
+  const { id, project, name, status, config, summary, tags, notes, host, git, started_at, ended_at, last_heartbeat_at, agent } = r
+  return { id, project, name, status, config, summary, tags, notes, host, git, started_at, ended_at, last_heartbeat_at, agent, ...(withMetrics && { metrics: r.sums }) }
 }
 const byStart = (a, b) => b.start - a.start
+
+function agentOut(a, now) {
+  const rs = [...runs.values()].filter((r) => r.agent === a.id).sort(byStart)
+  const last = rs[0]
+  const running = rs.filter((r) => r.status === 'running').length
+  const state = a.waiting ? 'waiting' : running ? 'training' : last?.status === 'finished' ? 'done' : 'error'
+  return {
+    id: a.id, tool: a.tool, label: '', host: a.host, cwd: a.cwd, project: a.project, metric: a.metric, goal: a.goal, state, said: '',
+    report: a.report, next: a.next || '', report_run: last?.name ?? null, report_at: iso(now - 4 * M), runs: rs.length, running,
+    kept: rs.filter((r) => r.tags.includes('keep')).length, last_run: last ? { id: last.id, name: last.name, status: last.status, ended_at: last.ended_at } : null,
+    started_at: rs.at(-1)?.started_at, active_at: iso(now - 4 * M),
+  }
+}
 
 // series cuts a key's history into at most n buckets of equal step width, as the server does.
 function series(rows, n) {
@@ -640,7 +664,7 @@ function route(method, path, q, body) {
       if (q.has('active')) as = as.filter((a) => !a.dismissed_at)
       return ok(as.slice(0, +q.get('limit') || 100))
     }
-    if (path === '/agents') return ok([]) // shortcut: an empty kiosk, until the demo has agent cards (COB-634)
+    if (path === '/agents') return ok(agents.filter((a) => !q.get('project') || a.project === q.get('project')).map((a) => agentOut(a, now)))
     if (path === '/hosts') return ok([...machines.values()].map((m) => hostOut(m, now)).sort((a, b) => a.name.localeCompare(b.name)))
     if (p[0] === 'hosts' && p[2] === 'history') {
       const m = machines.get(p[1])
