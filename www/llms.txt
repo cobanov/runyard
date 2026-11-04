@@ -18,7 +18,7 @@ Key facts:
   training or not; MCP `list_machines` reads them, and the server notifies when a machine goes silent.
 - A run started from Claude Code, Codex or OpenCode lands on that agent session's card on its own (the library
   reads the session id the CLI sets); the MCP tool `report` writes the agent's findings there, `list_agents` and
-  `/#/kiosk` show the cards, and `runyard hooks install claude|codex` adds "waiting for you".
+  `/#/kiosk` show the cards, and `runyard hooks install claude|codex|gemini|opencode` adds "waiting for you".
 
 ## Docs
 

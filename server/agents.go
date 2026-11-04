@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ const (
 	agentStale = 2 * time.Hour    // no hook, report or run activity for this long
 	hookFresh  = 30 * time.Minute // a "working" hook older than this means the CLI stopped mid-turn
 	doneFor    = 30 * time.Minute // a run that finished shows its session as done for this long
+	waitNotice = 2 * time.Minute  // a prompt answered sooner never reaches a phone
 )
 
 type Agent struct {
@@ -148,6 +150,7 @@ func (s *srv) recordAgent(ctx context.Context, a *runAgent, project int64, host 
 var hookStates = map[string]string{
 	"SessionStart": "idle", "UserPromptSubmit": "working", "PreToolUse": "working", "PostToolUse": "working",
 	"PermissionRequest": "waiting", "Stop": "idle", "StopFailure": "error", "SessionEnd": "ended",
+	"BeforeAgent": "working", "AfterTool": "working", "AfterAgent": "idle", // Gemini CLI's names
 }
 
 func (s *srv) agentRoutes(mux *http.ServeMux) {
@@ -167,6 +170,7 @@ func (s *srv) agentRoutes(mux *http.ServeMux) {
 			CWD     string `json:"cwd"`
 			Type    string `json:"notification_type"`
 			Said    string `json:"last_assistant_message"`
+			Reply   string `json:"prompt_response"` // the same, from Gemini CLI
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 32<<20)).Decode(&in); err != nil { // PostToolUse carries the tool's whole output
 			httpError(w, http.StatusBadRequest, err.Error())
@@ -175,11 +179,14 @@ func (s *srv) agentRoutes(mux *http.ServeMux) {
 		state := hookStates[in.Event]
 		if in.Event == "Notification" {
 			switch in.Type {
-			case "permission_prompt", "elicitation_dialog", "agent_needs_input":
+			case "permission_prompt", "elicitation_dialog", "agent_needs_input", "ToolPermission":
 				state = "waiting"
 			case "idle_prompt":
 				state = "idle"
 			}
+		}
+		if card := r.Header.Get("X-Runyard-Session"); card != "" { // Gemini CLI keeps its session id from runs, so its hooks name the card runs use
+			in.Session = card
 		}
 		tool := r.URL.Query().Get("tool")
 		if state == "" || in.Session == "" || len(in.Session) > 200 || !agentTool.MatchString(tool) {
@@ -193,7 +200,7 @@ func (s *srv) agentRoutes(mux *http.ServeMux) {
 				said = CASE WHEN $5::text <> '' AND (excluded.card OR agent_sessions.card OR agent_sessions.report <> ''
 						OR EXISTS (SELECT 1 FROM runs WHERE agent = agent_sessions.id))
 					THEN $5::text ELSE agent_sessions.said END`,
-			tool+":"+in.Session, tool, clip(in.CWD, 1000), state, clip(in.Said, 2000), r.URL.Query().Get("card") == "1")
+			tool+":"+in.Session, tool, clip(in.CWD, 1000), state, clip(in.Said+in.Reply, 2000), r.URL.Query().Get("card") == "1")
 		if err != nil {
 			s.fail(w, err)
 			return
@@ -293,5 +300,43 @@ func (s *srv) report(ctx context.Context, req *mcp.CallToolRequest, text, next, 
 		return nil, err
 	}
 	s.hub.publish(event{Type: "agent"})
+	if run != nil { // the card keeps the last report; the run keeps every report about it, on its page
+		note := clip(text, 4000)
+		if next != "" {
+			note += "\nNext: " + clip(next, 1000)
+		}
+		if err := s.addNote(ctx, *run, note); err != nil {
+			return nil, err
+		}
+	}
 	return map[string]any{"session": found, "run": run, "report": text}, nil
+}
+
+// notifyWaiting tells the channels that hear every project's alerts about an agent stuck at a permission prompt, once
+// per wait. Only sessions with a card: a prompt in an unrelated session is no one's business here.
+// shortcut: Claude Code only says a prompt was answered when the command exits, so a long approved command that is not a
+// run also notifies; upgrade if its hooks ever report the answer, as OpenCode's events do.
+func (s *srv) notifyWaiting(ctx context.Context) {
+	rows, _ := s.db.Query(ctx, `UPDATE agent_sessions a SET told_at = now()
+		WHERE hook = 'waiting' AND hook_at < now() - $1::interval AND hook_at > now() - $2::interval AND (told_at IS NULL OR told_at < hook_at)
+			AND (card OR report <> '' OR EXISTS (SELECT 1 FROM runs WHERE agent = a.id))
+		RETURNING tool, label, cwd`, waitNotice.String(), agentStale.String())
+	waiting, err := pgx.CollectRows(rows, pgx.RowToStructByPos[struct{ Tool, Label, CWD string }])
+	if err != nil {
+		log.Print("waiting agents: ", err)
+	}
+	for _, a := range waiting {
+		name := a.Label
+		if name == "" && a.CWD != "" {
+			name = path.Base(a.CWD)
+		}
+		if name == "" {
+			name = a.Tool
+		}
+		m := message{Event: "agent", Title: name + " is waiting for you", Body: a.Tool + " asked for a permission and is stuck until someone answers.", priority: "high", tags: "hourglass"}
+		if s.url != "" {
+			m.URL = s.url + "/#/kiosk"
+		}
+		go s.notifyAll(m)
+	}
 }

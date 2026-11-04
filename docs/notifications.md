@@ -22,7 +22,10 @@ they stay out of the process list. A webhook gets the whole event as JSON.
 
 Channels that hear `alert` for every project also hear about machines: "toji went silent" when its
 [`runyard beacon`](server.md#machines) has sent nothing for 2 minutes, and "toji is back" when it sends again (event
-`host` in a webhook's JSON).
+`host` in a webhook's JSON). They also hear "gba is waiting for you" when a [coding agent](agents.md) has been stuck at
+a permission prompt for 2 minutes, once per prompt (event `agent`). That takes its hooks; a prompt answered within
+the 2 minutes stays quiet. Claude Code only says a prompt was answered when the command exits, so a long command you
+approved can notify too, unless it is a run: a run starting ends the wait.
 
 ## Web push
 

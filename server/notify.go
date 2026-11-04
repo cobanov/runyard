@@ -272,6 +272,7 @@ func (s *srv) watchCrashes(ctx context.Context) {
 		s.markCrashed(ctx, crashAfter)
 		s.markStalled(ctx)
 		s.markSilentHosts(ctx)
+		s.notifyWaiting(ctx)
 		t.Reset(30 * time.Second)
 	}
 }

@@ -48,12 +48,14 @@ came out (the numbers), and what you will try next, and pass the run's name as `
 `keep` with `add_tags`, and the dead ends `discard`.
 ```
 
-A card counts the runs tagged `keep`.
+A card counts the runs tagged `keep`, and shows the last report. A report that names a run also lands in that run's
+notes, so the run's page keeps every report about it.
 
 ## Hooks: waiting for you, working, idle
 
 Hooks add what runs cannot show: an agent **waiting for you** (it asked for a permission and is stuck until someone
-answers), **working** (mid-turn), and **idle** (the turn ended). A card waiting for you sorts first. A run starting
+answers), **working** (mid-turn), and **idle** (the turn ended). A card waiting for you sorts first, and after two
+minutes the channels that hear every project's alerts [get a notification](notifications.md). A run starting
 ends the wait, because the approved command is often the training itself. Any other long command shows waiting until
 it exits, as no hook says the prompt was answered sooner. A wait with nothing new for two hours goes quiet: the CLI
 was most likely killed at its prompt.
@@ -62,6 +64,8 @@ was most likely killed at its prompt.
 runyard hooks install claude --project   # this repository only: .claude/settings.local.json
 runyard hooks install claude             # every session of this user: ~/.claude/settings.json
 runyard hooks install codex              # every session of this user: ~/.codex/hooks.json
+runyard hooks install gemini             # every session of this user: ~/.gemini/settings.json
+runyard hooks install opencode           # every session of this user: a plugin in ~/.config/opencode/plugin
 runyard hooks install claude --remove
 ```
 
@@ -80,21 +84,56 @@ a session's first run or report, and until then its last message is not kept. Th
 before a session's first run does not show. What a hook posts includes the tool's input and output; the server reads
 five fields and drops the rest, but it does travel, so use `https` or a private network for `RUNYARD_SERVER`.
 
-OpenCode and Gemini CLI have no `hooks install` yet; their cards work from runs and reports.
+Codex runs a new hook only once you trust it: open Codex, type `/hooks` and trust them, or it skips them. `codex exec`
+skips them without a word; `--dangerously-bypass-hook-trust` runs them there, for automation you already vet.
+
+OpenCode has no hook settings, so `hooks install opencode` writes a small plugin that listens to its events. The
+plugin runs inside OpenCode's background service, not your shell: `opencode service restart` loads it, from a shell
+where `RUNYARD_API_KEY` is set, because the service keeps the environment it started with. OpenCode says when a prompt
+is answered, so its cards leave waiting at once.
+
+Gemini CLI gives its session id to hooks but not to the commands it runs, so a run cannot tell them apart. Its hooks
+use the card its runs use, one per machine and directory.
+
+With `allowedHttpHookUrls` in Claude Code's settings, add the server to it, or Claude Code prints `HTTP hook blocked`
+for each event and the card learns nothing.
+
+## OpenCode and MCP
+
+In `~/.config/opencode/opencode.jsonc`:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "runyard": {
+        "type": "remote",
+        "url": "https://my-server/mcp",
+        "headers": { "Authorization": "Bearer {env:RUNYARD_API_KEY}" },
+        "oauth": false
+      }
+    }
+  }
+}
+```
+
+OpenCode 2 hands MCP tools to the model through its `execute` tool, as `tools["runyard"].report(...)`, and says so in
+the prompt, though the tool list does not show them. A call in the first moments of a fresh `opencode run` can answer
+`Unknown tool` while the server is still connecting.
 
 ## Codex's sandbox
 
-Codex runs commands in a sandbox with the network off, so a run it starts cannot reach the server, and
-`~/.cache/runyard` is not writable. The library says so when the run starts. To let runs through, in
-`~/.codex/config.toml`:
+Codex runs commands in a sandbox with the network off, so a run it starts cannot reach the server and is lost. The
+library says so when the run starts. To let runs through, in `~/.codex/config.toml`:
 
 ```toml
 [sandbox_workspace_write]
 network_access = true
 ```
 
-and set `RUNYARD_CACHE` to a directory inside the workspace (add it to `.gitignore`). For the MCP tools to run
-without asking each time, add `default_tools_approval_mode = "approve"` under `[mcp_servers.runyard]`.
+`~/.cache/runyard` stays read-only in there, so a run cannot wait out a server that is down. If that matters, set
+`RUNYARD_CACHE` to a directory inside the workspace (add it to `.gitignore`). For the MCP tools to run without asking
+each time, add `default_tools_approval_mode = "approve"` under `[mcp_servers.runyard]`.
 
 ## The kiosk
 

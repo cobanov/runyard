@@ -194,16 +194,21 @@ func (s *srv) markSilentHosts(ctx context.Context) {
 	s.db.Exec(ctx, `DELETE FROM host_samples WHERE ts < now() - interval '24 hours'`)
 }
 
-// notifyHost sends a machine notice to the channels that hear every project's alerts. Runs in its own goroutine.
-func (s *srv) notifyHost(title, body string, bad bool) {
+// notifyAll sends m to the channels that hear every project's alerts. Runs in its own goroutine.
+func (s *srv) notifyAll(m message) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	rows, _ := s.db.Query(ctx, `SELECT DISTINCT c.id, c.kind, c.config FROM rules r JOIN channels c ON c.id = r.channel_id
 		WHERE r.event = 'alert' AND r.project_id IS NULL`)
 	chans, err := pgx.CollectRows(rows, pgx.RowToStructByPos[channel])
 	if err != nil {
-		log.Printf("notify %s: %v", title, err)
+		log.Printf("notify %s: %v", m.Title, err)
 	}
+	s.deliver(ctx, chans, m)
+}
+
+// notifyHost sends a machine notice. Runs in its own goroutine.
+func (s *srv) notifyHost(title, body string, bad bool) {
 	m := message{Event: "host", Title: title, Body: body, priority: "default", tags: "white_check_mark"}
 	if bad {
 		m.priority, m.tags = "high", "warning"
@@ -211,5 +216,5 @@ func (s *srv) notifyHost(title, body string, bad bool) {
 	if s.url != "" {
 		m.URL = s.url + "/#/machines"
 	}
-	s.deliver(ctx, chans, m)
+	s.notifyAll(m)
 }

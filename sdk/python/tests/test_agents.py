@@ -1,6 +1,8 @@
 """Coding agents: a run names the agent session it was started from, and `runyard hooks install` wires up the CLIs."""
 import json
 import os
+import shutil
+import subprocess
 
 import pytest
 
@@ -84,6 +86,36 @@ def test_hooks_install(tmp_path, no_agent, capsys):
     assert main(["hooks", "install", "codex", "--project"]) == 1
 
 
+def test_opencode_plugin(tmp_path, no_agent, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNYARD_SERVER", "https://ry.example")
+    plugin = tmp_path / "opencode/plugin/runyard.js"
+    assert main(["hooks", "install", "opencode"]) == 0
+    assert 'const url = "https://ry.example/api/v1/agents/events?tool=opencode"' in plugin.read_text()
+    assert "ry_" not in plugin.read_text()  # the key stays in the environment
+    if shutil.which("node"):
+        checked = tmp_path / "plugin.mjs"
+        checked.write_text(plugin.read_text())
+        subprocess.run(["node", "--check", str(checked)], check=True)
+    assert main(["hooks", "install", "opencode", "--project"]) == 1
+    main(["hooks", "install", "opencode", "--remove"])
+    assert not plugin.exists()
+
+
+def test_gemini_hooks_share_the_runs_card(server, tmp_path, no_agent):
+    """Gemini CLI's session id never reaches a run, so its hooks must land on the card the run made."""
+    no_agent.setenv("HOME", str(tmp_path))
+    no_agent.setenv("GEMINI_CLI", "1")
+    ry.init(project="cards", name="g", capture_output=False, system=False).finish()
+    main(["hooks", "install", "gemini"])
+    cmd = json.loads((tmp_path / ".gemini/settings.json").read_text())["hooks"]["AfterAgent"][0]["hooks"][0]["command"]
+    env = {**os.environ, "GEMINI_CWD": os.getcwd()}
+    body = json.dumps({"session_id": "uuid", "hook_event_name": "AfterAgent", "prompt_response": "all done"})
+    subprocess.run(cmd, shell=True, input=body.encode(), check=True, env=env)
+    cards = [a for a in get(f"{server}/api/v1/agents") if a["tool"] == "gemini"]
+    assert len(cards) == 1 and cards[0]["runs"] == 1 and cards[0]["said"] == "all done", cards
+
+
 def test_codex_hook_command_posts(server, tmp_path, no_agent):
     """The command Codex runs reaches the server with the event on stdin."""
     no_agent.setenv("CODEX_HOME", str(tmp_path))
@@ -91,7 +123,6 @@ def test_codex_hook_command_posts(server, tmp_path, no_agent):
     ry.init(project="cards", name="a", capture_output=False, system=False).finish()  # a card starts with a run
     main(["hooks", "install", "codex"])
     cmd = json.loads((tmp_path / "hooks.json").read_text())["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
-    import subprocess
 
     event = {"session_id": "cx", "hook_event_name": "UserPromptSubmit", "cwd": "/repo"}
     subprocess.run(cmd, shell=True, input=json.dumps(event), text=True, check=True, env=dict(os.environ))

@@ -12,7 +12,7 @@
     runyard beacon [--name NAME] [--interval 10]
                                      sends this machine's GPU, CPU, memory and disk to the server until stopped,
                                      for the Machines page (run it as a service, see docs/server.md)
-    runyard hooks install claude|codex [--project] [--remove]
+    runyard hooks install claude|codex|gemini|opencode [--project] [--remove]
                                      hooks that tell the server what a coding agent is doing (working, waiting
                                      for you, done) for its card on the kiosk page (see docs/agents.md);
                                      --project: this repository only, the better choice (claude)
@@ -190,8 +190,71 @@ def cmd_beacon(a):
 HOOK_EVENTS = {
     "claude": ("UserPromptSubmit", "PostToolUse", "PermissionRequest", "Notification", "Stop", "StopFailure", "SessionEnd"),  # its http hooks skip SessionStart
     "codex": ("SessionStart", "UserPromptSubmit", "PostToolUse", "PermissionRequest", "Stop", "SessionEnd"),
+    "gemini": ("BeforeAgent", "AfterTool", "Notification", "AfterAgent", "SessionEnd"),
 }
 HOOK_URL = "/api/v1/agents/events"
+# OpenCode has no hook settings: a plugin subscribes to its events, here named for the hooks the server knows.
+OPENCODE_PLUGIN = """\
+// Written by `runyard hooks install opencode`, removed by the same command with --remove.
+const url = %s
+const hooks = {
+  "session.execution.started": "UserPromptSubmit",
+  "permission.asked": "PermissionRequest",
+  "permission.replied": "PostToolUse",
+  "session.execution.succeeded": "Stop",
+  "session.execution.interrupted": "Stop",
+  "session.execution.failed": "StopFailure",
+  "session.deleted": "SessionEnd",
+}
+
+export default {
+  id: "runyard",
+  setup: async (ctx) => {
+    const events = ctx.event.subscribe()[Symbol.asyncIterator]()
+    const said = new Map() // session -> its last message, sent when the turn ends
+    const dirs = new Map() // session -> its directory: one service serves them all, and most events do not say which
+    const listen = async () => {
+      for (let e = await events.next(); !e.done; e = await events.next()) {
+        const { type, data } = e.value
+        if (type === "session.created") dirs.set(data.sessionID, data.location?.directory)
+        if (type === "session.text.ended") said.set(data.sessionID, data.text)
+        if (!hooks[type]) continue
+        const body = { session_id: data.sessionID, hook_event_name: hooks[type], cwd: dirs.get(data.sessionID) }
+        if (hooks[type].startsWith("Stop")) {
+          body.last_assistant_message = said.get(data.sessionID)
+          said.delete(data.sessionID)
+        }
+        fetch(url, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${process.env.RUNYARD_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(3000),
+        }).catch(() => {}) // a server that is down never holds the agent up
+      }
+    }
+    listen()
+    return () => events.return?.()
+  },
+}
+"""
+
+
+def curl_hook(url, header=""):
+    """sh -c, so the key comes from the environment whether or not the CLI runs the command in a shell."""
+    return {"type": "command", "command": f"sh -c 'curl -s -o /dev/null -m 3 -H \"Authorization: Bearer $RUNYARD_API_KEY\" {header}"
+            f"-H \"Content-Type: application/json\" --data-binary @- \"{url}\" || true'"}
+
+
+def opencode_hooks(a, url):
+    path = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "opencode/plugin/runyard.js"
+    if a.remove:
+        path.unlink(missing_ok=True)
+        return print(f"removed {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(OPENCODE_PLUGIN % json.dumps(url))
+    print(f"{path}: posts to {url}\nrestart OpenCode's service to load it: opencode service restart")
+    if not key():
+        print("runyard: set RUNYARD_API_KEY where you start OpenCode, or the server refuses its events", file=sys.stderr)
 
 
 def cmd_hooks(a):
@@ -200,16 +263,20 @@ def cmd_hooks(a):
     if a.project and a.cli != "claude":
         print(f"runyard: --project only works for claude so far; {a.cli}'s hooks are per user", file=sys.stderr)
         return 1
+    if a.cli == "opencode":
+        return opencode_hooks(a, url)
     if a.cli == "claude":  # an http hook: no script, and a failed one never holds Claude up
         path = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "settings.json"
         if a.project:  # settings.local.json stays out of git: the hooks need this person's key, and a teammate has none
             path, url = Path(".claude/settings.local.json"), url + "&card=1"
         hook = {"type": "http", "url": url, "headers": {"Authorization": "Bearer $RUNYARD_API_KEY"},
                 "allowedEnvVars": ["RUNYARD_API_KEY"], "timeout": 3}
-    else:  # sh -c, so the key comes from the environment whether or not Codex runs the command in a shell
+    elif a.cli == "gemini":  # its session id reaches hooks but not runs, so hooks name the card runs use: machine and directory
+        path = Path.home() / ".gemini/settings.json"
+        hook = curl_hook(url, '-H "X-Runyard-Session: $(hostname):$GEMINI_CWD" ')
+    else:
         path = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "hooks.json"
-        hook = {"type": "command", "command": "sh -c 'curl -s -o /dev/null -m 3 -H \"Authorization: Bearer $RUNYARD_API_KEY\" "
-                f"-H \"Content-Type: application/json\" --data-binary @- \"{url}\" || true'"}
+        hook = curl_hook(url)
     try:
         cfg = json.loads(path.read_text()) if path.exists() else {}
     except ValueError as e:
@@ -233,6 +300,8 @@ def cmd_hooks(a):
     if a.remove:
         return print(f"removed runyard's hooks from {path}")
     print(f"{path}: {len(HOOK_EVENTS[a.cli])} hooks post to {url}")
+    if a.cli == "codex":
+        print("trust them with /hooks in Codex: until then it skips them, and `codex exec` does not say so")
     if not key():
         print("runyard: set RUNYARD_API_KEY where you start the agent, or the server refuses its hooks", file=sys.stderr)
 
@@ -290,7 +359,7 @@ def main(argv=None):
 
     hooks = sub.add_parser("hooks", help="hooks that tell the server what a coding agent is doing").add_subparsers(dest="sub", required=True)
     hi = hooks.add_parser("install", help=cmd_hooks.__doc__)
-    hi.add_argument("cli", choices=sorted(HOOK_EVENTS))
+    hi.add_argument("cli", choices=[*sorted(HOOK_EVENTS), "opencode"])
     hi.add_argument("--project", action="store_true", help="for this repository only, so no other session reaches the server (claude)")
     hi.add_argument("--remove", action="store_true", help="take runyard's hooks out instead")
     hi.set_defaults(fn=cmd_hooks)

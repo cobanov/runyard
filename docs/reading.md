@@ -22,7 +22,7 @@ runyard artifacts RUN [--get NAME] [--out DIR]
 runyard sync                     # sends runs saved while the server was unreachable
 runyard watch DIR [--project P] [--once] [--interval 10]
 runyard beacon [--name NAME]     # this machine's GPUs, CPU, memory and disk, for Machines
-runyard hooks install claude|codex [--remove]   # agent hooks, see Coding agents
+runyard hooks install claude|codex|gemini|opencode [--remove]   # agent hooks, see Coding agents
 ```
 
 Every read command takes `--json` for scripts and agents. With `RUNYARD_AUTH` on, set `RUNYARD_API_KEY` for reads too.

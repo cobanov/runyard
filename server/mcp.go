@@ -165,8 +165,7 @@ func (s *srv) mcpHandler() http.Handler {
 			if err != nil {
 				return nil, nil, err
 			}
-			_, err = s.db.Exec(ctx, `UPDATE runs SET notes = CASE WHEN notes = '' THEN $2 ELSE notes || E'\n' || $2 END WHERE id = $1::uuid`, id, in.Note)
-			s.hub.publish(event{Type: "run", Run: id})
+			err = s.addNote(ctx, id, in.Note)
 			return jsonResult(map[string]string{"run": id, "added": in.Note}, err)
 		})
 	mcp.AddTool(server, &mcp.Tool{Name: "add_tags", Description: "Adds tags to a run. Needs the API key as a Bearer token."},
@@ -235,6 +234,12 @@ func (s *srv) authorizedRun(ctx context.Context, req *mcp.CallToolRequest, ref s
 		return "", err
 	}
 	return s.resolveRun(ctx, ref)
+}
+
+func (s *srv) addNote(ctx context.Context, run, note string) error {
+	_, err := s.db.Exec(ctx, `UPDATE runs SET notes = CASE WHEN notes = '' THEN $2 ELSE notes || E'\n' || $2 END WHERE id = $1::uuid`, run, note)
+	s.hub.publish(event{Type: "run", Run: run})
+	return err
 }
 
 func (s *srv) mcpKey(ctx context.Context, req *mcp.CallToolRequest) error {
