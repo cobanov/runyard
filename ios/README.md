@@ -3,9 +3,10 @@
 A native iPhone app for a runyard server, the way the Jellyfin app works: type the server's address, sign in
 if the server has `RUNYARD_AUTH` on, and read your runs.
 
-- **Projects:** a card per running run (its main metric with a sparkline, progress and a time-left guess when
-  the config names a total such as `max_steps` or `num_train_epochs`, heartbeat, and the machine's CPU and per-GPU
-  load), then every project and its runs.
+- **Projects:** a card per coding agent session from the last day, most urgent first, as on the web's kiosk (none
+  on a server before 0.5.0; a tap opens its last run), a card per running run (its main metric with a sparkline,
+  progress and a time-left guess when the config names a total such as `max_steps` or `num_train_epochs`, heartbeat,
+  and the machine's CPU and per-GPU load), then every project and its runs.
 - **A run:** status, duration, heartbeat and alerts, then tabs for charts (touch a chart for a value), system load
   (CPU, RAM, and a row per GPU: utilisation, memory, temperature, power), samples (images, videos, text tables,
   with a slider through the steps), logs, config and summary, and artifacts.

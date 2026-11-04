@@ -46,6 +46,10 @@ nonisolated struct Run: Decodable, Identifiable, Hashable, Sendable {
             ?? m.keys.sorted().max { m[$0]!.count < m[$1]!.count }!
         return (key, m[key]!.last.value)
     }
+    /// The number on an agent's card: the project's main metric, else what a row shows.
+    func score(_ metric: String) -> (key: String, value: Double)? {
+        metric.isEmpty ? mainMetric : metrics?[metric].map { (metric, $0.last.value) }
+    }
     /// How long it ran: until it ended, until now while running, else until its last heartbeat (a crash).
     func duration(now: Date = .now) -> TimeInterval {
         (endedAt ?? (running ? now : lastHeartbeatAt ?? startedAt)).timeIntervalSince(startedAt)
@@ -197,6 +201,32 @@ nonisolated struct Machine: Decodable, Identifiable, Sendable {
     }
     /// Every GPU process, with the GPU it is on.
     var procs: [(gpu: Int, proc: Proc)] { (stats.gpus ?? []).flatMap { g in (g.procs ?? []).map { (g.i, $0) } } }
+}
+
+/// A coding agent's session (server/agents.go), as the web's kiosk shows it (web/src/Kiosk.svelte).
+nonisolated struct Agent: Decodable, Identifiable, Sendable {
+    struct LastRun: Decodable, Sendable {
+        let id, name: String
+    }
+    let id, tool, label, host, cwd, metric, state, said, report: String
+    let project: String?
+    let runs: Int
+    let lastRun: LastRun?
+    let activeAt: Date
+    enum CodingKeys: String, CodingKey {
+        case id, tool, label, host, cwd, metric, state, said, report, project, runs
+        case lastRun = "last_run", activeAt = "active_at"
+    }
+
+    var title: String { !label.isEmpty ? label : cwd.split(separator: "/").last.map(String.init) ?? tool }
+    var word: String {
+        ["waiting": "Waiting for you", "error": "Error", "done": "Done", "training": "Training", "working": "Working",
+         "idle": "Idle", "stale": "Quiet", "ended": "Ended"][state] ?? state
+    }
+    private var rank: Int { ["waiting": 0, "error": 1, "done": 2, "training": 3, "working": 3, "idle": 4, "stale": 5, "ended": 6][state] ?? 7 }
+
+    /// Whatever needs a person comes first, then the newest activity.
+    static func urgentFirst(_ a: Agent, _ b: Agent) -> Bool { (a.rank, b.activeAt) < (b.rank, a.activeAt) }
 }
 
 /// A metric value: the server sends NaN and ±Infinity as strings, which JSON numbers cannot hold.

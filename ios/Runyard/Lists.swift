@@ -1,9 +1,10 @@
 import Charts
 import SwiftUI
 
-/// Home: what is training now, each at a glance, then every project.
+/// Home: the coding agents, what is training now, each at a glance, then every project.
 struct HomeView: View {
     @Environment(Store.self) private var store
+    @State private var agents: [Agent] = []
     @State private var running: [Run] = []
     @State private var spark: [String: [Double]] = [:] // run id -> recent values of its main metric
     @State private var projects: [Project] = []
@@ -14,6 +15,18 @@ struct HomeView: View {
 
     var body: some View {
         List {
+            if !agents.isEmpty {
+                Section("Agents") {
+                    ForEach(agents) { a in
+                        let card = AgentCard(agent: a, score: running.first { $0.id == a.lastRun?.id }?.score(a.metric))
+                        if let run = a.lastRun {
+                            NavigationLink(value: Route.run(run.id)) { card }
+                        } else {
+                            card
+                        }
+                    }
+                }
+            }
             if !running.isEmpty {
                 Section("Running") {
                     ForEach(running) { run in
@@ -39,7 +52,7 @@ struct HomeView: View {
         }
         .alert("Can't delete", isPresented: Binding(present: $failure), presenting: failure) { _ in } message: { Text($0) }
         .overlay {
-            if loaded && projects.isEmpty {
+            if loaded && projects.isEmpty && agents.isEmpty {
                 ContentUnavailableView("No projects yet", systemImage: "chart.xyaxis.line",
                                        description: Text("Runs show up here once a training script calls runyard.init()."))
             } else if !loaded, let error {
@@ -55,6 +68,7 @@ struct HomeView: View {
         do {
             async let r: [Run] = store.get("/api/v1/runs?status=running&limit=50&metrics=1")
             async let p: [Project] = store.get("/api/v1/projects")
+            async let a: [Agent]? = try? store.get("/api/v1/agents?hours=24") // a server before 0.5.0 answers 404: no section
             let (runs, ps) = try await (r, p)
             var sp: [String: [Double]] = [:]
             for run in runs {
@@ -63,6 +77,7 @@ struct HomeView: View {
                 else { continue }
                 sp[run.id] = s[k]?.last.map(\.value).filter(\.isFinite)
             }
+            if let cards = await a { agents = cards.sorted(by: Agent.urgentFirst) }
             (running, spark, projects) = (runs, sp, ps)
             loaded = true
             error = nil
@@ -115,6 +130,38 @@ struct LiveRunCard: View {
             if let load = SysLoad(run.metrics) { MachineStrip(load: load) }
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// A coding agent on the home screen: what state it is in and what it last said.
+struct AgentCard: View {
+    let agent: Agent
+    let score: (key: String, value: Double)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(agent.title).font(.headline).lineLimit(1)
+                Spacer(minLength: 4)
+                Text(agent.word).font(.subheadline.bold()).foregroundStyle(agentColor(agent.state)).layoutPriority(1)
+            }
+            Text([agent.tool, agent.project ?? "", agent.host].filter { !$0.isEmpty }.joined(separator: " · "))
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            if let score {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(fmt(score.value)).font(.title2.bold().monospacedDigit())
+                    Text(score.key).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            let text = agent.report.isEmpty ? agent.said : agent.report
+            if !text.isEmpty { Text(text).font(.subheadline).lineLimit(3) }
+            Text([agent.lastRun?.name, agent.runs == 1 ? "1 run" : "\(agent.runs) runs",
+                  "\(duration(Date.now.timeIntervalSince(agent.activeAt))) ago"]
+                .compactMap { $0 }.joined(separator: " · "))
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+        }
+        .padding(.vertical, 4)
+        .opacity(["stale", "ended"].contains(agent.state) ? 0.5 : 1)
     }
 }
 
@@ -353,6 +400,17 @@ func statusColor(_ status: String) -> Color {
     case "finished": .green
     case "failed": .red
     case "crashed": .orange
+    default: .secondary
+    }
+}
+
+func agentColor(_ state: String) -> Color {
+    switch state {
+    case "waiting": .orange
+    case "error": .red
+    case "done": .green
+    case "training": .accentColor
+    case "working": .blue
     default: .secondary
     }
 }

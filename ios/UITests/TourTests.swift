@@ -43,6 +43,9 @@ final class TourTests: XCTestCase {
         sleep(2)
         shot(app, "03-projects")
 
+        // The project rows sit below the agent and running cards, and the list only builds what is on screen.
+        app.collectionViews.firstMatch.swipeUp(velocity: .fast)
+        app.collectionViews.firstMatch.swipeUp(velocity: .fast)
         // The last match: a running run's card above the projects shows its project's name too.
         let project = env["RUNYARD_TEST_PROJECT"].map { app.buttons.containing(.staticText, identifier: $0).allElementsBoundByIndex.last! }
         (project ?? app.collectionViews.buttons.element(boundBy: app.collectionViews.buttons.count - 1)).tap()
@@ -77,6 +80,7 @@ final class TourTests: XCTestCase {
         demo.tap()
         XCTAssert(app.navigationBars["Projects"].waitForExistence(timeout: 15), "no project list")
         sleep(2)
+        XCTAssert(app.staticTexts["Waiting for you"].exists, "no agent cards")
         shot(app, "02-home")
         app.buttons.containing(.staticText, identifier: "qwen3-8b-full-lr2e-5").firstMatch.tap()
         XCTAssert(app.segmentedControls.firstMatch.waitForExistence(timeout: 15), "no run page")

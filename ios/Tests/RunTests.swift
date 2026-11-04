@@ -43,7 +43,24 @@ private func summary(step: Int, last: Double) -> String { #"{"count":1,"step":\#
     #expect(me.0 == 200)
     #expect(try API.decoder.decode(Me.self, from: me.1).auth == false)
     let runs = try API.decoder.decode([Run].self, from: get("/api/v1/runs?limit=200&metrics=1").1)
-    #expect(runs.count == 11)
+    #expect(runs.count == 12)
     #expect(runs.contains { $0.running && $0.mainMetric != nil && $0.progress != nil })
     #expect(runs.contains { $0.status == "crashed" })
+    let agents = try API.decoder.decode([Agent].self, from: get("/api/v1/agents?hours=24").1).sorted(by: Agent.urgentFirst)
+    #expect(agents.map(\.state) == ["waiting", "done", "training"])
+    #expect(agents.allSatisfy { a in runs.contains { $0.id == a.lastRun?.id } })
+    let training = try #require(runs.first { $0.id == agents[2].lastRun?.id })
+    #expect(training.running && training.score(agents[2].metric)?.key == "eval/fid")
+}
+
+@Test func agentCardsSortAndName() throws {
+    let card = { (state: String, minute: Int, label: String, cwd: String) in
+        #"{"id":"\#(state)\#(minute)","tool":"codex","label":"\#(label)","host":"","cwd":"\#(cwd)","project":null,"metric":"","state":"\#(state)","said":"","report":"","runs":0,"last_run":null,"active_at":"2026-11-04T10:\#(minute):00.123456789Z"}"#
+    }
+    let json = [card("ended", 50, "", ""), card("working", 10, "", "/data/src/dit/"), card("training", 20, "sweep", "/data/src/dit"),
+                card("someday", 59, "", ""), card("waiting", 11, "", ""), card("error", 40, "", "")]
+    let agents = try API.decoder.decode([Agent].self, from: Data("[\(json.joined(separator: ","))]".utf8)).sorted(by: Agent.urgentFirst)
+    #expect(agents.map(\.state) == ["waiting", "error", "training", "working", "ended", "someday"])
+    #expect(agents.map(\.title) == ["codex", "codex", "sweep", "dit", "codex", "codex"])
+    #expect(agents[0].word == "Waiting for you" && agents[5].word == "someday")
 }

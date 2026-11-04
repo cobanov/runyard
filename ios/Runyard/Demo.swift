@@ -123,6 +123,9 @@ nonisolated enum Demo {
         Def(seed: 33, project: "cifar10-resnet", name: "resnet18-lr0.4", host: "lab-4090", gpus: [1], start: t0 - 2 * D - 20 * H, spp: 0.045, endStep: 40000,
             nanAt: 2350, kind: .cifar(arch: "ResNet-18", lr: 0.4, epochs: 100, accMax: 0.9), prof: resProf, proc: "python train.py", user: "kai",
             config: res(["arch": "resnet18", "lr": 0.4, "epochs": 100]), tags: ["sweep-lr"]),
+        Def(seed: 35, project: "cifar10-resnet", name: "resnet18-mixup", host: "lab-4090", gpus: [1], start: t0 - 42 * M, spp: 0.045, endStep: 40000,
+            kind: .cifar(arch: "ResNet-18", lr: 0.1, epochs: 100, accMax: 0.965), prof: resProf, proc: "python train.py", user: "kai",
+            config: res(["arch": "resnet18", "lr": 0.1, "epochs": 100, "mixup": 0.2]), tags: ["mixup"]),
         Def(seed: 34, project: "cifar10-resnet", name: "resnet50-cosine", host: "lab-4090", gpus: [1], start: t0 + 75 - 80000 * 0.06, spp: 0.06, endStep: 80000,
             kind: .cifar(arch: "ResNet-50", lr: 0.1, epochs: 200, accMax: 0.962), prof: resProf, proc: "python train.py --arch resnet50", user: "kai",
             config: res(["arch": "resnet50", "lr": 0.1, "epochs": 200, "schedule": "cosine"]), tags: ["resnet50"]),
@@ -341,6 +344,25 @@ nonisolated enum Demo {
         }
     }
 
+    // ---- the coding agents: tool "agent" is what a card named with RUNYARD_AGENT gets; a card goes with its last run ----
+
+    static func agents(_ live: [Def], _ now: Double) -> [[String: Any]] {
+        let cards: [(label: String, cwd: String, state: String, run: String, runs: Int, metric: String, said: String, report: String, seen: Double)] = [
+            ("rank-sweep", "/data/src/llm-finetune", "waiting", "qwen3-8b-lora-r64", 2, "eval/loss",
+             "Rank 64 came in 0.06 below r16 on eval/loss for 4x the adapter. Rank 32 is next, but GPU 3 is serving qwen3-32b: may I stop it?", "", t0 - 4 * M),
+            ("dit-ema", "/data/src/dit", "training", "dit-s-pixel32", 2, "eval/fid", "",
+             "EMA 0.999 stopped at FID 20.3. Now 0.9999 over 200k steps, with samples every 2,000.", t0 - 20 * M),
+            ("cifar-mixup", "/data/src/cifar", "done", "resnet18-mixup", 1, "val/acc", "",
+             "Mixup 0.2 took ResNet-18 from 96.1% to 96.6% val/acc. Next: the same on ResNet-50 once resnet50-cosine is in.", t0 - 12 * M),
+        ]
+        return cards.compactMap { c in
+            guard let r = live.first(where: { $0.name == c.run }) else { return nil }
+            return ["id": "agent:\(c.label)", "tool": "agent", "label": c.label, "host": r.host, "cwd": c.cwd, "project": r.project, "metric": c.metric,
+                    "state": c.state, "said": c.said, "report": c.report, "runs": c.runs, "last_run": ["id": r.id, "name": r.name],
+                    "active_at": iso(max(c.seen, state(r, now).beat))]
+        }
+    }
+
     // ---- the machines ----
 
     struct Machine { let name: String, ram: Double, idle: Prof, gpus: Int; var serving = false; var gone: Double? = nil }
@@ -459,6 +481,7 @@ nonisolated enum Demo {
         case ("GET", "alerts", _):
             return ok(Array(alerts(live, now).filter { a in q["run"].map { a["run"] as! String == $0 } ?? true }.prefix(limit)))
         case ("GET", "hosts", _): return ok(machines.map { host($0, live, now) })
+        case ("GET", "agents", _): return ok(agents(live, now))
         case ("POST", "alerts", _):
             let ids = ((try? JSONSerialization.jsonObject(with: body)) as? [String: Any])?["ids"] as? [Int] ?? []
             let all = alerts(live, now).filter { $0["dismissed_at"] is NSNull }.map { $0["id"] as! Int }
