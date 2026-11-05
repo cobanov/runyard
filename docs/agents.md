@@ -17,6 +17,9 @@ session id in the environment of every command it runs, and the Python library r
 | Gemini CLI | `GEMINI_CLI` (no session id: one card per machine and directory) |
 | anything else | `AI_AGENT`, the variable CLIs are starting to agree on |
 
+A CLI started from inside another inherits its variables, so its runs land on the card of the one higher in this
+table.
+
 `RUNYARD_AGENT=<name>` names the card by hand: every run with the same name shares one card, across sessions. Use
 it for a long sweep you want to watch as one, or to split Gemini CLI's sessions.
 
