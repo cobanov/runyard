@@ -129,7 +129,7 @@ func TestWebPush(t *testing.T) {
 	finish("one")
 	select {
 	case m := <-got:
-		if m["title"] != "push/one finished" || !strings.HasPrefix(m["body"], "Ran for") {
+		if m["title"] != "push/one: Finished" || !strings.HasPrefix(m["body"], "Ran for") {
 			t.Fatal(m)
 		}
 	case <-time.After(5 * time.Second):

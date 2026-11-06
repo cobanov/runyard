@@ -180,7 +180,7 @@ func TestWaitingNotice(t *testing.T) {
 	s.notifyWaiting(ctx)
 	select {
 	case m := <-hits:
-		if m.Title != "gba is waiting for you" || m.Event != "agent" {
+		if m.Title != "gba: Waiting for you" || m.Event != "agent" {
 			t.Fatalf("notice: %+v", m)
 		}
 	case <-time.After(5 * time.Second):

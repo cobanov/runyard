@@ -147,7 +147,7 @@ func testChannel(ctx context.Context, db *pgxpool.Pool, id string) error {
 		return err
 	}
 	host, _ := os.Hostname()
-	m := message{Event: "test", Title: "runyard test", Body: "Notifications from " + host + " reach this channel.", priority: "default", tags: "bell",
+	m := message{Event: "test", Title: "runyard: Test", Body: "Notifications from " + host + " reach this channel.", priority: "default", tags: "bell",
 		Run: Run{Project: "test", Name: "test", StartedAt: time.Now()}}
 	if err := c.send(ctx, m); err != nil {
 		return badRequest{err}

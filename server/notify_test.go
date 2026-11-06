@@ -67,7 +67,7 @@ func TestNotifications(t *testing.T) {
 	call(t, "POST", api+"/runs/"+id+"/media", key, mediaForm(map[string]string{"key": "s", "step": "1", "kind": "image"}, "a.png", []byte("png")), nil)
 	call(t, "PATCH", api+"/runs/"+id, key, map[string]any{"status": "finished"}, nil)
 	h := next(t, got)
-	if h.method != "PUT" || string(h.body) != "png" || h.auth != "Bearer tk" || h.q.Get("title") != "gba/pixel32 finished" ||
+	if h.method != "PUT" || string(h.body) != "png" || h.auth != "Bearer tk" || h.q.Get("title") != "gba/pixel32: Finished" ||
 		h.q.Get("click") != "https://runs.example/#/r/"+id || !strings.Contains(h.q.Get("message"), "loss: 0.1") ||
 		strings.Contains(h.q.Get("message"), "sys/") || h.q.Get("filename") == "" {
 		t.Fatalf("finished: %+v", h)
@@ -84,7 +84,7 @@ func TestNotifications(t *testing.T) {
 	}
 
 	call(t, "POST", api+"/runs/"+id+"/alerts", key, map[string]string{"level": "error", "title": "Loss is NaN", "body": "at step 9"}, nil)
-	if h = next(t, got); h.q.Get("title") != "Loss is NaN" || h.q.Get("message") != "gba/pixel64: at step 9" || h.q.Get("tags") != "rotating_light" {
+	if h = next(t, got); h.q.Get("title") != "gba/pixel64: Loss is NaN" || h.q.Get("message") != "at step 9" || h.q.Get("tags") != "rotating_light" || h.q.Get("priority") != "urgent" {
 		t.Fatalf("alert: %+v", h)
 	}
 
@@ -95,7 +95,7 @@ func TestNotifications(t *testing.T) {
 	if ids := s.markCrashed(ctx, crashAfter); len(ids) != 1 || ids[0] != id {
 		t.Fatalf("crashed ids: %v", ids)
 	}
-	if h = next(t, got); h.q.Get("title") != "gba/pixel96 went silent" || !strings.Contains(h.q.Get("message"), "after 11m 0s of running") {
+	if h = next(t, got); h.q.Get("title") != "gba/pixel96: Went silent" || !strings.Contains(h.q.Get("message"), "after 11m 0s of running") {
 		t.Fatalf("crashed: %+v", h)
 	}
 	var status map[string]string

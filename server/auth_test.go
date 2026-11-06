@@ -217,7 +217,7 @@ func TestTeams(t *testing.T) {
 	call(t, "PATCH", api+"/runs/"+runs["vision"], root, map[string]any{"status": "finished"}, nil)
 	select {
 	case title := <-hits:
-		if title != "vision/vision-run finished" {
+		if title != "vision/vision-run: Finished" {
 			t.Fatalf("alice's channel got %q", title)
 		}
 	case <-time.After(5 * time.Second):
