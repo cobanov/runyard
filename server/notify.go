@@ -94,22 +94,25 @@ func (s *srv) message(ctx context.Context, run Run, event string, a *Alert) mess
 	}
 	switch event {
 	case "finished":
-		m.Title, m.tags = name+" finished", "white_check_mark"
+		m.Title, m.tags = name+": Finished", "information_source"
 		m.Body = "Ran for " + took + "." + results(run)
 	case "failed":
-		m.Title, m.tags, m.priority = name+" failed", "x", "high"
+		m.Title, m.tags, m.priority = name+": Failed", "warning", "high"
 		m.Body = "Failed after " + took + "." + s.lastLines(ctx, run.ID)
 	case "crashed":
-		m.Title, m.tags, m.priority = name+" went silent", "warning", "high"
+		m.Title, m.tags, m.priority = name+": Went silent", "warning", "high"
 		m.Body = fmt.Sprintf("No heartbeat for %s after %s of running: the process likely died (killed, out of memory, machine down).", fmtDuration(time.Since(run.LastHeartbeatAt)), took) + s.lastLines(ctx, run.ID)
 	case "alert":
-		m.Title, m.Body = a.Title, name
+		m.Title, m.Body = name+": "+a.Title, name
 		if a.Body != "" {
-			m.Body += ": " + a.Body
+			m.Body = a.Body
 		}
 		m.tags = map[string]string{"info": "information_source", "warn": "warning", "error": "rotating_light"}[a.Level]
-		if a.Level == "error" {
+		switch a.Level {
+		case "warn":
 			m.priority = "high"
+		case "error":
+			m.priority = "urgent"
 		}
 	}
 	if s.url != "" {

@@ -70,7 +70,7 @@ func TestChecks(t *testing.T) {
 	if a := alerts(id); len(a) != 1 || a[0] != "train/loss is +Inf: at step 5" {
 		t.Fatalf("nan alerts: %q", a)
 	}
-	if h := next(t, got); h.q.Get("title") != "train/loss is +Inf" || h.q.Get("message") != "llm/nan: at step 5" || h.q.Get("priority") != "high" {
+	if h := next(t, got); h.q.Get("title") != "llm/nan: train/loss is +Inf" || h.q.Get("message") != "at step 5" || h.q.Get("priority") != "urgent" {
 		t.Fatalf("nan notification: %+v", h)
 	}
 
@@ -112,7 +112,7 @@ func TestChecks(t *testing.T) {
 	if a, b := alerts(busy), alerts(chatty); len(a)+len(b) != 0 {
 		t.Fatalf("runs sending metrics or output stalled: %q %q", a, b)
 	}
-	if h := next(t, got); h.q.Get("title") != "No progress for 30m" {
+	if h := next(t, got); !strings.HasSuffix(h.q.Get("title"), ": No progress for 30m") {
 		t.Fatalf("stall notification: %+v", h)
 	}
 

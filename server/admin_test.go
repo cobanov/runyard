@@ -187,7 +187,7 @@ func TestAdmin(t *testing.T) {
 		t.Fatalf("channels: %s", raw)
 	}
 	id := strconv.FormatInt(added["id"], 10)
-	if code := boss("POST", "/channels/"+id+"/test", nil, nil); code != 200 || <-hits != "runyard test" {
+	if code := boss("POST", "/channels/"+id+"/test", nil, nil); code != 200 || <-hits != "runyard: Test" {
 		t.Fatalf("test: %d", code)
 	}
 	if code := boss("DELETE", "/channels/"+id, nil, nil); code != 200 {

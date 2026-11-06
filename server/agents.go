@@ -333,7 +333,7 @@ func (s *srv) notifyWaiting(ctx context.Context) {
 		if name == "" {
 			name = a.Tool
 		}
-		m := message{Event: "agent", Title: name + " is waiting for you", Body: a.Tool + " asked for a permission and is stuck until someone answers.", priority: "high", tags: "hourglass"}
+		m := message{Event: "agent", Title: name + ": Waiting for you", Body: a.Tool + " asked for a permission and is stuck until someone answers.", priority: "high", tags: "warning"}
 		if s.url != "" {
 			m.URL = s.url + "/#/kiosk"
 		}

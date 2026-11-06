@@ -124,7 +124,7 @@ func (s *srv) postHost(r *http.Request) (any, error) {
 		return nil, err
 	}
 	if wasSilent {
-		go s.notifyHost(name+" is back", "Machine stats are arriving again.", false)
+		go s.notifyHost(name+": Back online", "Machine stats are arriving again.", false)
 	}
 	s.hub.publish(event{Type: "host"})
 	return map[string]bool{"ok": true}, nil
@@ -183,7 +183,7 @@ func (s *srv) markSilentHosts(ctx context.Context) {
 	var name string
 	var seen time.Time
 	_, err := pgx.ForEachRow(rows, []any{&name, &seen}, func() error {
-		go s.notifyHost(name+" went silent", fmt.Sprintf("No machine stats for %s: the machine may be down, or runyard beacon stopped.",
+		go s.notifyHost(name+": Went silent", fmt.Sprintf("No machine stats for %s: the machine may be down, or runyard beacon stopped.",
 			fmtDuration(time.Since(seen))), true)
 		s.hub.publish(event{Type: "host"})
 		return nil

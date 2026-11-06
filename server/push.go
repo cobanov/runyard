@@ -155,7 +155,7 @@ func sendPush(ctx context.Context, c channelConfig, m message) error {
 	req.Header.Set("Content-Encoding", "aes128gcm")
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("TTL", "86400")
-	if m.priority == "high" {
+	if m.priority == "high" || m.priority == "urgent" {
 		req.Header.Set("Urgency", "high")
 	}
 	res, err := http.DefaultClient.Do(req)
