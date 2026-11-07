@@ -2,15 +2,17 @@ package dev.cobanov.runyard
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.http.HttpResponseCache
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.File
 
 /** Which server the app talks to and who it is signed in as. The address and the session live in app-private prefs. */
-class Store private constructor(private val prefs: SharedPreferences) {
+class Store private constructor(private val prefs: SharedPreferences, private val samples: File) {
     var server by mutableStateOf(prefs.getString("server", "").orEmpty()); private set
     var session by mutableStateOf(prefs.getString("session", null)); private set
     var demo by mutableStateOf(false); private set
@@ -18,6 +20,13 @@ class Store private constructor(private val prefs: SharedPreferences) {
     var me by mutableStateOf<Me?>(null)
     var loadError by mutableStateOf<String?>(null)
     private var demoBackend: Demo? = null
+
+    init { HttpResponseCache.install(samples, 1L shl 30) } // samples never change, so they stay on the device
+
+    private fun dropSamples() {
+        HttpResponseCache.getInstalled()?.delete() // this also uninstalls it
+        HttpResponseCache.install(samples, 1L shl 30)
+    }
 
     val api: Backend get() = demoBackend ?: Http(server, session)
     val needsLogin get() = me?.let { it.auth && it.user.isEmpty() } ?: false
@@ -79,6 +88,7 @@ class Store private constructor(private val prefs: SharedPreferences) {
         runCatching { api.send("/api/v1/logout", "POST") }
         save(server, null)
         me = null
+        dropSamples()
         loadMe()
     }
 
@@ -86,6 +96,7 @@ class Store private constructor(private val prefs: SharedPreferences) {
         save("", null)
         me = null
         loadError = null
+        dropSamples()
     }
 
     /** The demo: made-up runs that keep training, with no server. */
@@ -126,7 +137,7 @@ class Store private constructor(private val prefs: SharedPreferences) {
     companion object {
         @Volatile private var instance: Store? = null
         fun get(context: Context) = instance ?: synchronized(this) {
-            instance ?: Store(context.applicationContext.getSharedPreferences("runyard", Context.MODE_PRIVATE)).also { instance = it }
+            instance ?: Store(context.applicationContext.getSharedPreferences("runyard", Context.MODE_PRIVATE), File(context.cacheDir, "samples")).also { instance = it }
         }
     }
 }

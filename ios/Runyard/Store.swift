@@ -82,6 +82,7 @@ final class Store {
         if let req = try? api.request("/api/v1/logout", method: "POST") { _ = try? await api.send(req) }
         session = nil
         me = nil
+        API.media.configuration.urlCache?.removeAllCachedResponses()
         await loadMe()
     }
 
@@ -90,6 +91,7 @@ final class Store {
         session = nil
         me = nil
         loadError = nil
+        API.media.configuration.urlCache?.removeAllCachedResponses()
     }
 
     /// DELETE for the swipe actions. Only an admin may, so a 401 or 403 is answered with a sentence saying so.

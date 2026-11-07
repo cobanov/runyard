@@ -318,6 +318,7 @@ class Http(val base: String, private val session: String?) : Backend {
             c.connectTimeout = timeout
             c.readTimeout = timeout
             c.instanceFollowRedirects = true
+            c.useCaches = "/media/" in path // polled JSON would only push the samples out
             if (session != null && "://" !in path) c.setRequestProperty("Cookie", "runyard_session=$session")
             if (json != null) {
                 c.doOutput = true

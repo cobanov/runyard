@@ -314,14 +314,20 @@ nonisolated struct API: Sendable {
     /// The web UI's session cookie value, kept in the keychain instead of a cookie jar.
     let session: String?
 
-    static let http: URLSession = {
+    static let http = session()
+    /// Samples never change, so they stay on the device. The default cache skips anything over 500 KB, which is every one.
+    static let media = session(cache: URLCache(memoryCapacity: 32 << 20, diskCapacity: 1 << 30,
+                                               directory: URL.cachesDirectory.appending(path: "samples")))
+
+    private static func session(cache: URLCache? = nil) -> URLSession {
         let c = URLSessionConfiguration.default
         c.httpShouldSetCookies = false
         c.httpCookieStorage = nil
         c.timeoutIntervalForRequest = 20
         c.protocolClasses = [DemoServer.self] + (c.protocolClasses ?? [])
+        if let cache { c.urlCache = cache }
         return URLSession(configuration: c)
-    }()
+    }
 
     static let decoder: JSONDecoder = {
         let d = JSONDecoder()
@@ -352,8 +358,8 @@ nonisolated struct API: Sendable {
         return req
     }
 
-    func send(_ req: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let (data, response) = try await API.http.data(for: req)
+    func send(_ req: URLRequest, via session: URLSession = API.http) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw APIError(status: 0, message: "No HTTP response") }
         guard (200..<300).contains(http.statusCode) else {
             struct Body: Decodable { let error: String? }
@@ -364,7 +370,7 @@ nonisolated struct API: Sendable {
     }
 
     func data(_ path: String) async throws -> Data {
-        try await send(request(path)).0
+        try await send(request(path), via: path.contains("/media/") ? API.media : API.http).0
     }
 
     func get<T: Decodable>(_ path: String) async throws -> T {
