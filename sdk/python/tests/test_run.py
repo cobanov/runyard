@@ -1,9 +1,12 @@
+import http.server
 import json
 import math
 import os
+import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 import zlib
@@ -209,3 +212,49 @@ def test_artifacts(server, tmp_path):
     with tarfile.open(out / "ckpt.tar.gz") as t:
         assert sorted(t.getnames()) == [".", "./model.safetensors", "./sub", "./sub/config.json"]
     assert cli(["artifacts", run.id, "--get", "checkpoint-500"]) == 1  # not uploaded, nothing to download
+
+
+def test_ctrl_c_through_tee_in_tmux_still_ends_the_run(tmp_path):
+    ends = []
+
+    class Slow(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers.get("content-length") or 0))
+            time.sleep(0.4)
+            if self.command == "PATCH":
+                ends.append(body)
+            self.send_response(200)
+            self.send_header("content-length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        do_PATCH = do_PUT = do_GET = do_POST
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    script = """
+import sys, time, runyard
+runyard.init(project="p", name="n", system=False)
+print("ready", flush=True)
+try:
+    time.sleep(60)
+except KeyboardInterrupt:  # how ai-toolkit stops
+    print("stopping", flush=True)
+    time.sleep(0.5)
+    sys.exit(0)
+"""
+    env = {**os.environ, "RUNYARD_SERVER": f"http://127.0.0.1:{srv.server_port}", "RUNYARD_CACHE": str(tmp_path)}
+    p = subprocess.Popen([sys.executable, "-c", script], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert p.stdout.readline().strip() == "ready"
+    p.stdout.close()  # `| tee log` in tmux: Ctrl-C kills the reader too, and the closing pane sends a hangup
+    p.send_signal(signal.SIGINT)
+    time.sleep(0.2)  # the script is handling the interrupt
+    p.send_signal(signal.SIGHUP)
+    time.sleep(0.2)  # now in the exit, waiting on the server
+    p.send_signal(signal.SIGINT)
+    p.wait(30)
+    srv.shutdown()
+    assert any(b'"finished"' in b for b in ends)

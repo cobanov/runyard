@@ -44,7 +44,10 @@ def warn(msg, once=False):
         _warned.add(msg)
     err = sys.__stderr__  # the real stderr, so a warning never turns into a captured log line
     if err:
-        print("runyard: " + msg, file=err, flush=True)
+        try:
+            print("runyard: " + msg, file=err, flush=True)
+        except OSError:  # stderr was a pipe whose reader is gone
+            pass
 
 
 def _safe(f):
@@ -309,7 +312,10 @@ class Run:
         self.finished = True
         self._closing = True
         self._wake.set()
-        self._thread.join(timeout)
+        self._thread.join(min(3, timeout))
+        if self._thread.is_alive():
+            warn(f"sending what is left of this run, up to {timeout} seconds", once=True)
+            self._thread.join(max(0, timeout - 3))
         p = self._sender.save_pending()
         if p:
             warn(f"server unreachable, {len(self._sender.items)} unsent calls saved to {p}; send them with `runyard sync`")
@@ -399,6 +405,13 @@ def _check_sandbox():
              "set RUNYARD_CACHE to a directory the run may write", once=True)
 
 
+def warn_no_nvml():
+    """A GPU with nothing to read it looks like a machine without one, so say so."""
+    if shutil.which("nvidia-smi"):
+        warn("this machine has an NVIDIA GPU but nvidia-ml-py is missing, so its GPU numbers are not collected: "
+             "pip install 'runyard[system]'", once=True)
+
+
 class _System:
     """GPU (nvidia-ml-py) and CPU/RAM (psutil) numbers, each only when its package is installed."""
 
@@ -410,6 +423,8 @@ class _System:
             pynvml.nvmlInit()
             self.gpus = [pynvml.nvmlDeviceGetHandleByIndex(i) for i in range(pynvml.nvmlDeviceGetCount())]
             self.nvml = pynvml
+        except ImportError:
+            warn_no_nvml()
         except Exception:
             pass
         try:
@@ -446,7 +461,11 @@ class _Tee:
         self._buf_lock = threading.Lock()
 
     def write(self, s):
-        n = self._stream.write(s)
+        n = len(s)
+        try:
+            n = self._stream.write(s)
+        except BrokenPipeError:  # `| tee log` gets the same Ctrl-C and dies first; the run must still end
+            pass
         try:
             with self._buf_lock:
                 self._buf += s
@@ -462,12 +481,19 @@ class _Tee:
             pass
         return n
 
+    def flush(self):
+        try:
+            self._stream.flush()
+        except BrokenPipeError:
+            pass
+
     def __getattr__(self, name):
         return getattr(self._stream, name)
 
 
 _hooked = False
 _exit_code = [0]
+_STOPS = [getattr(signal, n) for n in ("SIGINT", "SIGTERM", "SIGHUP") if hasattr(signal, n)]  # no SIGHUP on Windows
 
 
 def _install_hooks():
@@ -499,6 +525,7 @@ def _install_exit_hooks():
 
     def excepthook(t, v, tb):
         prev_hook(t, v, tb)  # print the traceback first, so the tee sends it along with the run
+        _hold_signals()
         for r in list(_active):
             r.finish("failed")
 
@@ -512,11 +539,28 @@ def _install_exit_hooks():
 
     sys.exit = exit
     atexit.register(_at_exit)
-    if threading.current_thread() is threading.main_thread() and signal.getsignal(signal.SIGTERM) == signal.SIG_DFL:
-        signal.signal(signal.SIGTERM, lambda *_: sys.exit(128 + signal.SIGTERM))  # so atexit runs and marks it failed
+    if threading.current_thread() is threading.main_thread():
+        for sig in _STOPS[1:]:  # a closed terminal or tmux pane too, so atexit runs and marks it failed
+            if signal.getsignal(sig) == signal.SIG_DFL:
+                signal.signal(sig, _stop)
+
+
+def _stop(number, _):
+    # Ctrl-C on `python train.py | tee log` in tmux closes the pane, so a hangup lands while the script handles the
+    # interrupt: it is still the stop someone asked for, not a failure.
+    sys.exit(0 if isinstance(sys.exc_info()[1], KeyboardInterrupt) else 128 + number)
+
+
+def _hold_signals():
+    # The last calls can take a while on a slow link, which looks like a hang: a second Ctrl-C or a closing tmux
+    # pane would lose the run's end, and it would show as crashed.
+    if _active and threading.current_thread() is threading.main_thread():
+        for sig in _STOPS:
+            signal.signal(sig, signal.SIG_IGN)
 
 
 def _at_exit():
     code = _exit_code[0]
+    _hold_signals()
     for r in list(_active):
         r.finish("finished" if code in (None, 0) else "failed")

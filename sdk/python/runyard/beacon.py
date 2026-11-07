@@ -8,6 +8,7 @@ import time
 import urllib.parse
 
 from .client import request
+from .core import warn_no_nvml
 
 _ARG = re.compile(r"^[\w.+/-]{1,80}$")  # a script or module name; anything else may be a secret passed as an argument
 
@@ -23,6 +24,8 @@ class Machine:
             pynvml.nvmlInit()
             self.gpus = [pynvml.nvmlDeviceGetHandleByIndex(i) for i in range(pynvml.nvmlDeviceGetCount())]
             self.nvml = pynvml
+        except ImportError:
+            warn_no_nvml()
         except Exception:
             pass
         try:
