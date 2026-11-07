@@ -59,11 +59,17 @@ nonisolated struct Run: Decodable, Identifiable, Hashable, Sendable {
     /// logged step, else epochs against an epoch metric. Nested config keys count by their last part.
     var progress: (done: Double, total: Double, unit: String)? {
         var cfg: [String: Double] = [:]
-        for (k, v) in config?.flat ?? [] { cfg[String(k.split(separator: ".").last ?? "")] = Double(v) }
+        for (k, v) in config?.flat ?? [] {
+            guard let d = Double(v) else { continue }
+            let name = String(k.split(separator: ".").last ?? "")
+            cfg[name] = Swift.max(cfg[name] ?? d, d) // sampler.steps must not hide train.steps
+        }
         let total = { (names: [String]) in names.lazy.compactMap { cfg[$0] }.first { $0 > 0 } }
         let train = (metrics ?? [:]).filter { !$0.key.hasPrefix("sys/") }
-        if let t = total(["max_steps", "total_steps", "num_steps", "train_steps"]) {
-            return (Double(train.values.map(\.step).max() ?? 0), t, "step")
+        let done = Double(train.values.map(\.step).max() ?? 0)
+        // A plain "steps" may be a sampler's, so one the run has passed is not its total.
+        if let t = total(["max_steps", "total_steps", "num_steps", "train_steps", "steps"]), done <= t {
+            return (done, t, "step")
         }
         if let t = total(["num_train_epochs", "epochs", "max_epochs", "num_epochs"]),
            let e = train.first(where: { $0.key == "epoch" || $0.key.hasSuffix("/epoch") })?.value.last.value, e.isFinite {

@@ -93,6 +93,31 @@ export function ago(t, now) {
   return duration(now - new Date(t)) + ' ago'
 }
 
+// progressText says how far a run is, when its config names a total: steps (max_steps and the like) against the
+// latest logged step, else epochs against an epoch metric. Nested config keys count by their last part. As in
+// ios/Runyard/API.swift.
+export function progressText(run, now) {
+  const cfg = {}
+  for (const [k, v] of Object.entries(flatten(run.config))) {
+    const name = k.split('.').pop()
+    if (typeof v === 'number') cfg[name] = Math.max(cfg[name] ?? v, v) // sampler.steps must not hide train.steps
+  }
+  const total = (...names) => names.map((n) => cfg[n]).find((t) => t > 0)
+  const train = Object.entries(run.metrics || {}).filter(([k]) => !k.startsWith('sys/'))
+  const step = Math.max(0, ...train.map(([, m]) => m.step))
+  const steps = total('max_steps', 'total_steps', 'num_steps', 'train_steps', 'steps')
+  const epochs = total('num_train_epochs', 'epochs', 'max_epochs', 'num_epochs')
+  const epoch = train.find(([k]) => k === 'epoch' || k.endsWith('/epoch'))?.[1].last
+  // A plain "steps" may be a sampler's, so one the run has passed is not its total.
+  const [done, all, unit] = steps && step <= steps ? [step, steps, 'step'] : [epoch, epochs, 'epoch']
+  if (!all || !Number.isFinite(done)) return ''
+  const f = Math.min(Math.max(done / all, 0), 1)
+  const elapsed = now - new Date(run.started_at)
+  // Elapsed time includes setup, so this is a rough guess.
+  const left = run.status === 'running' && f > 0.01 && f < 1 ? ` · ~${duration((elapsed * (1 - f)) / f)} left` : ''
+  return `${unit} ${fmt(done)} / ${fmt(all)} · ${Math.round(f * 100)}%${left}`
+}
+
 export function runTime(run, now) {
   return duration((run.ended_at ? new Date(run.ended_at) : now) - new Date(run.started_at))
 }

@@ -24,6 +24,14 @@ private func summary(step: Int, last: Double) -> String { #"{"count":1,"step":\#
     #expect(p.done == 1.5 && p.total == 3 && p.unit == "epoch")
 }
 
+@Test func progressFromPlainSteps() throws {
+    // ai-toolkit: train.steps, with a sampler's steps beside it.
+    let m = #"{"loss/loss":\#(summary(step: 300, last: 0.07))}"#
+    let p = try #require(try run(config: #"{"train":{"steps":6000},"sample":{"steps":28,"sample_steps":28}}"#, metrics: m).progress)
+    #expect(p.done == 300 && p.total == 6000 && p.unit == "step")
+    #expect(try run(config: #"{"sampler":{"steps":28}}"#, metrics: m).progress == nil) // past it: not the run's total
+}
+
 @Test func noProgressWithoutATotal() throws {
     #expect(try run(config: #"{"lr":0.001}"#, metrics: #"{"loss":\#(summary(step: 5, last: 1))}"#).progress == nil)
 }

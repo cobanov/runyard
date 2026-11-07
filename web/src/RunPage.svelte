@@ -1,5 +1,5 @@
 <script>
-  import { get, send, why, onEvent, throttle, runTime, ago, live, plotValue, fmt, flatten } from './lib.svelte.js'
+  import { get, send, why, onEvent, throttle, runTime, ago, live, plotValue, fmt, flatten, progressText } from './lib.svelte.js'
   import Chart from './Chart.svelte'
   import Samples from './Samples.svelte'
   import Logs from './Logs.svelte'
@@ -25,7 +25,7 @@
       if (e.type === 'reconnect') (loadRun(), loadMetrics(), loadAlerts())
       if (e.run !== id) return
       if (e.type === 'run') loadRun()
-      if (e.type === 'metrics') loadMetrics()
+      if (e.type === 'metrics') (loadRun(), loadMetrics()) // the run carries the latest step, which progress reads
       if (e.type === 'alert') loadAlerts()
       if (e.type === 'artifact') loadArtifacts()
     }),
@@ -102,6 +102,7 @@
     </div>
     {#if failed}<p class="small fail"><span class="danger">Failed.</span> {failed}</p>{/if}
     <dl class="facts small">
+      {#if progressText(run, live.now)}<div><dt>Progress</dt><dd>{progressText(run, live.now)}</dd></div>{/if}
       <div><dt>Duration</dt><dd>{runTime(run, live.now)}</dd></div>
       <div><dt>Started</dt><dd>{ago(run.started_at, live.now)}</dd></div>
       {#if run.status === 'running'}<div><dt>Heartbeat</dt><dd>{ago(run.last_heartbeat_at, live.now)}</dd></div>{/if}

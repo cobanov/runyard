@@ -53,6 +53,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,6 +76,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -283,26 +286,50 @@ fun AgentCard(a: Agent, run: Run?, onClick: () -> Unit) {
 /** A running run on the home screen: enough to see how it is going without opening it. */
 @Composable
 fun LiveRunCard(run: Run, spark: List<Double>, onClick: () -> Unit) {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { delay(1000); now = System.currentTimeMillis() } }
+    val beat = remember { Animatable(1f) }
+    LaunchedEffect(run.lastHeartbeatAt) { beat.animateTo(1.5f, tween(120)); beat.animateTo(1f, tween(240)) }
+    val age = (now - (run.lastHeartbeatAt ?: run.startedAt)) / 1000.0
+    val silent = age > 90 // the library beats every 30 seconds: three missed is worth a look, long before the server's 5 minutes
     Panel(Modifier.combinedClickable(onClick = onClick)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Dot(T.status(run.status))
+            Text("♥", fontSize = 12.sp, color = if (silent) T.status("crashed") else T.status(run.status),
+                modifier = Modifier.graphicsLayer { scaleX = beat.value; scaleY = beat.value })
             Text(run.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 8.dp).weight(1f))
-            Text(run.project, fontSize = 12.sp, color = T.muted, maxLines = 1, modifier = Modifier.padding(start = 8.dp))
+            if (silent) Text(duration(age), fontSize = 12.sp, color = T.status("crashed"), style = Num, modifier = Modifier.padding(start = 8.dp))
+            Text(duration(run.duration(now)), fontSize = 14.sp, color = T.muted, style = Num, modifier = Modifier.padding(start = 8.dp))
         }
+        Text(listOfNotNull(run.project, run.host.ifEmpty { null }?.let { "on $it" }).joinToString(" · "),
+            fontSize = 12.sp, color = T.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
         run.mainMetric?.let { (key, value) ->
             Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.Bottom) {
                 Column(Modifier.weight(1f)) {
                     Text(fmt(value), fontSize = 24.sp, fontWeight = FontWeight.Bold, style = Num)
-                    Text("$key · step ${run.metrics?.get(key)?.step ?: 0}", fontSize = 12.sp, color = T.muted, maxLines = 1)
+                    Text(if (run.progress == null) "$key · step ${run.metrics?.get(key)?.step ?: 0}" else key, fontSize = 12.sp, color = T.muted, maxLines = 1)
                 }
                 if (spark.size > 1) Sparkline(spark, Modifier.width(110.dp).height(34.dp))
             }
         }
-        Text(listOfNotNull(duration(run.duration()), run.lastHeartbeatAt?.let { "heartbeat ${duration((System.currentTimeMillis() - it) / 1000.0)} ago" },
-            run.host.ifEmpty { null }?.let { "on $it" }).joinToString(" · "),
-            fontSize = 12.sp, color = T.muted, maxLines = 1, modifier = Modifier.padding(top = 8.dp))
+        RunProgress(run)
         SysLoad.of(run.metrics)?.let { Spacer(Modifier.height(8.dp)); MachineStrip(it) }
+    }
+}
+
+/** How far a run is, when its config names a total. */
+@Composable
+fun RunProgress(run: Run) {
+    val p = run.progress ?: return
+    val f = (p.done / p.total).coerceIn(0.0, 1.0)
+    // Keyed on the run: the step only moves with a poll, so a ticking elapsed would push the estimate up between polls.
+    // Elapsed time includes setup, so this is a rough guess.
+    val left = remember(run) { if (run.running && f > 0.01 && f < 1) "~${duration(run.duration() * (1 - f) / f)} left" else null }
+    Meter(f * 100, Modifier.fillMaxWidth().padding(top = 10.dp))
+    Row(Modifier.padding(top = 4.dp)) {
+        Text("${p.unit} ${fmt(p.done)} / ${fmt(p.total)} · ${(f * 100).roundToInt()}%", fontSize = 12.sp, color = T.muted, style = Num, maxLines = 1,
+            modifier = Modifier.weight(1f))
+        left?.let { Text(it, fontSize = 12.sp, color = T.muted, style = Num, maxLines = 1, modifier = Modifier.padding(start = 8.dp)) }
     }
 }
 
@@ -573,6 +600,7 @@ fun RunHeader(run: Run) {
         if (run.running && beat != null) Text("Last heartbeat ${duration((System.currentTimeMillis() - beat) / 1000.0)} ago" +
             run.host.ifEmpty { null }?.let { " from $it" }.orEmpty(), fontSize = 12.sp, color = T.muted)
         else if (run.host.isNotEmpty()) Text("on ${run.host}", fontSize = 12.sp, color = T.muted)
+        RunProgress(run)
         if (run.notes.isNotEmpty()) Text(run.notes, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
     }
 }

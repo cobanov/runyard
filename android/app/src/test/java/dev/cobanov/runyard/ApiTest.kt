@@ -23,6 +23,23 @@ class ApiTest {
             "sys/cpu":{"count":90,"step":900,"last":21.5,"min":3,"max":30}}}]
     """.trimIndent()
 
+    private fun progress(config: String, metrics: String) = parseRuns(
+        """[{"id":"r","status":"running","started_at":"2026-10-31T10:00:00Z","config":$config,"metrics":$metrics}]""").single().progress
+
+    @Test fun progressFromSteps() {
+        val m = """{"loss/loss":{"count":1,"step":300,"last":0.07,"min":0,"max":1},"sys/cpu":{"count":1,"step":900,"last":40,"min":0,"max":90}}"""
+        // ai-toolkit: train.steps, with a sampler's steps beside it.
+        assertEquals(Run.Progress(300.0, 6000.0, "step"), progress("""{"train":{"steps":6000},"sample":{"steps":28,"sample_steps":28}}""", m))
+        assertEquals(Run.Progress(300.0, 500.0, "step"), progress("""{"trainer":{"max_steps":500,"num_train_epochs":3}}""", m))
+        assertNull(progress("""{"sampler":{"steps":28}}""", m)) // past it: not the run's total
+        assertNull(progress("""{"lr":0.001}""", m))
+    }
+
+    @Test fun progressFromEpochs() {
+        val m = """{"train/epoch":{"count":1,"step":40,"last":1.5,"min":0,"max":2}}"""
+        assertEquals(Run.Progress(1.5, 3.0, "epoch"), progress("""{"max_steps":-1,"num_train_epochs":3}""", m))
+    }
+
     @Test fun parsesARun() {
         val r = parseRuns(runs).single()
         assertEquals("failed", r.status)

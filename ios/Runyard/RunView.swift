@@ -97,6 +97,7 @@ struct RunView: View {
             } else if let host = run.host, !host.isEmpty {
                 Text("on \(host)").font(.caption).foregroundStyle(.secondary)
             }
+            RunProgress(run: run)
             if let notes = run.notes, !notes.isEmpty { Text(notes).font(.subheadline) }
         }
     }

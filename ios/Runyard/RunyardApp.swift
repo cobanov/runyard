@@ -160,7 +160,7 @@ struct MachineRow: View {
             }
             MachineStrip(load: machine.load).opacity(machine.silent ? 0.5 : 1)
             ForEach(Array(machine.procs.enumerated()), id: \.offset) { _, p in
-                Text("GPU \(p.gpu) · \(p.proc.name.isEmpty ? "pid \(p.proc.pid)" : p.proc.name)\(p.proc.user.map { " · \($0)" } ?? "") · \(String(format: "%.1f GB", p.proc.memGB))")
+                Text("GPU \(p.gpu) · \(p.proc.name.isEmpty ? "pid \(p.proc.pid)" : p.proc.name)\(p.proc.user.map { " · \($0)" } ?? "")\(p.proc.memGB > 0 ? String(format: " · %.1f GB", p.proc.memGB) : "")")
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
             }
             if !machine.runs.isEmpty {

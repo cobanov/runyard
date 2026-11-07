@@ -94,42 +94,63 @@ struct LiveRunCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Circle().fill(statusColor(run.status)).frame(width: 8, height: 8)
-                Text(run.name).font(.headline).lineLimit(1)
-                Spacer(minLength: 4)
-                Text(run.project).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                TimelineView(.periodic(from: .now, by: 1)) { t in
+                    let age = t.date.timeIntervalSince(run.lastHeartbeatAt ?? run.startedAt)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: "heart.fill").font(.caption)
+                            .foregroundStyle(age > Self.silentAfter ? .orange : statusColor(run.status))
+                            .symbolEffect(.bounce, value: run.lastHeartbeatAt)
+                            .accessibilityLabel("Last heartbeat \(duration(age)) ago")
+                        Text(run.name).font(.headline).lineLimit(1)
+                        Spacer(minLength: 4)
+                        if age > Self.silentAfter { Text(duration(age)).font(.caption.monospacedDigit()).foregroundStyle(.orange) }
+                        Text(duration(run.duration(now: t.date))).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                }
+                Text([run.project, run.host.map { "on \($0)" }].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             if let m = run.mainMetric {
                 HStack(alignment: .bottom, spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(fmt(m.value)).font(.title2.bold().monospacedDigit())
-                        Text("\(m.key) · step \(String(run.metrics?[m.key]?.step ?? 0))")
+                        Text(run.progress == nil ? "\(m.key) · step \(String(run.metrics?[m.key]?.step ?? 0))" : m.key)
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer(minLength: 0)
                     if spark.count > 1 { Sparkline(values: spark).frame(width: 110, height: 34) }
                 }
             }
-            if let p = run.progress {
-                let f = min(max(p.done / p.total, 0), 1)
-                VStack(alignment: .leading, spacing: 4) {
-                    ProgressView(value: f)
-                    Text(["\(p.unit) \(fmt(p.done)) / \(fmt(p.total))", "\(Int((f * 100).rounded()))%",
-                          // Elapsed time includes setup, so this is a rough guess.
-                          f > 0.01 && f < 1 ? "~\(duration(run.duration() * (1 - f) / f)) left" : nil]
-                        .compactMap { $0 }.joined(separator: " · "))
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                }
-            }
-            Text([duration(run.duration()),
-                  run.lastHeartbeatAt.map { "heartbeat \(duration(Date.now.timeIntervalSince($0))) ago" },
-                  run.host.map { "on \($0)" }]
-                .compactMap { $0 }.joined(separator: " · "))
-                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            RunProgress(run: run)
             if let load = SysLoad(run.metrics) { MachineStrip(load: load) }
         }
         .padding(.vertical, 4)
+    }
+
+    /// The library beats every 30 seconds: three missed beats is worth a look, long before the server's 5 minutes.
+    private static let silentAfter: TimeInterval = 90
+}
+
+/// How far a run is, when its config names a total. Keep it outside a ticking view: the step only moves with a
+/// poll, so an elapsed time that ticks would push the estimate up between polls.
+struct RunProgress: View {
+    let run: Run
+
+    var body: some View {
+        if let p = run.progress {
+            let f = min(max(p.done / p.total, 0), 1)
+            VStack(alignment: .leading, spacing: 4) {
+                ProgressView(value: f)
+                HStack {
+                    Text("\(p.unit) \(fmt(p.done)) / \(fmt(p.total)) · \(Int((f * 100).rounded()))%")
+                    Spacer(minLength: 4)
+                    // Elapsed time includes setup, so this is a rough guess.
+                    if run.running, f > 0.01, f < 1 { Text("~\(duration(run.duration() * (1 - f) / f)) left") }
+                }
+                .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
     }
 }
 

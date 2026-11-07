@@ -56,6 +56,29 @@ data class Run(
     /** How long it ran: until it ended, until now while running, else until its last heartbeat (a crash). */
     fun duration(now: Long = System.currentTimeMillis()) =
         ((endedAt ?: if (running) now else lastHeartbeatAt ?: startedAt) - startedAt) / 1000.0
+
+    data class Progress(val done: Double, val total: Double, val unit: String)
+
+    /**
+     * How far it is, when the config names a total: steps (HF max_steps and the like) against the latest logged step,
+     * else epochs against an epoch metric. Nested config keys count by their last part.
+     */
+    val progress: Progress?
+        get() {
+            val cfg = mutableMapOf<String, Double>()
+            for ((k, v) in flat(config)) {
+                val d = v.toDoubleOrNull() ?: continue
+                cfg.merge(k.substringAfterLast('.'), d, ::maxOf) // sampler.steps must not hide train.steps
+            }
+            fun total(vararg names: String) = names.firstNotNullOfOrNull { n -> cfg[n]?.takeIf { it > 0 } }
+            val train = metrics?.filterKeys { !it.startsWith("sys/") }.orEmpty()
+            val done = (train.values.maxOfOrNull { it.step } ?: 0).toDouble()
+            // A plain "steps" may be a sampler's, so one the run has passed is not its total.
+            total("max_steps", "total_steps", "num_steps", "train_steps", "steps")?.takeIf { done <= it }?.let { return Progress(done, it, "step") }
+            val epoch = train.entries.firstOrNull { it.key == "epoch" || it.key.endsWith("/epoch") }?.value?.last
+            val epochs = total("num_train_epochs", "epochs", "max_epochs", "num_epochs")
+            return if (epoch != null && epoch.isFinite() && epochs != null) Progress(epoch, epochs, "epoch") else null
+        }
 }
 
 /** A machine's latest readings, from the sys/ metrics the client logs (sys/cpu, sys/ram_gb, sys/gpu{i}.util ...). */
@@ -201,7 +224,8 @@ fun parseMachines(s: String) = JSONArray(s).list { m ->
         procs = gpus.list { g ->
             g.optJSONArray("procs").list { p ->
                 val name = p.str("name").orEmpty().ifEmpty { "pid ${p.optInt("pid")}" }
-                listOfNotNull("GPU ${g.optInt("i")}", name, p.str("user")?.ifEmpty { null }, "%.1f GB".format(Locale.ROOT, num(p.opt("mem_gb"))))
+                // WSL's NVML gives no per-process memory: the beacon sends 0
+                listOfNotNull("GPU ${g.optInt("i")}", name, p.str("user")?.ifEmpty { null }, num(p.opt("mem_gb")).takeIf { it > 0 }?.let { "%.1f GB".format(Locale.ROOT, it) })
                     .joinToString(" · ")
             }
         }.flatten(),

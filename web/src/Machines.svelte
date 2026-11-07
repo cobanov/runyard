@@ -136,7 +136,7 @@ RUNYARD_SERVER={location.origin} RUNYARD_API_KEY=ry_... runyard beacon</pre>
                   <thead><tr><th>Process</th><th>User</th><th>PID</th><th class="num">Memory</th></tr></thead>
                   <tbody>
                     {#each g.procs as p (p.pid)}
-                      <tr><td>{p.name || '?'}</td><td>{p.user || '–'}</td><td class="muted">{p.pid}</td><td class="num">{n1(p.mem_gb, ' GB')}</td></tr>
+                      <tr><td>{p.name || '?'}</td><td>{p.user || '–'}</td><td class="muted">{p.pid}</td><td class="num">{p.mem_gb ? n1(p.mem_gb, ' GB') : '–'}</td></tr>
                     {/each}
                   </tbody>
                 </table>
