@@ -151,6 +151,9 @@ func (s *srv) purge(ctx context.Context, what, runs, del string, arg any) error 
 			if err := s.store.remove(context.WithoutCancel(ctx), k); err != nil && !errors.Is(err, os.ErrNotExist) {
 				log.Printf("delete %s: %v", k, err)
 			}
+			for _, w := range thumbWidths { // the smaller copies made for ?w=, if any
+				s.store.remove(context.WithoutCancel(ctx), thumbKey(k, w))
+			}
 		}
 	}()
 	s.hub.publish(event{Type: "run"}) // no run id, so every client reloads its lists, whatever it may see

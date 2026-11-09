@@ -194,10 +194,11 @@ func addMetrics(ctx context.Context, db *pgxpool.Pool, runs []Run) error {
 }
 
 type series struct {
-	Step []int64 `json:"step"` // last step in each bucket
-	Min  []num   `json:"min"`
-	Max  []num   `json:"max"`
-	Last []num   `json:"last"`
+	Step []int64   `json:"step"` // last step in each bucket
+	T    []float64 `json:"t"`    // when that step was logged, unix seconds: the time axis
+	Min  []num     `json:"min"`
+	Max  []num     `json:"max"`
+	Last []num     `json:"last"`
 }
 
 // getMetrics returns each key's history cut into at most points buckets of equal step width.
@@ -206,22 +207,31 @@ func getMetrics(ctx context.Context, db *pgxpool.Pool, id string, keys []string,
 	// The step range and count come from the summary, so the history is read once and never sorted: the last value
 	// of a bucket is the one of its highest step, which max() finds over [step, value] pairs. A third of the time
 	// of counting and sorting first, measured on 200,000 steps of four metrics.
-	rows, _ := db.Query(ctx, `SELECT k.name, max(m.step), min(m.value), max(m.value), (max(ARRAY[m.step::float8, m.value]))[2]
+	// A metric with more than 200 rows per point asked for is read from its 100-step rollup instead, which is why
+	// ten million steps chart as fast as a hundred thousand. Buckets of the two do not line up exactly: a point's
+	// range can include up to 99 steps of its neighbour.
+	rows, _ := db.Query(ctx, `SELECT k.name, max(m.step), min(m.value), max(m.value), (max(ARRAY[m.step::float8, m.value]))[2],
+			(max(ARRAY[m.step::float8, extract(epoch FROM m.ts)::float8]))[2]
 		FROM metrics m JOIN metric_summary s ON s.run_id = m.run_id AND s.key_id = m.key_id JOIN metric_keys k ON k.id = m.key_id
-		WHERE m.run_id = $1::uuid AND (coalesce(cardinality($2::text[]), 0) = 0 OR k.name = ANY($2))
+		WHERE m.run_id = $1::uuid AND (coalesce(cardinality($2::text[]), 0) = 0 OR k.name = ANY($2)) AND s.count <= $3::bigint * 200
 		GROUP BY k.name, CASE WHEN s.count <= $3 THEN m.step ELSE (m.step - s.first) * $3 / (s.step - s.first + 1) END
+		UNION ALL
+		SELECT k.name, max(m.step), min(m.min), max(m.max), (max(ARRAY[m.step::float8, m.last]))[2], (max(ARRAY[m.step::float8, m.t]))[2]
+		FROM metric_rollup m JOIN metric_summary s ON s.run_id = m.run_id AND s.key_id = m.key_id JOIN metric_keys k ON k.id = m.key_id
+		WHERE m.run_id = $1::uuid AND (coalesce(cardinality($2::text[]), 0) = 0 OR k.name = ANY($2)) AND s.count > $3::bigint * 200
+		GROUP BY k.name, (m.step - s.first) * $3 / (s.step - s.first + 1)
 		ORDER BY 1, 2`, id, keys, points)
 	out := map[string]*series{}
 	var name string
 	var step int64
-	var lo, hi, last float64
-	_, err := pgx.ForEachRow(rows, []any{&name, &step, &lo, &hi, &last}, func() error {
+	var lo, hi, last, t float64
+	_, err := pgx.ForEachRow(rows, []any{&name, &step, &lo, &hi, &last, &t}, func() error {
 		s := out[name]
 		if s == nil {
 			s = &series{}
 			out[name] = s
 		}
-		s.Step = append(s.Step, step)
+		s.Step, s.T = append(s.Step, step), append(s.T, t)
 		s.Min, s.Max, s.Last = append(s.Min, num(lo)), append(s.Max, num(hi)), append(s.Last, num(last))
 		return nil
 	})

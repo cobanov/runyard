@@ -143,6 +143,11 @@ func (s *srv) routes() http.Handler {
 		}
 		w.Header().Set("Cache-Control", cache+", max-age=31536000, immutable") // media files never change
 		inert(w)
+		if width := thumbWidth(intParam(r, "w", 0)); width > 0 { // ?w=640: a smaller copy for grids and phones
+			if small, ok := s.thumb(r.Context(), key, width); ok {
+				key = small
+			}
+		}
 		s.store.serve(w, r, key)
 	})
 	static, _ := fs.Sub(webdist, "webdist/dist")
@@ -419,21 +424,29 @@ func (s *srv) writeMetrics(ctx context.Context, id string, rows []metricRow) (in
 			keyCol, stepCol, tsCol, valCol = append(keyCol, p.key), append(stepCol, p.step), append(tsCol, ts), append(valCol, float64(v))
 		}
 	}
-	// The summary is updated in the same statement, from the rows just written; xmax = 0 marks a row that is new, so
-	// a retried batch does not count twice.
+	// The summary and the 100-step rollup are updated in the same statement, from the rows just written; xmax = 0
+	// marks a row that is new, so a retried batch does not count twice.
 	// shortcut: a step logged again with another value leaves the old one in min and max; recompute from metrics
 	// (as migration 011 does) if runs that rewrite history need exact extremes.
 	_, err = s.db.Exec(ctx, `WITH ins AS (
 			INSERT INTO metrics (run_id, key_id, step, ts, value)
 			SELECT $1::uuid, k, st, t, v FROM unnest($2::bigint[], $3::bigint[], $4::timestamptz[], $5::float8[]) AS u(k, st, t, v)
 			ON CONFLICT (run_id, key_id, step) DO UPDATE SET value = excluded.value, ts = excluded.ts
-			RETURNING key_id, step, value, (xmax = 0) AS fresh)
-		INSERT INTO metric_summary AS s (run_id, key_id, count, first, step, last, min, max)
+			RETURNING key_id, step, ts, value, (xmax = 0) AS fresh)
+		, sums AS (INSERT INTO metric_summary AS s (run_id, key_id, count, first, step, last, min, max)
 			SELECT $1::uuid, key_id, count(*) FILTER (WHERE fresh), min(step), max(step), (array_agg(value ORDER BY step DESC))[1], min(value), max(value)
 			FROM ins GROUP BY key_id ORDER BY key_id
 		ON CONFLICT (run_id, key_id) DO UPDATE SET count = s.count + excluded.count, first = least(s.first, excluded.first),
 			last = CASE WHEN excluded.step >= s.step THEN excluded.last ELSE s.last END,
-			step = greatest(s.step, excluded.step), min = least(s.min, excluded.min), max = greatest(s.max, excluded.max)`,
+			step = greatest(s.step, excluded.step), min = least(s.min, excluded.min), max = greatest(s.max, excluded.max))
+		INSERT INTO metric_rollup AS r (run_id, key_id, bucket, step, t, last, min, max)
+			SELECT $1::uuid, key_id, step / 100, max(step), (max(ARRAY[step::float8, extract(epoch FROM ts)::float8]))[2],
+				(max(ARRAY[step::float8, value]))[2], min(value), max(value)
+			FROM ins GROUP BY key_id, step / 100 ORDER BY 2, 3
+		ON CONFLICT (run_id, key_id, bucket) DO UPDATE SET
+			last = CASE WHEN excluded.step >= r.step THEN excluded.last ELSE r.last END,
+			t = CASE WHEN excluded.step >= r.step THEN excluded.t ELSE r.t END,
+			step = greatest(r.step, excluded.step), min = least(r.min, excluded.min), max = greatest(r.max, excluded.max)`,
 		id, keyCol, stepCol, tsCol, valCol)
 	if err != nil {
 		return 0, err
