@@ -6,7 +6,6 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	_ "image/gif"
 	"image/jpeg"
 	_ "image/png"
 	"io"
@@ -40,7 +39,7 @@ func (s *srv) thumb(ctx context.Context, key string, width int) (string, bool) {
 		f.Close()
 		return small, true
 	}
-	if ext := key[strings.LastIndex(key, ".")+1:]; ext != "png" && ext != "jpg" && ext != "jpeg" && ext != "gif" {
+	if ext := key[strings.LastIndex(key, ".")+1:]; ext != "png" && ext != "jpg" && ext != "jpeg" { // a GIF is a video here, and must keep moving
 		return "", false
 	}
 	thumbSlots <- struct{}{}

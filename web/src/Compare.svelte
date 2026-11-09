@@ -1,5 +1,5 @@
 <script>
-  import { get, plotValue, flatten, palette, chartView as view } from './lib.svelte.js'
+  import { get, flatten, palette, chartView as view, seriesLine, thumb } from './lib.svelte.js'
   import Chart from './Chart.svelte'
 
   let { ids: asked } = $props()
@@ -36,7 +36,8 @@
   const color = (i) => palette[i % palette.length]
   const keys = $derived([...new Set(series.flatMap((s) => Object.keys(s)))].filter((k) => !k.startsWith('sys/')).sort())
   const lines = (k) =>
-    series.flatMap((s, i) => (s[k] ? [{ label: runs[i]?.name ?? ids[i], color: color(i), x: s[k].step, y: s[k].last.map(plotValue) }] : []))
+    series.flatMap((s, i) => (s[k] ? [{ label: runs[i]?.name ?? ids[i], color: color(i), ...seriesLine(s[k], runs[i], view.time) }] : []))
+  const timed = $derived(view.time && series.some((s) => Object.values(s).some((m) => m.t))) // each run from its own start
 
   // Only the config keys whose values differ between the runs.
   const diff = $derived.by(() => {
@@ -63,11 +64,12 @@
       >Smoothing <input type="range" min="0" max="0.99" step="0.01" bind:value={view.smooth} /><output>{view.smooth ? view.smooth.toFixed(2) : 'off'}</output></label
     >
     <button aria-pressed={view.log} onclick={() => (view.log = !view.log)}>Log scale</button>
+    <button aria-pressed={view.time} onclick={() => (view.time = !view.time)} title="Time since each run started instead of steps">Time axis</button>
   </div>
 {/if}
 <div class="grid">
   {#each keys as k (k)}
-    <Chart title={k} lines={lines(k)} smooth={view.smooth} log={view.log} />
+    <Chart title={k} lines={lines(k)} smooth={view.smooth} log={view.log} elapsed={timed} xLabel={timed ? 'after' : 'step'} />
   {/each}
 </div>
 
@@ -89,7 +91,7 @@
             {#each runs as r, i (r.id)}
               <td>
                 {#each at(i, key) as m (m.id)}
-                  <a href={m.url} target="_blank" rel="noopener" title="{m.meta.caption || key}, step {m.step}"><img src={m.url} alt="{m.meta.caption || key} of {r.name} at step {m.step}" loading="lazy" /></a>
+                  <a href={m.url} target="_blank" rel="noopener" title="{m.meta.caption || key}, step {m.step}"><img src={thumb(m.url, 320)} alt="{m.meta.caption || key} of {r.name} at step {m.step}" loading="lazy" /></a>
                 {:else}
                   <span class="muted">–</span>
                 {/each}

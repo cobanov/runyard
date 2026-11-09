@@ -1,5 +1,5 @@
 <script>
-  import { get, send, why, onEvent, throttle, runTime, ago, duration, live, plotValue, fmt, flatten, progressText, title, stuck, chartView as view } from './lib.svelte.js'
+  import { get, send, why, onEvent, throttle, runTime, ago, duration, live, plotValue, fmt, flatten, progressText, title, stuck, chartView as view, seriesLine, memo } from './lib.svelte.js'
   import Chart from './Chart.svelte'
   import Samples from './Samples.svelte'
   import Logs from './Logs.svelte'
@@ -8,7 +8,8 @@
   let run = $state(null)
   let error = $state('')
   let series = $state.raw({}) // replaced whole on each load; charts take new points without being rebuilt
-  let tab = $state('charts')
+  let tab = $state(memo.tab || 'charts') // the tab last looked at, on any run: who watches samples keeps watching samples
+  $effect(() => void (memo.tab = tab))
   let alerts = $state([])
   let artifacts = $state([])
 
@@ -52,10 +53,14 @@
     ...(artifacts.length ? [['artifacts', 'Artifacts']] : []),
     ...(sysKeys.length ? [['system', 'System']] : []),
   ])
-  const lineOf = (k) => {
+  const timed = $derived(view.time && Object.values(series).some((s) => s.t)) // a server before 0.7 sends no times
+  const lineOf = (k, time = timed) => {
     const s = series[k]
-    return [{ label: k, color: '--c1', x: s.step, y: s.last.map(plotValue), min: s.min.map(plotValue), max: s.max.map(plotValue) }]
+    return [{ label: k, color: '--c1', ...seriesLine(s, run, time), min: s.min.map(plotValue), max: s.max.map(plotValue) }]
   }
+  $effect(() => {
+    if (run && !tabs.some(([t]) => t === tab)) tab = 'charts' // the remembered tab is one this run does not have
+  })
 
   let filter = $state('')
   const chartKeys = $derived(trainKeys.filter((k) => series[k] && k.toLowerCase().includes(filter.trim().toLowerCase())))
@@ -153,10 +158,11 @@
           >Smoothing <input type="range" min="0" max="0.99" step="0.01" bind:value={view.smooth} /><output>{view.smooth ? view.smooth.toFixed(2) : 'off'}</output></label
         >
         <button aria-pressed={view.log} onclick={() => (view.log = !view.log)}>Log scale</button>
+        <button aria-pressed={view.time} onclick={() => (view.time = !view.time)} title="Time since the run started instead of steps">Time axis</button>
       </div>
       <div class="grid">
         {#each chartKeys as k (k)}
-          <Chart title={k} lines={lineOf(k)} smooth={view.smooth} log={view.log} />
+          <Chart title={k} lines={lineOf(k)} smooth={view.smooth} log={view.log} elapsed={timed} xLabel={timed ? 'after' : 'step'} />
         {:else}
           {#if filter.trim()}<p class="empty">No metric matches “{filter.trim()}”.</p>{/if}
         {/each}
@@ -167,7 +173,7 @@
   {:else if tab === 'system'}
     <div class="grid">
       {#each sysKeys.filter((k) => series[k]) as k (k)}
-        <Chart title={k.slice(4)} lines={lineOf(k)} xLabel="elapsed" elapsed />
+        <Chart title={k.slice(4)} lines={lineOf(k, false)} xLabel="elapsed" elapsed />
       {/each}
     </div>
   {:else if tab === 'samples'}
@@ -201,6 +207,12 @@
     {#if env.length}
       <h2>Environment</h2>
       <dl class="card kv">{#each env as [k, v]}<dt>{k}</dt><dd>{v}</dd>{/each}</dl>
+    {/if}
+    {#if run.env?.packages?.length}
+      <details class="diff">
+        <summary class="small muted">{run.env.packages.length} installed packages</summary>
+        <pre class="card">{run.env.packages.join('\n')}</pre>
+      </details>
     {/if}
     {#if run.env?.git_diff}
       <details class="diff">

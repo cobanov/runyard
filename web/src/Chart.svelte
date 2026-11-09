@@ -88,7 +88,7 @@
   }
 
   // The plot is built again only when its shape changes: which lines, smoothing on or off, the axis, the theme.
-  const shape = $derived(JSON.stringify([lines.map((l) => [l.label, l.color, !!l.min]), !!smooth, log, theme.dark, height]))
+  const shape = $derived(JSON.stringify([lines.map((l) => [l.label, l.color, !!l.min]), !!smooth, log, theme.dark, height, elapsed, time]))
   $effect(() => {
     shape
     untrack(build)

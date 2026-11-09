@@ -1,13 +1,15 @@
 <script>
-  import { get, send, why, onEvent, throttle, ago, runTime, duration, live, fmt, plotValue, store, loadProjects, progressText, stuck } from './lib.svelte.js'
+  import { get, send, why, onEvent, throttle, ago, runTime, duration, live, fmt, plotValue, store, loadProjects, progressText, stuck, memo } from './lib.svelte.js'
 
   let { project } = $props()
+  // Back from a run finds the list as it was left: its filter, search, order and the runs picked to compare.
+  const was = (memo['p:' + project] ||= {})
   let runs = $state(null)
-  let status = $state('')
-  let picked = $state([])
+  let status = $state(was.status || '')
+  let picked = $state(was.picked || [])
 
-  let limit = $state(200) // "Show more" raises it; the search asks the server, so it also finds runs past it
-  let query = $state('')
+  let limit = $state(was.limit || 200) // "Show more" raises it; the search asks the server, so it also finds runs past it
+  let query = $state(was.query || '')
   const load = throttle(() =>
     get(`/runs?project=${encodeURIComponent(project)}&status=${status}&metrics=1&limit=${limit}&q=${encodeURIComponent(query.trim())}`)
       .then((r) => (runs = r))
@@ -36,7 +38,8 @@
   const filters = ['', 'running', 'finished', 'failed', 'crashed']
 
   // Search by name or tag, then sort by a clicked column; null keeps the server's order (newest first).
-  let sort = $state(null) // {key, dir: 1 | -1}
+  let sort = $state(was.sort || null) // {key, dir: 1 | -1}
+  $effect(() => void Object.assign(was, { status, picked: [...picked], limit, query, sort: sort && { ...sort } }))
   const value = {
     status: (r) => r.status,
     run: (r) => r.name,

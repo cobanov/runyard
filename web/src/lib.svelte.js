@@ -34,7 +34,7 @@ export async function send(method, path, body) {
 export const why = (e) =>
   e.status === 401 || e.status === 403 ? 'Only an admin can do this: add an API key on the Settings page, or log in as an admin when the server has users.' : e.message
 
-export const live = $state({ connected: false, now: Date.now(), down: '', expired: false })
+export const live = $state({ connected: false, now: Date.now(), down: '', expired: false, stale: false })
 setInterval(() => (live.now = Date.now()), 10000)
 
 const listeners = new Set()
@@ -85,12 +85,36 @@ export const stuck = (run, now) => {
 
 // Chart view, shared by the run page and the comparison: smoothing and the log axis are remembered per browser.
 // Storage may be blocked, so every access is guarded.
-export const chartView = $state({ smooth: 0, log: false })
+export const chartView = $state({ smooth: 0, log: false, time: false }) // time: x is time since the run started, not steps
 try {
   const s = JSON.parse(localStorage.getItem('runyard.charts'))
   chartView.smooth = Math.min(0.99, Math.max(0, +s.smooth || 0))
   chartView.log = s.log === true
+  chartView.time = s.time === true
 } catch {}
+
+// seriesLine turns one metric's series into a chart line; with time on (and a server that sends it) x is seconds
+// since the run started.
+export function seriesLine(s, run, time) {
+  const t0 = new Date(run?.started_at) / 1000
+  return { x: time && s.t && t0 ? s.t.map((t) => Math.max(0, t - t0)) : s.step, y: s.last.map(plotValue) }
+}
+
+// thumb is a sample's URL at a width fit for a grid; the server keeps 320, 640 and 1280. A GIF stays itself: it moves.
+export const thumb = (url, w = 640) => (url.endsWith('.gif') ? url : `${url}?w=${w}`)
+
+// memo keeps what a page was showing (a list's filter and search, a run's tab) for when you come Back to it.
+export const memo = {}
+
+// After the server was upgraded, an open tab still runs the old page: its script is no longer the one index.html names.
+export async function checkStale() {
+  const mine = document.querySelector('script[type=module][src]')?.getAttribute('src')
+  if (!mine || !mine.includes('/assets/')) return // the dev server
+  try {
+    const page = await (await fetch('/', { cache: 'no-store' })).text()
+    live.stale = !page.includes(mine)
+  } catch {}
+}
 $effect.root(() => {
   $effect(() => {
     const v = JSON.stringify(chartView)

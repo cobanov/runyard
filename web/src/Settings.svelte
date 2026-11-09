@@ -2,7 +2,7 @@
   import { encode } from 'uqr'
   import { get, send, why, store, ago, live, cred, setKey } from './lib.svelte.js'
 
-  let { auth } = $props()
+  let { auth, setup = false, onsetup = () => {} } = $props() // setup: no users and not one key yet, so the first is made here
   const origin = location.origin
 
   let keys = $state(null)
@@ -54,12 +54,26 @@
 
   let keyName = $state('')
   let keyUser = $state('')
+  let keyScope = $state('log') // most keys go onto a machine that trains, and that one should not be able to delete
   const createKey = (e) => {
     e.preventDefault()
     act('keys', async () => {
-      made = { name: keyName, ...(await send('POST', '/keys', { name: keyName, user: keyUser })) }
+      made = { name: keyName, ...(await send('POST', '/keys', { name: keyName, user: keyUser, scope: keyScope })) }
       keyName = keyUser = ''
     }, loadKeys)
+  }
+  // The first key of a fresh server: made without one, kept for this tab so the rest of the page works at once.
+  async function firstKey(e) {
+    e.preventDefault()
+    keyError = ''
+    try {
+      made = { name: keyName || 'first', ...(await send('POST', '/keys', { name: keyName || 'first' })) }
+      keyName = ''
+      setKey(made.key)
+      onsetup()
+    } catch (err) {
+      keyError = err.message
+    }
   }
   const revoke = (k) =>
     confirm(`Revoke the key ${k.name}? Scripts and agents using it stop working.`) && act('keys', () => send('DELETE', '/keys/' + k.id), loadKeys)
@@ -93,6 +107,18 @@
       <div class="card card-pad access">
         <p class="small">Changes from this tab use the API key you added. It is forgotten when the tab closes.</p>
         <button onclick={() => ((keys = channels = null), setKey(''))}>Forget the key</button>
+      </div>
+    {:else if setup}
+      <div class="card card-pad access">
+        <p class="small">
+          This server has no API key yet. Make the first one here: training scripts send it, and this page uses it to manage keys,
+          notification channels and deleting. It can do everything, so keep it; keys for training machines are made below, afterwards.
+        </p>
+        <form class="add" onsubmit={firstKey}>
+          <label class="grow">Name <input class="field" bind:value={keyName} placeholder="admin" /></label>
+          <button class="btn-primary">Make the first key</button>
+        </form>
+        {#if keyError}<p class="small"><span class="danger">{keyError}</span></p>{/if}
       </div>
     {:else}
       <div class="card card-pad access">
@@ -157,17 +183,24 @@ docker compose exec app /runyard-server channel add ntfy https://ntfy.sh/my-topi
     <form class="add" onsubmit={createKey}>
       <label>Name <input class="field" bind:value={keyName} placeholder="my-laptop" required /></label>
       {#if auth}<label>Acts as user <input class="field" bind:value={keyUser} placeholder="none: sees everything" autocapitalize="none" /></label>{/if}
+      <label>For
+        <select class="field" bind:value={keyScope}>
+          <option value="log">a training machine: logs and reads</option>
+          <option value="full">managing: also deletes, makes keys and channels</option>
+        </select>
+      </label>
       <button class="btn-primary">Create key</button>
     </form>
     {#if keys.length}
       <div class="card table">
         <table>
-          <thead><tr><th>Name</th><th>User</th><th>Created</th><th><span class="sr">Revoke</span></th></tr></thead>
+          <thead><tr><th>Name</th><th>User</th><th>Can</th><th>Created</th><th><span class="sr">Revoke</span></th></tr></thead>
           <tbody>
             {#each keys as k (k.id)}
               <tr>
                 <td class="strong">{k.name}</td>
                 <td>{#if k.user}{k.user}{:else}<span class="muted">server key</span>{/if}</td>
+                <td class="muted">{k.scope === 'log' ? 'log' : 'everything'}</td>
                 <td class="muted">{ago(k.created_at, live.now)}</td>
                 <td class="end"><button class="danger" onclick={() => revoke(k)}>Revoke</button></td>
               </tr>

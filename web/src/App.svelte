@@ -1,5 +1,5 @@
 <script>
-  import { live, onEvent, store, loadProjects, title } from './lib.svelte.js'
+  import { live, onEvent, store, loadProjects, title, checkStale } from './lib.svelte.js'
   import Overview from './Overview.svelte'
   import Projects from './Projects.svelte'
   import Runs from './Runs.svelte'
@@ -47,7 +47,10 @@
   $effect(() => {
     if (!ready) return
     loadProjects()
-    return onEvent((e) => (e.type === 'run' || e.type === 'reconnect') && loadProjects())
+    return onEvent((e) => {
+      if (e.type === 'run' || e.type === 'reconnect') loadProjects()
+      if (e.type === 'reconnect') checkStale() // the stream dropped: the server may have come back as a newer one
+    })
   })
   async function logout() {
     await fetch('/api/v1/logout', { method: 'POST' })
@@ -139,6 +142,7 @@
     </nav>
 
     <main>
+      {#if live.stale}<p class="down small" role="status">The server was upgraded while this page was open. <button onclick={() => location.reload()}>Reload</button> to get the new version.</p>{/if}
       {#if live.down}<p class="down small" role="status">Can’t reach the server ({live.down}). What is shown may be old; it refreshes when the server answers.</p>{/if}
       {#key hash}
         {#if route.kind === 'p'}
@@ -154,7 +158,7 @@
         {:else if route.kind === 'alerts'}
           <Alerts />
         {:else if route.kind === 'settings'}
-          <Settings auth={me.auth} />
+          <Settings auth={me.auth} setup={me.setup} onsetup={() => (me = { ...me, setup: false })} />
         {:else}
           <Overview />
         {/if}

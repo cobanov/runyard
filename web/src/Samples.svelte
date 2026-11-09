@@ -1,5 +1,5 @@
 <script>
-  import { get, onEvent, throttle } from './lib.svelte.js'
+  import { get, onEvent, throttle, thumb } from './lib.svelte.js'
   import TextTable from './TextTable.svelte'
 
   let { id } = $props()
@@ -82,7 +82,7 @@
               <video src={m.url} controls loop muted playsinline></video>
             {:else}
               <button class="thumb" onclick={() => show(key, m)} aria-label="View {m.meta.caption || key} large"
-                ><img src={m.url} alt={m.meta.caption || key} loading="lazy" onload={crisp} /></button
+                ><img src={thumb(m.url)} alt={m.meta.caption || key} loading="lazy" onload={crisp} /></button
               >
             {/if}
             {#if m.meta.caption}<figcaption class="small muted">{m.meta.caption}</figcaption>{/if}
