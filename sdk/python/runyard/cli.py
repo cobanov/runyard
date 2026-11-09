@@ -5,7 +5,7 @@
     runyard logs RUN [-n 100] [-f]
     runyard samples RUN [--out DIR]  downloads the latest samples
     runyard artifacts RUN [--get NAME]  checkpoints and files; --get downloads an uploaded one
-    runyard sync                     sends runs saved while the server was unreachable
+    runyard sync [--server URL]      sends runs saved while the server was unreachable (the next run does it too)
     runyard watch DIR [--project P] [--once] [--interval 10]
                                      sends TensorBoard event files under DIR, one run per directory, until Ctrl-C;
                                      --once reads them once and exits (needs the tensorboard package)
@@ -152,7 +152,7 @@ def cmd_sync(a):
     from . import core
 
     files = sorted((core.CACHE / "pending").glob("*.json"))
-    left = [f for f in files if not sync(f)]
+    left = [f for f in files if not sync(f, server=a.server)]
     print(f"sent {len(files) - len(left)} of {len(files)} pending runs")
     return 1 if left else 0
 
@@ -341,7 +341,9 @@ def main(argv=None):
     arts.add_argument("--out", help="directory for --get (default: here)")
     arts.set_defaults(fn=cmd_artifacts)
 
-    sub.add_parser("sync", help=cmd_sync.__doc__).set_defaults(fn=cmd_sync)
+    sy = sub.add_parser("sync", help=cmd_sync.__doc__)
+    sy.add_argument("--server", help="send them here instead of the address each run was started with")
+    sy.set_defaults(fn=cmd_sync)
 
     watch = sub.add_parser("watch", help=cmd_watch.__doc__)
     watch.add_argument("dir")

@@ -215,7 +215,7 @@ class Run:
         self.summary = _Synced(self, "summary", {})
         _check_sandbox()
         self._system = _System() if system else None
-        self._sender.put("create", {"id": self.id, "project": self.project, "name": self.name, "config": dict(self.config),
+        self._sender.put("create", {"id": self.id, "project": self.project, "name": self.name, "config": _masked(self.config),
                                     "tags": list(tags or []), "notes": notes, "host": socket.gethostname(), "git": _git(),
                                     "started_at": _now(), "agent": _agent(), "env": _env(self._system)})
         _sync_old(server, key)
@@ -227,7 +227,7 @@ class Run:
 
     def _patch(self, body):
         if not self.finished:
-            self._sender.put("patch", body)
+            self._sender.put("patch", {k: _masked(v) if k == "config" else v for k, v in body.items()})
 
     def _step_for(self, step):
         """The step for media logged without one: the last metrics step."""
@@ -409,7 +409,8 @@ def _git():
         return None
 
 
-_SECRET = re.compile(r"key|token|secret|passw|credential", re.I)
+# A name that ends in key, token, secret or password: hf_token, wandb_api_key, --api-key. Not max_tokens or tokenizer.
+_SECRET = re.compile(r"(?:^|[_.-])(?:key|token|secret|password|passwd|credentials?)$", re.I)
 
 
 def _argv():
@@ -423,6 +424,11 @@ def _argv():
             a = a.split("=", 1)[0] + "=***"
         out.append(a[:2000])
     return out[:200]
+
+
+def _masked(d):
+    """A config without its secrets: scripts log vars(args), and args is where --wandb_api_key and --hf_token are."""
+    return {k: _masked(v) if isinstance(v, dict) else "***" if v and isinstance(k, str) and _SECRET.search(k) else v for k, v in d.items()}
 
 
 def _env(system):

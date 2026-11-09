@@ -131,10 +131,8 @@ def test_server_down_never_blocks_then_sync(server, monkeypatch, capsys):
     pending = runyard.core.CACHE / "pending" / f"{run.id}.json"
     assert pending.exists()
 
-    data = json.loads(pending.read_text())
-    data["server"] = server  # the server came back (here: under another address)
-    pending.write_text(json.dumps(data))
-    assert cli(["sync"]) == 0
+    assert cli(["sync"]) == 1 and pending.exists()  # still unreachable: kept
+    assert cli(["sync", "--server", server]) == 0  # the server came back, here under another address
     assert not pending.exists()
     r = get(server + "/api/v1/runs/" + run.id)
     assert r["status"] == "finished" and r["metrics"]["loss"]["count"] == 2000
@@ -173,11 +171,14 @@ os.kill(os.getpid(), signal.SIGKILL)
 
 
 def test_env_is_recorded_without_secrets(server, monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["train.py", "--lr", "3e-4", "--hf_token", "hf_secret", "--wandb_api_key=abc", "cfg.yaml"])
-    run = ry.Run(project="env", name="argv", system=False)
+    monkeypatch.setattr(sys, "argv", ["train.py", "--lr", "3e-4", "--hf_token", "hf_secret", "--wandb_api_key=abc", "--max_tokens", "512", "cfg.yaml"])
+    run = ry.Run(project="env", name="argv", system=False, config={"lr": 3e-4, "wandb_api_key": "abc", "max_tokens": 512, "hub": {"token": "hf_x"}})
+    run.config.update(hf_token="hf_y", tokenizer="bert")
     run.finish()
     r = get(server + "/api/v1/runs/" + run.id)
-    assert r["env"]["argv"] == ["train.py", "--lr", "3e-4", "--hf_token", "***", "--wandb_api_key=***", "cfg.yaml"]
+    assert r["env"]["argv"] == ["train.py", "--lr", "3e-4", "--hf_token", "***", "--wandb_api_key=***", "--max_tokens", "512", "cfg.yaml"]
+    # vars(args) as the config is the habit, and args is where the keys are
+    assert r["config"] == {"lr": 3e-4, "wandb_api_key": "***", "max_tokens": 512, "hub": {"token": "***"}, "hf_token": "***", "tokenizer": "bert"}
     assert r["env"]["python"] and r["env"]["cpus"] and r["ended_at"]
     assert "env" not in get(server + "/api/v1/runs?project=env")[0]  # lists stay small: env can hold a diff
 
