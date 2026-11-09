@@ -2,6 +2,7 @@
 
 package dev.cobanov.runyard
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.text.format.DateUtils
 import androidx.compose.foundation.Canvas
@@ -12,6 +13,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +33,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -57,6 +62,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -68,6 +74,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -89,13 +96,24 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -104,17 +122,35 @@ import kotlin.math.roundToInt
 val Mono = TextStyle(fontFamily = FontFamily.Monospace)
 val Num = TextStyle(fontFeatureSettings = "tnum")
 
-/** Runs load now and then again every `every` ms while the screen is shown. */
+/** False for a screen under the one on top: it stays composed, so its list keeps its place, but it does not poll. */
+val LocalShown = compositionLocalOf { true }
+
+/** Runs load now and then again every `every` ms while the screen is on top and the app is in front. */
 @Composable
 fun Poll(key: Any?, every: () -> Long, load: suspend () -> Unit) {
     val l by rememberUpdatedState(load)
     val e by rememberUpdatedState(every)
-    LaunchedEffect(key) {
-        while (true) {
-            l()
-            delay(e())
+    val owner = LocalLifecycleOwner.current
+    val shown = LocalShown.current
+    LaunchedEffect(key, owner, shown) {
+        if (shown) owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                l()
+                delay(e())
+            }
         }
     }
+}
+
+/** What a failed refresh leaves in `error`; a cancelled one (the screen went away) is not a failure. */
+fun failure(e: Exception): String = if (e is CancellationException) throw e else if (e is ApiError) e.message else "Can't reach the server."
+
+/** One quiet line while refreshes fail: what is on the screen is as old as it says. */
+@Composable
+fun Stale(since: Long, error: String) {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { delay(1000); now = System.currentTimeMillis() } }
+    Text("Not updated for ${duration((now - since) / 1000.0)}. $error", fontSize = 13.sp, color = T.crashed, style = Num)
 }
 
 @Composable
@@ -193,10 +229,11 @@ fun Failure(text: String?, onDismiss: () -> Unit) {
 
 // ---- home ----
 
-/** Home: the coding agents, then what is training now, each at a glance, then every project. */
+/** Home: the coding agents, then what is training now, each at a glance, the runs that just ended, then every project. */
 @Composable
 fun HomeScreen(store: Store, open: (Route) -> Unit) {
-    var running by remember { mutableStateOf(listOf<Run>()) }
+    var runs by remember { mutableStateOf(listOf<Run>()) }
+    var okAt by remember { mutableStateOf(0L) }
     var spark by remember { mutableStateOf(mapOf<String, List<Double>>()) }
     var projects by remember { mutableStateOf(listOf<Project>()) }
     var agents by remember { mutableStateOf(listOf<Agent>()) }
@@ -207,23 +244,38 @@ fun HomeScreen(store: Store, open: (Route) -> Unit) {
     val scope = rememberCoroutineScope()
     val load: suspend () -> Unit = {
         try {
-            val runs = parseRuns(store.get("/api/v1/runs?status=running&limit=50&metrics=1"))
-            val ps = parseProjects(store.get("/api/v1/projects"))
-            val sp = runs.mapNotNull { r ->
-                val k = r.mainMetric?.first ?: return@mapNotNull null
-                runCatching { r.id to parseSeries(store.get("/api/v1/runs/${r.id}/metrics?points=40&keys=${q(k)}"))[k]!!.last.filter { it.isFinite() } }.getOrNull()
-            }.toMap()
-            val ag = loadAgents(store::get, agents)
-            running = runs; spark = sp; projects = ps; agents = ag
-            loaded = true; error = null
+            // Each part shows as it arrives; the sparklines, one request a run, come last and all at once.
+            coroutineScope {
+                launch { agents = loadAgents(store::get, agents) }
+                val ps = async { parseProjects(store.get("/api/v1/projects")) }
+                val rs = parseRuns(store.get("/api/v1/runs?limit=20&metrics=1"))
+                if (!loaded) runs = rs
+                projects = ps.await()
+                // A run that outlived twenty newer ones is not among them: ask for the running ones by status.
+                runs = if (projects.sumOf { it.running } <= rs.count { it.running }) rs
+                    else (parseRuns(store.get("/api/v1/runs?status=running&limit=50&metrics=1")) + rs).distinctBy { it.id }
+            }
+            loaded = true; error = null; okAt = System.currentTimeMillis()
+            spark = coroutineScope {
+                runs.filter { it.running }.map { r ->
+                    async {
+                        val k = r.mainMetric?.first ?: return@async null
+                        runCatching { parseSeries(store.get("/api/v1/runs/${r.id}/metrics?points=40&keys=${q(k)}"))[k]!!.last.filter { it.isFinite() } }
+                            .getOrNull()?.let { r.id to it } ?: spark[r.id]?.let { r.id to it }
+                    }
+                }.awaitAll().filterNotNull().toMap()
+            }
         } catch (e: Exception) {
-            error = e.message
+            error = failure(e)
         }
     }
+    val running = runs.filter { it.running }
+    val recent = runs.filter { !it.running }.take(8)
     Poll(Unit, { if (running.isEmpty()) 10_000 else 5_000 }, load)
     Screen("Projects") {
         Refreshable(load) {
             LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+                if (loaded && error != null) item { Stale(okAt, error!!) }
                 if (agents.isNotEmpty()) {
                     item { SectionTitle("Agents") }
                     items(agents, key = { it.id }) { a ->
@@ -232,14 +284,25 @@ fun HomeScreen(store: Store, open: (Route) -> Unit) {
                 }
                 if (running.isNotEmpty()) {
                     item { SectionTitle("Running") }
-                    items(running, key = { it.id }) { r -> LiveRunCard(r, spark[r.id].orEmpty()) { open(Route.RunR(r.id)) } }
+                    items(running, key = { it.id }) { r -> LiveRunCard(r, spark[r.id].orEmpty(), stale = error != null) { open(Route.RunR(r.id)) } }
+                }
+                if (recent.isNotEmpty()) {
+                    item { SectionTitle("Recent") }
+                    item {
+                        Panel(padding = 0) {
+                            recent.forEachIndexed { i, r ->
+                                if (i > 0) HorizontalDivider(color = T.rule)
+                                RunRow(r, { open(Route.RunR(r.id)) }, project = true)
+                            }
+                        }
+                    }
                 }
                 item { SectionTitle("All projects") }
                 if (projects.isNotEmpty()) item {
                     Panel(padding = 0) {
                         projects.forEachIndexed { i, p ->
                             if (i > 0) HorizontalDivider(color = T.rule)
-                            ProjectRow(p, { open(Route.Project(p.name)) }) { deleting = p }
+                            ProjectRow(p, { open(Route.Project(p.name)) }, if (store.canDelete) ({ deleting = p }) else null)
                         }
                     }
                 }
@@ -285,13 +348,15 @@ fun AgentCard(a: Agent, run: Run?, onClick: () -> Unit) {
 
 /** A running run on the home screen: enough to see how it is going without opening it. */
 @Composable
-fun LiveRunCard(run: Run, spark: List<Double>, onClick: () -> Unit) {
+fun LiveRunCard(run: Run, spark: List<Double>, stale: Boolean = false, onClick: () -> Unit) {
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(1000); now = System.currentTimeMillis() } }
     val beat = remember { Animatable(1f) }
     LaunchedEffect(run.lastHeartbeatAt) { beat.animateTo(1.5f, tween(120)); beat.animateTo(1f, tween(240)) }
     val age = (now - (run.lastHeartbeatAt ?: run.startedAt)) / 1000.0
-    val silent = age > 90 // the library beats every 30 seconds: three missed is worth a look, long before the server's 5 minutes
+    // The library beats every 30 seconds: three missed is worth a look, long before the server's 5 minutes.
+    // Not while refreshes fail: then it is the phone that hears nothing, not the run that went quiet.
+    val silent = !stale && age > 90
     Panel(Modifier.combinedClickable(onClick = onClick)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("♥", fontSize = 12.sp, color = if (silent) T.status("crashed") else T.status(run.status),
@@ -383,7 +448,7 @@ fun Sparkline(values: List<Double>, modifier: Modifier) {
 }
 
 @Composable
-fun ProjectRow(p: Project, onClick: () -> Unit, onLongClick: () -> Unit) {
+fun ProjectRow(p: Project, onClick: () -> Unit, onLongClick: (() -> Unit)?) {
     Row(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Dot(if (p.running > 0) T.running else T.finished)
@@ -400,7 +465,7 @@ fun ProjectRow(p: Project, onClick: () -> Unit, onLongClick: () -> Unit) {
 
 // ---- a project's runs ----
 
-/** One project's runs, newest first. Long-press to delete one. */
+/** One project's runs, newest first. Long-press to delete one, where the server lets the app. */
 @Composable
 fun RunsScreen(store: Store, project: String, open: (Route) -> Unit, back: () -> Unit) {
     var runs by remember { mutableStateOf(listOf<Run>()) }
@@ -423,7 +488,7 @@ fun RunsScreen(store: Store, project: String, open: (Route) -> Unit, back: () ->
                     Panel(padding = 0) {
                         runs.forEachIndexed { i, r ->
                             if (i > 0) HorizontalDivider(color = T.rule)
-                            RunRow(r, { open(Route.RunR(r.id)) }) { deleting = r }
+                            RunRow(r, { open(Route.RunR(r.id)) }, onLongClick = if (store.canDelete) ({ deleting = r }) else null)
                         }
                     }
                 }
@@ -444,13 +509,13 @@ fun RunsScreen(store: Store, project: String, open: (Route) -> Unit, back: () ->
 }
 
 @Composable
-fun RunRow(run: Run, onClick: () -> Unit, onLongClick: () -> Unit) {
+fun RunRow(run: Run, onClick: () -> Unit, project: Boolean = false, onLongClick: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Dot(T.status(run.status), 9)
         Column(Modifier.padding(start = 10.dp).weight(1f)) {
             Text(run.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(listOfNotNull(run.status, duration(run.duration()), if (run.running) null else ago(run.startedAt)).joinToString(" · "),
+            Text(listOfNotNull(if (project) run.project else null, run.status, duration(run.duration()), if (run.running) null else ago(run.startedAt)).joinToString(" · "),
                 fontSize = 13.sp, color = T.muted, maxLines = 1)
             if (run.tags.isNotEmpty()) Text(run.tags.joinToString("  "), fontSize = 12.sp, color = T.muted, maxLines = 1)
         }
@@ -466,7 +531,7 @@ fun RunRow(run: Run, onClick: () -> Unit, onLongClick: () -> Unit) {
 // ---- alerts ----
 
 @Composable
-fun AlertsScreen(store: Store, open: (Route) -> Unit) {
+fun AlertsScreen(store: Store, open: (Route) -> Unit, changed: suspend () -> Unit = {}) {
     var alerts by remember { mutableStateOf(listOf<Alert>()) }
     var loaded by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -484,6 +549,7 @@ fun AlertsScreen(store: Store, open: (Route) -> Unit) {
                 runCatching { store.api.send("/api/v1/alerts/dismiss", "POST", JSONObject().put("ids", JSONArray()).toString()) }
                     .onFailure { error = it.message }
                 load()
+                changed() // the tab's badge
             }
         }) { Text("Dismiss all", color = T.ink) }
     }) {
@@ -532,14 +598,15 @@ fun RunScreen(store: Store, id: String, back: () -> Unit) {
     var series by remember { mutableStateOf(mapOf<String, Series>()) }
     var alerts by remember { mutableStateOf(listOf<Alert>()) }
     var error by remember { mutableStateOf<String?>(null) }
+    var okAt by remember { mutableStateOf(0L) }
     var tab by remember { mutableStateOf("Charts") }
     val load: suspend () -> Unit = {
         try {
             run = parseRun(JSONObject(store.get("/api/v1/runs/$id")))
             series = parseSeries(store.get("/api/v1/runs/$id/metrics?points=300"))
             alerts = parseAlerts(store.get("/api/v1/alerts?run=$id&limit=10"))
-            error = null
-        } catch (e: Exception) { error = e.message }
+            error = null; okAt = System.currentTimeMillis()
+        } catch (e: Exception) { error = failure(e) }
     }
     Poll(id, { if (run?.running == false) 60_000 else 5_000 }, load)
     val trainKeys = series.keys.filter { !it.startsWith("sys/") }.sorted()
@@ -554,6 +621,7 @@ fun RunScreen(store: Store, id: String, back: () -> Unit) {
         }
         Refreshable(load) {
             LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
+                if (error != null) item { Stale(okAt, error!!) }
                 item { RunHeader(r) }
                 if (alerts.isNotEmpty()) item {
                     Panel { alerts.forEachIndexed { i, a -> if (i > 0) Spacer(Modifier.height(10.dp)); AlertRow(a) } }
@@ -683,7 +751,7 @@ fun SystemNow(load: SysLoad) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             load.cpu?.let { Tile("CPU", "${it.roundToInt()}%", it, Modifier.weight(1f)) }
-            load.ramGB?.let { Tile("RAM", "%.1f GB".format(it), null, Modifier.weight(1f)) }
+            load.ramGB?.let { Tile("RAM", "%.1f GB".format(Locale.US, it), null, Modifier.weight(1f)) }
         }
         load.gpus.forEach { g ->
             Panel {
@@ -692,7 +760,7 @@ fun SystemNow(load: SysLoad) {
                     g.util?.let { Text("${it.roundToInt()}%", fontWeight = FontWeight.Bold, fontSize = 18.sp, style = Num) }
                 }
                 g.util?.let { Meter(it, Modifier.fillMaxWidth().padding(vertical = 6.dp)) }
-                Text(listOfNotNull(g.memGB?.let { "%.1f GB".format(it) }, g.tempC?.let { "${it.roundToInt()} °C" }, g.powerW?.let { "${it.roundToInt()} W" }).joinToString(" · "),
+                Text(listOfNotNull(g.memGB?.let { "%.1f GB".format(Locale.US, it) }, g.tempC?.let { "${it.roundToInt()} °C" }, g.powerW?.let { "${it.roundToInt()} W" }).joinToString(" · "),
                     fontSize = 12.sp, color = T.muted, style = Num)
             }
         }
@@ -756,12 +824,13 @@ fun LogsTab(store: Store, id: String, running: Boolean) {
     }
 }
 
-/** Images and text tables by key, with a slider through the steps; the latest step by default. */
+/** Images and text tables by key, with a slider through the steps; the latest step by default. Tap an image to look closely. */
 @Composable
 fun SamplesTab(store: Store, id: String, running: Boolean) {
     var media by remember { mutableStateOf(listOf<Media>()) }
     var loaded by remember { mutableStateOf(false) }
     val picked = remember { mutableStateMapOf<String, Int>() }
+    var viewing by remember { mutableStateOf<Pair<List<Media>, Int>?>(null) }
     Poll(id, { if (running) 10_000 else 120_000 }) {
         runCatching { media = parseMedia(store.get("/api/v1/runs/$id/media")) }
         loaded = true
@@ -779,18 +848,23 @@ fun SamplesTab(store: Store, id: String, running: Boolean) {
                     Text("step ${steps[index]}", fontSize = 12.sp, color = T.muted, style = Num)
                 }
                 if (steps.size > 1) Slider(
-                    value = index.toFloat(), onValueChange = { picked[key] = it.roundToInt() }, valueRange = 0f..steps.lastIndex.toFloat(),
-                    steps = (steps.size - 2).coerceAtLeast(0),
+                    value = index.toFloat(), valueRange = 0f..steps.lastIndex.toFloat(), steps = (steps.size - 2).coerceAtLeast(0),
+                    // Left at the end it is not pinned to that step: it follows the newest one as the run logs more.
+                    onValueChange = { v -> v.roundToInt().let { if (it >= steps.lastIndex) picked.remove(key) else picked[key] = it } },
                     colors = SliderDefaults.colors(thumbColor = T.ink, activeTrackColor = T.ink, inactiveTrackColor = T.rule, activeTickColor = Color.Transparent, inactiveTickColor = Color.Transparent),
                 )
                 val now = items.filter { it.step == steps[index] }
                 val images = now.filter { it.kind == "image" || it.url.endsWith(".gif") }
-                if (images.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    images.take(4).forEach { m ->
-                        Column(Modifier.weight(1f)) {
-                            RemoteImage(store, m.url)
-                            m.caption?.let { Text(it, fontSize = 11.sp, color = T.muted, maxLines = 2) }
+                // One or two a row, so a sample is big enough to judge on a phone.
+                images.chunked(2).forEach { pair ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        pair.forEach { m ->
+                            Column(Modifier.weight(1f).combinedClickable { viewing = images to images.indexOf(m) }) {
+                                RemoteImage(store, m.url)
+                                m.caption?.let { Text(it, fontSize = 11.sp, color = T.muted, maxLines = 2) }
+                            }
                         }
+                        if (pair.size == 1 && images.size > 1) Spacer(Modifier.weight(1f))
                     }
                 }
                 now.filter { it.kind == "text" }.forEach { TextTable(store, it.url) }
@@ -800,21 +874,70 @@ fun SamplesTab(store: Store, id: String, running: Boolean) {
             }
         }
     }
+    viewing?.let { (images, start) -> Viewer(store, images, start) { viewing = null } }
+}
+
+/** One step's images, full screen: swipe between them, pinch to zoom. */
+@Composable
+fun Viewer(store: Store, images: List<Media>, start: Int, onClose: () -> Unit) {
+    Dialog(onClose, DialogProperties(usePlatformDefaultWidth = false)) {
+        val pager = rememberPagerState(start) { images.size }
+        Column(Modifier.fillMaxSize().background(T.paper)) {
+            Row(Modifier.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(listOfNotNull("${pager.currentPage + 1} / ${images.size}", images[pager.currentPage].caption).joinToString(" · "),
+                    fontSize = 13.sp, color = T.muted, style = Num, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                TextButton(onClick = onClose) { Text("Close", color = T.ink) }
+            }
+            HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
+                var scale by remember { mutableStateOf(1f) }
+                var offset by remember { mutableStateOf(Offset.Zero) }
+                Box(Modifier.fillMaxSize().clipToBounds().pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        do {
+                            val e = awaitPointerEvent()
+                            // One finger at 1x is the pager's swipe; two fingers, or a drag once zoomed in, are the image's.
+                            if (e.changes.size > 1 || scale > 1f) {
+                                scale = (scale * e.calculateZoom()).coerceIn(1f, 8f)
+                                val room = Offset(size.width * (scale - 1) / 2, size.height * (scale - 1) / 2)
+                                offset = (offset + e.calculatePan()).let { Offset(it.x.coerceIn(-room.x, room.x), it.y.coerceIn(-room.y, room.y)) }
+                                e.changes.forEach { it.consume() }
+                            }
+                        } while (e.changes.any { it.pressed })
+                    }
+                }, Alignment.Center) {
+                    RemoteImage(store, images[page].url, 2048, Modifier.graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y })
+                }
+            }
+        }
+    }
+}
+
+/** Halves the size until the long side is under twice `max`: a camera-sized sample is too large a bitmap to draw. */
+private fun decode(b: ByteArray, max: Int): Bitmap? {
+    val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(b, 0, b.size, o)
+    o.inJustDecodeBounds = false
+    o.inSampleSize = 1
+    while (maxOf(o.outWidth, o.outHeight) / (o.inSampleSize * 2) >= max) o.inSampleSize *= 2
+    return BitmapFactory.decodeByteArray(b, 0, b.size, o)
 }
 
 /** An image fetched with the session. Pixel art stays sharp. */
 @Composable
-fun RemoteImage(store: Store, url: String) {
-    var image by remember(url) { mutableStateOf<ImageBitmap?>(null) }
+fun RemoteImage(store: Store, url: String, max: Int = 1024, modifier: Modifier = Modifier.fillMaxWidth()) {
+    // Not keyed on the url: when the slider moves, the old image stays until the new one has loaded.
+    var image by remember { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(url) {
-        image = runCatching {
+        val next = runCatching {
             val b = store.api.bytes(url)
-            withContext(kotlinx.coroutines.Dispatchers.Default) { BitmapFactory.decodeByteArray(b, 0, b.size)?.asImageBitmap() }
+            withContext(kotlinx.coroutines.Dispatchers.Default) { decode(b, max)?.asImageBitmap() }
         }.getOrNull()
+        if (isActive) image = next // a load the slider has moved past must not blank the image
     }
     val img = image
-    if (img == null) Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp)).background(T.soft))
-    else Image(img, null, Modifier.fillMaxWidth().aspectRatio(img.width.toFloat() / img.height).clip(RoundedCornerShape(8.dp)),
+    if (img == null) Box(modifier.aspectRatio(1f).clip(RoundedCornerShape(8.dp)).background(T.soft))
+    else Image(img, null, modifier.aspectRatio(img.width.toFloat() / img.height).clip(RoundedCornerShape(8.dp)),
         contentScale = ContentScale.Fit, filterQuality = if (img.width < 128) FilterQuality.None else FilterQuality.Medium)
 }
 

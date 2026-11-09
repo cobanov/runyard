@@ -87,7 +87,8 @@ data class SysLoad(val cpu: Double?, val ramGB: Double?, val gpus: List<Gpu>) {
 
     companion object {
         fun of(metrics: Map<String, MetricSummary>?): SysLoad? {
-            val v = metrics.orEmpty().filterKeys { it.startsWith("sys/") }.mapValues { it.value.last }
+            // Only finite readings: a NaN logged under sys/ would throw where the screens round it.
+            val v = metrics.orEmpty().filterKeys { it.startsWith("sys/") }.mapValues { it.value.last }.filterValues { it.isFinite() }
             if (v.isEmpty()) return null
             val ids = v.keys.mapNotNull { k ->
                 if (k.startsWith("sys/gpu") && '.' in k) k.substring(7, k.indexOf('.')).toIntOrNull() else null
@@ -152,7 +153,7 @@ fun num(v: Any?): Double = when (v) {
 
 fun JSONObject.str(k: String): String? = if (isNull(k)) null else optString(k)
 fun JSONObject.obj(k: String): JSONObject? = optJSONObject(k)
-fun JSONObject.numOrNull(k: String): Double? = if (isNull(k)) null else num(opt(k))
+fun JSONObject.numOrNull(k: String): Double? = if (isNull(k)) null else num(opt(k)).takeIf { it.isFinite() }
 private fun <T> JSONArray?.list(f: (JSONObject) -> T): List<T> =
     if (this == null) emptyList() else (0 until length()).map { f(getJSONObject(it)) }
 private fun JSONArray?.nums(): List<Double> = if (this == null) emptyList() else (0 until length()).map { num(opt(it)) }
@@ -280,7 +281,7 @@ fun fmt(v: Double): String {
     val exp = floor(log10(abs(r.toDouble()))).toInt()
     if (exp < -4 || exp >= 4) {
         val mant = r.movePointLeft(exp).stripTrailingZeros().toPlainString()
-        return "${mant}e${if (exp < 0) "-" else "+"}${"%02d".format(abs(exp))}"
+        return "${mant}e${if (exp < 0) "-" else "+"}${"%02d".format(Locale.ROOT, abs(exp))}"
     }
     return r.stripTrailingZeros().toPlainString()
 }
@@ -291,6 +292,57 @@ fun duration(seconds: Double): String {
     val parts = listOf(s / 86400 to "d", s % 86400 / 3600 to "h", s % 3600 / 60 to "m", s % 60 to "s")
     val first = parts.indexOfFirst { it.first > 0 }.takeIf { it >= 0 } ?: return "0s"
     return parts.drop(first).take(2).filter { it.first > 0 }.joinToString(" ") { "${it.first}${it.second}" }
+}
+
+/** What the background check tells the phone about; `run` is what a tap opens. */
+data class Note(val id: Int, val title: String, val text: String, val run: String)
+
+/**
+ * The background check's comparison. `before` is every run's status as it saw them last time, null the first time
+ * after the switch went on, when nothing is news; `seen` is the highest alert id it saw.
+ */
+fun news(before: Map<String, String>?, seen: Int, runs: List<Run>, alerts: List<Alert>): List<Note> {
+    if (before == null) return emptyList()
+    return runs.filter { before[it.id] == "running" && it.status in setOf("finished", "failed", "crashed") }
+        .map { Note(it.id.hashCode(), "${it.name} ${it.status}", "${it.project} · after ${duration(it.duration())}", it.id) } +
+        alerts.filter { it.id > seen }
+            .map { a -> Note(-a.id, a.title, listOf("${a.project}/${a.runName}", a.body.lineSequence().first()).filter { it.isNotEmpty() }.joinToString(" · "), a.run) }
+}
+
+/**
+ * Where to look for a server at what the user typed: a full URL as it is, host[:port] over https, then http, and
+ * with no port also on 8080, where runyard-server listens unless told otherwise (plain http first there).
+ */
+fun candidates(address: String): List<String> {
+    val scheme = address.substringBefore("://", "")
+    val rest = address.substringAfter("://")
+    val host = rest.substringBefore('/')
+    val path = rest.removePrefix(host)
+    val first = (if (scheme.isEmpty()) listOf("https", "http") else listOf(scheme)).map { "$it://$host$path" }
+    if (Regex(":\\d+$").containsMatchIn(host)) return first
+    return first + (if (scheme.isEmpty()) listOf("http", "https") else listOf(scheme)).map { "$it://$host:8080$path" }
+}
+
+/** Why a request failed, in words a person can act on. */
+fun reason(e: Throwable): String {
+    val m = e.message ?: e.toString()
+    return when (e) {
+        is ApiError -> m
+        is java.net.UnknownHostException -> "no such host (DNS)"
+        is java.net.SocketTimeoutException -> "timed out"
+        is javax.net.ssl.SSLPeerUnverifiedException -> "its certificate is for another name"
+        is javax.net.ssl.SSLHandshakeException ->
+            if (generateSequence(e as Throwable) { it.cause }.any { it is java.security.cert.CertificateException }) "its certificate is not trusted"
+            else "no https there"
+        is java.net.ConnectException -> generateSequence(e as Throwable) { it.cause }.joinToString { it.message.orEmpty() }.let { all -> // the errno is in the cause
+            when {
+                "REFUSED" in all || "refused" in all -> "connection refused"
+                "UNREACH" in all -> "not reachable from this network"
+                else -> m
+            }
+        }
+        else -> m
+    }
 }
 
 /** Encodes a value for a URL query. */

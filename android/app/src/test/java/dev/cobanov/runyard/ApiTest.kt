@@ -134,6 +134,45 @@ class ApiTest {
         assertEquals(emptyList<Agent>(), loadAgents({ "[]" }, last))
     }
 
+    // The background check: what it saw last time against what the server says now.
+    @Test fun newsSinceLastCheck() {
+        fun run(id: String, status: String) = parseRuns(runs).single().copy(id = id, name = "run-$id", status = status)
+        fun alert(id: Int) = Alert(id, "a", "run-a", "qwen-sft", 0, "error", "loss is NaN", "step 2400\nmore", null)
+        val now = listOf(run("a", "finished"), run("b", "failed"), run("c", "crashed"), run("d", "running"), run("e", "finished"), run("f", "finished"))
+        val before = mapOf("a" to "running", "b" to "running", "c" to "running", "d" to "running", "e" to "finished") // f is new: it was never seen running
+        // The first check after the switch went on is the baseline: nothing is news.
+        assertEquals(emptyList<Note>(), news(null, 0, now, listOf(alert(7))))
+        val n = news(before, 7, now, listOf(alert(8), alert(7)))
+        assertEquals(listOf("run-a finished", "run-b failed", "run-c crashed", "loss is NaN"), n.map { it.title })
+        assertEquals(listOf("a", "b", "c", "a"), n.map { it.run })
+        assertEquals("qwen-sft/run-a · step 2400", n.last().text)
+        assertEquals(n.size, n.map { it.id }.distinct().size)
+        assertEquals(emptyList<Note>(), news(now.associate { it.id to it.status }, 8, now, listOf(alert(8))))
+    }
+
+    @Test fun whereToLookForAServer() {
+        assertEquals(listOf("https://toji:8080", "http://toji:8080"), candidates("toji:8080"))
+        assertEquals(listOf("https://10.0.0.5", "http://10.0.0.5", "http://10.0.0.5:8080", "https://10.0.0.5:8080"), candidates("10.0.0.5"))
+        assertEquals(listOf("http://toji/ry", "http://toji:8080/ry"), candidates("http://toji/ry"))
+        assertEquals(listOf("https://toji.example.ts.net:443"), candidates("https://toji.example.ts.net:443"))
+        assertEquals("no such host (DNS)", reason(java.net.UnknownHostException("toji")))
+        assertEquals("timed out", reason(java.net.SocketTimeoutException()))
+        assertEquals("connection refused", reason(java.net.ConnectException("failed to connect to /10.0.0.5 (port 80): ECONNREFUSED (Connection refused)")))
+        assertEquals("its certificate is not trusted", reason(javax.net.ssl.SSLHandshakeException("x").apply { initCause(java.security.cert.CertificateException("y")) }))
+        assertEquals("only an admin can do this", reason(ApiError(403, "only an admin can do this")))
+    }
+
+    // A script may log NaN under sys/: the screens round these, and rounding NaN throws.
+    @Test fun systemLoadIsFinite() {
+        val nan = MetricSummary(1, 1, Double.NaN, 0.0, 0.0)
+        val load = SysLoad.of(mapOf("sys/cpu" to nan, "sys/gpu0.util" to nan, "sys/gpu0.temp_c" to nan.copy(last = 60.0)))!!
+        assertNull(load.cpu)
+        assertNull(load.gpus.single().util)
+        assertEquals(60.0, load.gpus.single().tempC!!, 0.0)
+        assertNull(SysLoad.of(mapOf("sys/cpu" to nan)))
+        assertNull(parseMachines("""[{"name":"m","seen_at":null,"silent":false,"stats":{"cpu":"NaN","gpus":[]},"runs":[]}]""").single().load.cpu)
+    }
+
     @Test fun formats() {
         assertEquals("0.5", fmt(0.5))
         assertEquals("1.235", fmt(1.23456))

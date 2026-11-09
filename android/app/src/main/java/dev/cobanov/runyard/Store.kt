@@ -19,6 +19,12 @@ class Store private constructor(private val prefs: SharedPreferences, private va
     /** null until /api/v1/me answered for the current server. */
     var me by mutableStateOf<Me?>(null)
     var loadError by mutableStateOf<String?>(null)
+    /** An address from a runyard://connect link, until the connect screen or the switch dialog takes it. */
+    var link by mutableStateOf<String?>(null)
+    /** A run from a runyard://run link (a notification's tap), until the app opens it. */
+    var openRun by mutableStateOf<String?>(null)
+    /** The background check for ended runs and new alerts (Notify.kt) is on. */
+    var notify by mutableStateOf(prefs.getBoolean("notify", false)); private set
     private var demoBackend: Demo? = null
 
     init { HttpResponseCache.install(samples, 1L shl 30) } // samples never change, so they stay on the device
@@ -30,31 +36,60 @@ class Store private constructor(private val prefs: SharedPreferences, private va
 
     val api: Backend get() = demoBackend ?: Http(server, session)
     val needsLogin get() = me?.let { it.auth && it.user.isEmpty() } ?: false
+    /** Without RUNYARD_AUTH the server deletes only for an API key, and the app has none. */
+    val canDelete get() = demo || me?.auth == true
+    val plainHttp get() = !demo && server.startsWith("http://")
 
     private fun save(server: String, session: String?) {
+        val e = prefs.edit().putString("server", server).putString("session", session)
+        if (server != this.server) e.remove("runs").remove("alert") // another server's runs are not news
+        e.apply()
         this.server = server
         this.session = session
-        prefs.edit().putString("server", server).putString("session", session).apply()
     }
 
-    /** Finds a runyard server at what the user typed: a full URL, or host[:port] tried over https, then http. */
+    /** Finds a runyard server at what the user typed (`candidates`), and says why each try failed when none answers. */
     suspend fun connect(address: String) {
         val a = address.trim().trimEnd('/')
         if (a.isEmpty()) throw ApiError(0, "Enter the server's address.")
-        for (base in if ("://" in a) listOf(a) else listOf("https://$a", "http://$a")) {
-            val ok = withContext(Dispatchers.IO) {
-                runCatching {
+        val failed = mutableListOf<String>()
+        for (base in candidates(a)) {
+            val why = withContext(Dispatchers.IO) {
+                try {
                     val (code, body, _) = Http(base, null).call("/api/v1/health", timeout = 8000)
-                    code == 200 && JSONObject(String(body)).optBoolean("ok")
-                }.getOrDefault(false)
+                    if (code == 200 && runCatching { JSONObject(String(body)).optBoolean("ok") }.getOrDefault(false)) null
+                    else "answered (HTTP $code) but is not a runyard server"
+                } catch (e: Exception) {
+                    reason(e)
+                }
             }
-            if (!ok) continue
-            me = null
-            save(base, null)
-            loadMe()
-            return
+            if (why == null) {
+                me = null
+                save(base, null)
+                loadMe()
+                return
+            }
+            failed += "$base: $why"
+            if ("DNS" in why) break // the other schemes and ports would ask for the same name
         }
-        throw ApiError(0, "No runyard server answered at $a.")
+        throw ApiError(0, "No runyard server answered.\n" + failed.joinToString("\n"))
+    }
+
+    fun notifications(on: Boolean) {
+        notify = on
+        prefs.edit().putBoolean("notify", on).remove("runs").remove("alert").apply() // the first check after this is the baseline
+    }
+
+    /** The background check: asks the server, remembers what it saw, and returns what changed since last time. */
+    suspend fun check(): List<Note> {
+        if (server.isEmpty() || demo) return emptyList()
+        val runs = parseRuns(api.get("/api/v1/runs?limit=50"))
+        val alerts = parseAlerts(api.get("/api/v1/alerts?limit=20"))
+        val before = prefs.getString("runs", null)?.let(::JSONObject)?.let { o -> o.keys().asSequence().associateWith(o::getString) }
+        val seen = prefs.getInt("alert", 0)
+        prefs.edit().putString("runs", JSONObject(runs.associate { it.id to it.status }).toString())
+            .putInt("alert", maxOf(seen, alerts.maxOfOrNull { it.id } ?: 0)).apply()
+        return news(before, seen, runs, alerts)
     }
 
     suspend fun loadMe() {
@@ -62,7 +97,7 @@ class Store private constructor(private val prefs: SharedPreferences, private va
             me = parseMe(api.get("/api/v1/me"))
             loadError = null
         } catch (e: Exception) {
-            loadError = e.message ?: e.toString()
+            loadError = reason(e)
         }
     }
 

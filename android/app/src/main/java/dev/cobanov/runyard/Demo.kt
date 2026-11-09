@@ -504,6 +504,7 @@ class Demo(private val t0: Long = System.currentTimeMillis()) : Backend {
                     path == "/alerts" -> {
                         var out = alerts.mapNotNull { a -> runs[a.getString("run")]?.let { r -> JSONObject(a.toString()).put("run_name", r.name).put("project", r.project) } }
                         query["run"]?.let { id -> out = out.filter { it.getString("run") == id } }
+                        if ("active" in query) out = out.filter { it.isNull("dismissed_at") }
                         return JSONArray(out.take(query["limit"]?.toIntOrNull() ?: 100))
                     }
                     path == "/hosts" -> return JSONArray(boxes.map { hostOut(it, now) })
