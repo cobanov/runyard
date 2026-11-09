@@ -31,7 +31,7 @@ final class TourTests: XCTestCase {
             app.buttons["Sign in"].tap()
         }
 
-        XCTAssert(app.navigationBars["Projects"].waitForExistence(timeout: 15), "no project list")
+        XCTAssert(app.navigationBars["Runs"].waitForExistence(timeout: 15), "no home screen")
         if env["RUNYARD_TEST_USER"] != nil {
             // iOS offers to save the password, sometimes seconds later; that sheet would swallow the next taps.
             let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -56,7 +56,7 @@ final class TourTests: XCTestCase {
         XCTAssert(app.segmentedControls.firstMatch.waitForExistence(timeout: 15), "no run page")
         sleep(3)
         shot(app, "05-run-charts")
-        for section in ["System", "Samples", "Logs", "Config", "Files"] where app.segmentedControls.buttons[section].exists {
+        for section in ["Samples", "Logs", "System", "Config", "Files"] where app.segmentedControls.buttons[section].exists {
             app.segmentedControls.buttons[section].tap()
             sleep(3)
             shot(app, "06-run-\(section.lowercased())")
@@ -78,7 +78,7 @@ final class TourTests: XCTestCase {
         XCTAssert(demo.waitForExistence(timeout: 10))
         shot(app, "01-connect")
         demo.tap()
-        XCTAssert(app.navigationBars["Projects"].waitForExistence(timeout: 15), "no project list")
+        XCTAssert(app.navigationBars["Runs"].waitForExistence(timeout: 15), "no home screen")
         sleep(2)
         XCTAssert(app.staticTexts["Waiting for you"].exists, "no agent cards")
         shot(app, "02-home")

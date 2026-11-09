@@ -8,7 +8,7 @@ struct RunView: View {
     let id: String
 
     enum Section: String, CaseIterable, Identifiable {
-        case charts = "Charts", system = "System", samples = "Samples", logs = "Logs", config = "Config", files = "Files"
+        case charts = "Charts", samples = "Samples", logs = "Logs", system = "System", config = "Config", files = "Files"
         var id: Self { self }
     }
 
@@ -20,7 +20,12 @@ struct RunView: View {
     @State private var error: String?
     @State private var okAt = Date.now // the last load that worked
 
-    private var trainKeys: [String] { series.keys.filter { !$0.hasPrefix("sys/") }.sorted() }
+    @State private var above = 0.0 // the height of what sits over the tab's content
+    /// The main metric (a loss) first, the rest by name.
+    private var trainKeys: [String] {
+        let main = run?.mainMetric?.key
+        return series.keys.filter { !$0.hasPrefix("sys/") }.sorted { $0 == main || ($1 != main && $0 < $1) }
+    }
     private var sysKeys: [String] { series.keys.filter { $0.hasPrefix("sys/") }.sorted() }
     private var sections: [Section] {
         Section.allCases.filter { s in
@@ -37,35 +42,42 @@ struct RunView: View {
     var body: some View {
         Group {
             if let run {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        if error != nil { NotUpdated(since: okAt) }
-                        header(run)
-                        if !alerts.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                ForEach(alerts) { AlertRow(alert: $0) }
+                GeometryReader { screen in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            VStack(alignment: .leading, spacing: 16) {
+                                if error != nil { NotUpdated(since: okAt) }
+                                header(run)
+                                if !alerts.isEmpty {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        ForEach(alerts) { AlertRow(alert: $0) }
+                                    }
+                                    .card()
+                                }
+                                Picker("Section", selection: Binding(get: { section }, set: { lastSection = $0 })) {
+                                    ForEach(sections) { Text($0.rawValue).tag($0) }
+                                }
+                                .pickerStyle(.segmented)
                             }
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.orange.opacity(0.08), in: .rect(cornerRadius: 12))
+                            .onGeometryChange(for: Double.self) { $0.size.height } action: { above = $0 }
+                            // The log is its own scroller, as tall as what is left of the screen.
+                            content(run, rest: max(280, screen.size.height - above - 48))
                         }
-                        Picker("Section", selection: Binding(get: { section }, set: { lastSection = $0 })) {
-                            ForEach(sections) { Text($0.rawValue).tag($0) }
-                        }
-                        .pickerStyle(.segmented)
-                        content(run)
+                        .padding(16)
                     }
-                    .padding()
+                    .refreshable { await load() }
                 }
-                .refreshable { await load() }
             } else if let error {
-                ContentUnavailableView("Can't load this run", systemImage: "exclamationmark.triangle", description: Text(error))
+                Empty("Can't load this run: \(error)").padding(16).frame(maxHeight: .infinity, alignment: .top)
             } else {
-                ProgressView()
+                Color.clear
             }
         }
-        .navigationTitle(run?.name ?? "Run")
+        .background(.paper)
+        // The name is the headline below; the bar says only where the run lives.
+        .navigationTitle(run?.project ?? "")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .principal) { Text(run?.project ?? "").font(.subheadline).foregroundStyle(.muted) } }
         .poll(every: { run?.running == false ? 60 : 5 }) { await load() }
     }
 
@@ -84,74 +96,64 @@ struct RunView: View {
 
     @ViewBuilder private func header(_ run: Run) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(run.project).font(.subheadline).foregroundStyle(.secondary)
-            Text(run.name).font(.title2.bold())
-            HStack(spacing: 8) {
-                Text(run.status)
-                    .font(.caption.bold())
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(statusColor(run.status).opacity(0.15), in: .capsule)
-                    .foregroundStyle(statusColor(run.status))
-                Text("for \(duration(run.duration())), started \(run.startedAt.formatted(.relative(presentation: .named)))")
-                    .font(.subheadline).foregroundStyle(.secondary)
+            Text(run.name).font(.title2.bold()).kerning(-0.4)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Dot(color: statusColor(run.status), breathes: run.running)
+                TimelineView(.periodic(from: .now, by: 1)) { t in
+                    (Text(run.status).foregroundStyle(statusColor(run.status)) + Text(" · \(duration(run.duration(now: t.date)))").foregroundStyle(.muted))
+                        .font(.subheadline)
+                }
             }
-            // Not while the refresh fails: the heartbeat is old because the phone could not ask.
-            if run.running, error == nil, let beat = run.lastHeartbeatAt {
-                Text("Last heartbeat \(beat.formatted(.relative(presentation: .named)))\(run.host.map { " from \($0)" } ?? "")")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else if let host = run.host, !host.isEmpty {
-                Text("on \(host)").font(.caption).foregroundStyle(.secondary)
-            }
-            RunProgress(run: run)
-            if let notes = run.notes, !notes.isEmpty { Text(notes).font(.subheadline) }
+            // No heartbeat's age while the refresh fails: it is old because the phone could not ask.
+            let beat = run.running && error == nil ? run.lastHeartbeatAt.map { "heartbeat \(ago($0))" } : run.running ? nil : "started \(ago(run.startedAt))"
+            Text([run.host ?? "", beat ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")).font(.footnote).foregroundStyle(.muted)
+            if run.progress != nil { RunProgress(run: run).padding(.top, 6) }
+            if let notes = run.notes, !notes.isEmpty { Text(notes).font(.subheadline).padding(.top, 4) }
         }
     }
 
-    @ViewBuilder private func content(_ run: Run) -> some View {
+    @ViewBuilder private func content(_ run: Run, rest: Double) -> some View {
         switch section {
         case .charts:
             if trainKeys.isEmpty {
-                empty("No metrics yet", "They appear as soon as the script calls run.log().")
+                Empty("No metrics yet. They appear as soon as the script calls run.log().")
             } else {
                 charts(trainKeys, xLabel: "step")
             }
         case .system:
-            if let load = SysLoad(run.metrics) { SystemNow(load: load) }
+            if let load = SysLoad(run.metrics) { MachineLoad(load: load).card() }
             charts(sysKeys, xLabel: "second")
         case .samples:
             SamplesView(id: id, running: run.running)
         case .logs:
-            LogsView(id: id, running: run.running)
+            LogsView(id: id, running: run.running).frame(height: rest)
         case .config:
             ConfigView(run: run)
         case .files:
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(artifacts) { a in
+                ForEach(Array(artifacts.enumerated()), id: \.element.id) { i, a in
+                    if i > 0 { Color.rule.frame(height: 1) }
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(a.name).font(.subheadline.bold())
-                        Text([a.kind, a.step.map { "step \($0)" }, a.size.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }]
+                        Text(a.name).font(.subheadline.weight(.semibold))
+                        Text([a.kind, a.step.map { "step \(fmt(Double($0)))" }, a.size.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }]
                             .compactMap { $0 }.joined(separator: " · "))
-                            .font(.caption).foregroundStyle(.secondary)
-                        if a.url == nil { Text(a.uri).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled) }
+                            .font(.footnote).foregroundStyle(.muted)
+                        if a.url == nil { Text(a.uri).font(.caption.monospaced()).foregroundStyle(.muted).textSelection(.enabled) }
                     }
-                    .padding(.vertical, 8)
-                    Divider()
+                    .padding(.vertical, 10)
                 }
             }
+            .padding(.horizontal, 14).card(0)
         }
     }
 
     private func charts(_ keys: [String], xLabel: String) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12)], spacing: 12) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 14)], spacing: 14) {
             ForEach(keys, id: \.self) { k in
                 MetricChart(title: k.hasPrefix("sys/") ? String(k.dropFirst(4)) : k, series: series[k]!, xLabel: xLabel)
             }
         }
     }
-}
-
-func empty(_ title: String, _ text: String) -> some View {
-    ContentUnavailableView(title, systemImage: "chart.xyaxis.line", description: Text(text)).padding(.top, 24)
 }
 
 /// A metric's line, with the min–max band of each bucket when the server thinned it out. Touch shows a value.
@@ -178,106 +180,88 @@ struct MetricChart: View {
         let pts = points
         let band = pts.contains { $0.min != $0.max && $0.min.isFinite && $0.max.isFinite }
         let pick = selected.flatMap { s in pts.min { abs($0.step - s) < abs($1.step - s) } }
-        VStack(alignment: .leading, spacing: 6) {
+        let (from, to) = (pts.first?.step ?? 0, pts.last?.step ?? 0)
+        VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline) {
-                Text(title).font(.subheadline.bold()).lineLimit(1)
-                Spacer()
-                if let p = pick ?? pts.last {
-                    Text("\(fmt(p.last))  \(xLabel) \(String(p.step))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                }
+                Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Spacer(minLength: 8)
+                if let p = pick ?? pts.last { Text(fmt(p.last)).font(.headline) }
             }
+            // Always there, so the plot does not jump when a finger lands.
+            Text("\(xLabel) \(fmt(Double(pick?.step ?? to)))").font(.caption).foregroundStyle(.muted).opacity(pick == nil ? 0 : 1)
             Chart {
                 ForEach(pts) { p in
                     if band {
                         AreaMark(x: .value(xLabel, p.step), yStart: .value("min", p.min), yEnd: .value("max", p.max))
-                            .foregroundStyle(.tint.opacity(0.15))
+                            .foregroundStyle(Color.series.opacity(0.14))
                     }
                     LineMark(x: .value(xLabel, p.step), y: .value(title, p.last))
-                        .foregroundStyle(.tint)
-                        .interpolationMethod(.linear)
+                        .foregroundStyle(.series)
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round))
                 }
                 if let pick {
-                    RuleMark(x: .value(xLabel, pick.step)).foregroundStyle(.secondary.opacity(0.5))
-                    PointMark(x: .value(xLabel, pick.step), y: .value(title, pick.last)).foregroundStyle(.tint)
+                    RuleMark(x: .value(xLabel, pick.step)).foregroundStyle(.muted).lineStyle(StrokeStyle(lineWidth: 1))
+                    PointMark(x: .value(xLabel, pick.step), y: .value(title, pick.last)).foregroundStyle(.series).symbolSize(40)
                 }
             }
             .chartYScale(domain: .automatic(includesZero: false))
-            .chartXSelection(value: $selected)
-            .frame(height: 150)
-            if pts.count < series.step.count {
-                Text("\(series.step.count - pts.count) NaN or infinite values not drawn").font(.caption2).foregroundStyle(.orange)
-            }
-        }
-        .padding(12)
-        .background(.background.secondary, in: .rect(cornerRadius: 12))
-    }
-}
-
-/// The latest readings of the SDK's system monitor (sys/cpu, sys/ram_gb, sys/gpu{i}.util|mem_gb|temp_c|power_w):
-/// the machine's load at a glance, one row per GPU.
-struct SystemNow: View {
-    let load: SysLoad
-
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                if let cpu = load.cpu { tile("CPU", "\(Int(cpu.rounded()))%", load: cpu) }
-                if let ram = load.ramGB { tile("RAM", String(format: "%.1f GB", ram)) }
-            }
-            ForEach(load.gpus) { g in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("GPU \(g.id)").font(.subheadline.bold())
-                        Spacer()
-                        if let u = g.util { Text("\(Int(u.rounded()))%").font(.title3.bold().monospacedDigit()) }
-                    }
-                    if let u = g.util { ProgressView(value: min(max(u, 0), 100), total: 100).tint(loadColor(u)) }
-                    Text(g.details).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            .chartXScale(domain: from...max(to, from + 1))
+            // Hairlines across and nothing else: no frame, no vertical lines, no dashes.
+            .chartYAxis {
+                AxisMarks(position: .trailing, values: .automatic(desiredCount: 4)) { v in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 1)).foregroundStyle(.rule)
+                    AxisValueLabel { if let d = v.as(Double.self) { Text(fmt(d)).font(.caption).foregroundStyle(.muted) } }
                 }
-                .padding(10)
-                .background(.background.secondary, in: .rect(cornerRadius: 10))
+            }
+            .chartXAxis {
+                AxisMarks(values: from == to ? [from] : [from, (from + to) / 2, to]) { v in
+                    let s = v.as(Int.self) ?? 0
+                    AxisValueLabel(anchor: s == from ? .topLeading : s == to ? .topTrailing : .top) {
+                        Text(fmt(Double(s))).font(.caption).foregroundStyle(.muted)
+                    }
+                }
+            }
+            .chartXSelection(value: $selected)
+            .frame(height: 170)
+            if pts.count < series.step.count {
+                Text("\(series.step.count - pts.count) NaN or infinite values not drawn").font(.caption).foregroundStyle(.crashed).padding(.top, 6)
             }
         }
-    }
-
-    private func tile(_ title: String, _ value: String, load: Double? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.title3.bold().monospacedDigit())
-            if let load { ProgressView(value: min(max(load, 0), 100), total: 100).tint(loadColor(load)) }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(.background.secondary, in: .rect(cornerRadius: 10))
+        .card()
     }
 }
-
-func loadColor(_ percent: Double) -> Color { percent > 90 ? .orange : .accentColor }
 
 struct ConfigView: View {
     let run: Run
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 24) {
             if let s = run.summary?.flat, !s.isEmpty { table("Summary", s) }
             table("Config", run.config?.flat ?? [])
-            table("Run", [("id", run.id), ("host", run.host ?? ""), ("tags", (run.tags ?? []).joined(separator: ", "))]
+            table("Run", [("id", run.id), ("host", run.host ?? ""), ("tags", (run.tags ?? []).joined(separator: ", "))].filter { !$0.1.isEmpty }
                 + (run.git?.flat.map { ("git." + $0.key, $0.value) } ?? []))
         }
     }
 
     private func table(_ title: String, _ rows: [(key: String, value: String)]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title).font(.headline).padding(.bottom, 6)
-            if rows.isEmpty { Text("Nothing recorded.").font(.subheadline).foregroundStyle(.secondary) }
-            ForEach(rows.indices, id: \.self) { i in
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(rows[i].key).font(.subheadline).foregroundStyle(.secondary)
-                    Spacer(minLength: 8)
-                    Text(rows[i].value).font(.subheadline.monospacedDigit()).multilineTextAlignment(.trailing).textSelection(.enabled)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.footnote).foregroundStyle(.muted).accessibilityAddTraits(.isHeader)
+            if rows.isEmpty {
+                Empty("Nothing recorded.")
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(rows.indices, id: \.self) { i in
+                        if i > 0 { Color.rule.frame(height: 1) }
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text(rows[i].key).font(.footnote.monospaced()).foregroundStyle(.muted)
+                            Spacer(minLength: 8)
+                            Text(rows[i].value).font(.subheadline).multilineTextAlignment(.trailing).textSelection(.enabled)
+                        }
+                        .padding(.vertical, 10)
+                    }
                 }
-                .padding(.vertical, 7)
-                Divider()
+                .padding(.horizontal, 14)
+                .card(0)
             }
         }
     }
@@ -293,22 +277,30 @@ struct LogsView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 1) {
+            LazyVStack(alignment: .leading, spacing: 2) {
                 ForEach(lines) { l in
                     Text(l.line)
                         .font(.caption.monospaced())
-                        .foregroundStyle(l.stream == 2 ? .red : .primary)
+                        .foregroundStyle(Self.failure(l.line) ? .failed : .ink)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .textSelection(.enabled)
-            .padding(10)
+            .padding(12)
         }
-        .defaultScrollAnchor(.bottom)
-        .frame(height: 520)
-        .background(.background.secondary, in: .rect(cornerRadius: 12))
-        .overlay { if loaded && lines.isEmpty { Text("No output yet.").foregroundStyle(.secondary) } }
+        // Opens at the newest line and follows new ones, lets go when the reader scrolls up; a short log starts at the top.
+        .defaultScrollAnchor(.bottom, for: .initialOffset)
+        .defaultScrollAnchor(.bottom, for: .sizeChanges)
+        .defaultScrollAnchor(.top, for: .alignment)
+        .background(.panel, in: .rect(cornerRadius: radius))
+        .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(.rule))
+        .overlay { if loaded && lines.isEmpty { Text("No output yet. What the script prints shows up here.").font(.footnote).foregroundStyle(.muted) } }
         .poll(every: { running ? 3 : 60 }) { await load() }
+    }
+
+    /// A line that names a failure. stderr alone does not: progress bars are written there.
+    private static func failure(_ line: String) -> Bool {
+        ["error", "exception", "traceback"].contains { line.localizedCaseInsensitiveContains($0) }
     }
 
     private func load() async {
@@ -319,14 +311,16 @@ struct LogsView: View {
     }
 }
 
-/// Images, videos and text tables by key, with a slider through the steps; the latest step by default.
+/// Images and videos of every key on one scrubber, side by side, so each prompt is seen at the same step; the
+/// latest step by default. Text tables keep a slider each, below.
 struct SamplesView: View {
     @Environment(Store.self) private var store
     let id: String
     let running: Bool
     @State private var media: [Media] = []
     @State private var loaded = false
-    @State private var picked: [String: Int] = [:] // key -> index into its steps; none follows the newest
+    @State private var step: Int? // where the scrubber is; none follows the newest
+    @State private var picked: [String: Int] = [:] // a text key -> index into its steps; none follows the newest
     @State private var viewing: Viewing?
 
     private struct Viewing: Identifiable {
@@ -335,34 +329,60 @@ struct SamplesView: View {
     }
 
     var body: some View {
-        let groups = Dictionary(grouping: media, by: \.key)
-        VStack(alignment: .leading, spacing: 20) {
-            if loaded && media.isEmpty { empty("No samples yet", "run.image(), run.video() and run.text() show up here.") }
-            ForEach(groups.keys.sorted(), id: \.self) { key in
-                let items = groups[key]!
-                let (steps, index) = place(key, items)
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text(key).font(.headline)
-                        Spacer()
-                        Text("step \(String(steps[index]))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    }
-                    if steps.count > 1 {
-                        // Left at the end, it goes on following the newest step.
-                        Slider(value: Binding(get: { Double(index) }, set: { picked[key] = Int($0.rounded()) == steps.count - 1 ? nil : Int($0.rounded()) }),
-                               in: 0...Double(steps.count - 1), step: 1)
+        let seen = media.filter { $0.kind != "text" }
+        let steps = Array(Set(seen.map(\.step))).sorted()
+        let index = step.flatMap { s in steps.lastIndex { $0 <= s } } ?? steps.count - 1
+        // Each key at the chosen step, or at its last one before it.
+        let shown = steps.isEmpty ? [] : Dictionary(grouping: seen, by: \.key).sorted { $0.key < $1.key }.flatMap { _, items -> [Media] in
+            let at = items.map(\.step).filter { $0 <= steps[index] }.max()
+            return items.filter { $0.step == at }
+        }
+        let tables = Dictionary(grouping: media.filter { $0.kind == "text" }, by: \.key)
+        VStack(alignment: .leading, spacing: 24) {
+            if loaded && media.isEmpty { Empty("No samples yet. run.image(), run.video() and run.text() put them here.") }
+            if !steps.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        if steps.count > 1 {
+                            // Left at the end, it goes on following the newest step.
+                            Slider(value: Binding(get: { Double(index) }, set: { step = Int($0.rounded()) == steps.count - 1 ? nil : steps[Int($0.rounded())] }),
+                                   in: 0...Double(steps.count - 1), step: 1)
+                                .tint(.muted)
+                                .accessibilityLabel("Step")
+                        }
+                        Text("step \(fmt(Double(steps[index]))) · \(index + 1) of \(steps.count)").font(.footnote).foregroundStyle(.muted).fixedSize()
                     }
                     // By position, not by id: the view stays, so its image stays until the next step's has loaded.
-                    let shown = items.filter { $0.step == steps[index] }
-                    ForEach(Array(shown.enumerated()), id: \.offset) { _, m in
-                        if m.isImage {
-                            Button { viewing = Viewing(id: m.id, images: onScreen(groups)) } label: { MediaItem(media: m) }
-                                .buttonStyle(.plain)
-                                .accessibilityHint("Opens full screen")
-                        } else {
-                            MediaItem(media: m)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10, alignment: .top), count: shown.count < 2 ? 1 : 2), spacing: 14) {
+                        ForEach(Array(shown.enumerated()), id: \.offset) { _, m in
+                            let item = MediaItem(media: m, key: m.key, from: m.step == steps[index] ? nil : m.step)
+                            if m.isImage {
+                                Button { viewing = Viewing(id: m.id, images: shown.filter(\.isImage)) } label: { item }
+                                    .buttonStyle(.plain)
+                                    .accessibilityHint("Opens full screen")
+                            } else {
+                                item
+                            }
                         }
                     }
+                }
+            }
+            ForEach(tables.keys.sorted(), id: \.self) { key in
+                let items = tables[key]!
+                let steps = Array(Set(items.map(\.step))).sorted()
+                let index = min(picked[key] ?? steps.count - 1, steps.count - 1)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(key).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text("step \(fmt(Double(steps[index])))").font(.footnote).foregroundStyle(.muted)
+                    }
+                    if steps.count > 1 {
+                        Slider(value: Binding(get: { Double(index) }, set: { picked[key] = Int($0.rounded()) == steps.count - 1 ? nil : Int($0.rounded()) }),
+                               in: 0...Double(steps.count - 1), step: 1)
+                            .tint(.muted)
+                    }
+                    ForEach(Array(items.filter { $0.step == steps[index] }.enumerated()), id: \.offset) { _, m in MediaItem(media: m) }
                 }
             }
         }
@@ -372,25 +392,13 @@ struct SamplesView: View {
             loaded = true
         }
     }
-
-    /// A key's steps, and the one its slider is on.
-    private func place(_ key: String, _ items: [Media]) -> (steps: [Int], index: Int) {
-        let steps = Array(Set(items.map(\.step))).sorted()
-        return (steps, min(picked[key] ?? steps.count - 1, steps.count - 1))
-    }
-
-    /// Every image showing now, in the order of the page: what the full-screen viewer swipes through.
-    private func onScreen(_ groups: [String: [Media]]) -> [Media] {
-        groups.keys.sorted().flatMap { key in
-            let (steps, index) = place(key, groups[key]!)
-            return groups[key]!.filter { $0.step == steps[index] && $0.isImage }
-        }
-    }
 }
 
 struct MediaItem: View {
     @Environment(Store.self) private var store
     let media: Media
+    var key: String? // in the grid of every key: which one this is
+    var from: Int? // an older step standing in, when the key has nothing at the chosen one
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -400,37 +408,46 @@ struct MediaItem: View {
                     let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": store.api.headers])
                     VideoPlayer(player: AVPlayer(playerItem: AVPlayerItem(asset: asset)))
                         .aspectRatio(16 / 9, contentMode: .fit)
-                        .clipShape(.rect(cornerRadius: 10))
+                        .clipShape(.rect(cornerRadius: radius))
                 }
             case "text":
                 TextTable(url: media.url)
             default:
                 RemoteImage(url: media.thumb)
             }
-            if let c = media.caption, !c.isEmpty { Text(c).font(.caption).foregroundStyle(.secondary) }
+            if let key { Text(key).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle).padding(.top, 2) }
+            if let c = media.caption, !c.isEmpty { Text(c).font(.footnote).foregroundStyle(.muted).multilineTextAlignment(.leading) }
+            if let from { Text("from step \(fmt(Double(from)))").font(.footnote).foregroundStyle(.muted) }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// An image fetched with the session, which AsyncImage cannot send. Pixel art stays sharp.
+/// An image fetched with the session, which AsyncImage cannot send. A small source (pixel art, a 64 px
+/// sample) is scaled by its nearest pixels, so it stays crisp. With `side`, a square thumbnail that fills.
 struct RemoteImage: View {
     @Environment(Store.self) private var store
     let url: String
+    var side: CGFloat?
     @State private var image: UIImage?
 
     var body: some View {
+        let r = side == nil ? radius : radiusSmall
         Group {
             if let image {
                 Image(uiImage: image)
                     .resizable()
-                    .interpolation(image.size.width < 128 ? .none : .medium)
-                    .aspectRatio(contentMode: .fit)
-                    .clipShape(.rect(cornerRadius: 10))
+                    .interpolation(image.size.width * image.scale < 256 ? .none : .medium)
+                    .aspectRatio(contentMode: side == nil ? .fit : .fill)
             } else {
-                RoundedRectangle(cornerRadius: 10).fill(.background.secondary).frame(height: 160).overlay(ProgressView())
+                // The space a square image will take: most samples are, so little moves when it arrives.
+                Rectangle().fill(.soft).aspectRatio(1, contentMode: .fit)
             }
         }
-        .task(id: url) { image = (try? await store.api.data(url)).flatMap(UIImage.init(data:)) }
+        .frame(width: side, height: side)
+        .clipShape(.rect(cornerRadius: r))
+        .overlay(RoundedRectangle(cornerRadius: r).strokeBorder(.rule))
+        .task(id: url) { if let i = (try? await store.api.data(url)).flatMap(UIImage.init(data:)) { image = i } }
     }
 }
 
@@ -446,7 +463,8 @@ struct SampleViewer: View {
                 ForEach(images) { m in ZoomImage(media: m).tag(m.id) }
             }
             .tabViewStyle(.page)
-            .navigationTitle(images.first { $0.id == at }.map { "\($0.key) · step \(String($0.step))" } ?? "")
+            .background(.paper)
+            .navigationTitle(images.first { $0.id == at }.map { "\($0.key) · step \(fmt(Double($0.step)))" } ?? "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
         }
@@ -467,7 +485,7 @@ struct ZoomImage: View {
             if let image {
                 Image(uiImage: image)
                     .resizable()
-                    .interpolation(image.size.width < 128 ? .none : .medium)
+                    .interpolation(image.size.width * image.scale < 256 ? .none : .medium)
                     .aspectRatio(contentMode: .fit)
                     .scaleEffect(scale * pinch)
                     .offset(x: offset.width + drag.width, y: offset.height + drag.height)
@@ -485,7 +503,7 @@ struct ZoomImage: View {
                     } : nil)
                     .onTapGesture(count: 2) { withAnimation { (scale, offset) = (scale > 1 ? 1 : 3, .zero) } }
                     .accessibilityLabel(media.caption ?? "Sample image")
-                if let c = media.caption, !c.isEmpty { Text(c).font(.caption).foregroundStyle(.secondary) }
+                if let c = media.caption, !c.isEmpty { Text(c).font(.footnote).foregroundStyle(.muted).padding(.horizontal, 16) }
                 ShareLink(item: Image(uiImage: image), preview: SharePreview(media.caption ?? media.key, image: Image(uiImage: image)))
                     .padding(.bottom, 36) // clear of the page dots
             } else {
@@ -509,14 +527,12 @@ struct TextTable: View {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(rows[i].keys.sorted(), id: \.self) { k in
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(k).font(.caption).foregroundStyle(.secondary)
+                            Text(k).font(.footnote).foregroundStyle(.muted)
                             Text(rows[i][k]!.text).font(.subheadline).textSelection(.enabled)
                         }
                     }
                 }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.background.secondary, in: .rect(cornerRadius: 10))
+                .card()
             }
         }
         .task(id: url) { rows = (try? await store.get(url)) ?? [] }

@@ -8,20 +8,34 @@ struct ConnectView: View {
     @State private var error: String?
 
     var body: some View {
-        Form {
-            Section {
-                VStack(spacing: 8) {
-                    LogoMark().frame(width: 72, height: 72)
-                    Text("runyard").font(.largeTitle.bold())
-                    Text("Connect to your training server").foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
-                .listRowBackground(Color.clear)
+        List {
+            VStack(spacing: 8) {
+                LogoMark().frame(width: 56, height: 56)
+                Text("runyard").font(.title.bold()).kerning(-0.5)
+                Text("Your training runs, from your own server").font(.subheadline).foregroundStyle(.muted)
             }
-            ServerList()
-            Section {
-                TextField("192.168.1.10:8080", text: $address)
+            .frame(maxWidth: .infinity)
+            .bareRow(above: 40, below: 8)
+
+            if !store.servers.isEmpty {
+                Heading("Your servers")
+                ForEach(Array(store.servers.enumerated()), id: \.element) { i, s in
+                    Button { store.use(s) } label: {
+                        HStack {
+                            Text(s).lineLimit(1).truncationMode(.middle)
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.muted)
+                        }
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain).font(.subheadline)
+                    .swipeActions { Button("Forget", systemImage: "trash") { store.forget(s) }.tint(.failed) }
+                    .panelRow(i, of: store.servers.count)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("Server address", text: $address)
                     .keyboardType(.URL)
                     .textContentType(.URL)
                     .textInputAutocapitalization(.never)
@@ -29,34 +43,34 @@ struct ConnectView: View {
                     .submitLabel(.go)
                     .onSubmit(connect)
                     .accessibilityIdentifier("server")
-            } header: {
-                Text("Server address")
-            } footer: {
-                Text(error ?? "An IP address or host name, with the port if it is not 80, 443 or 8080. Without http:// the app tries https first.")
-                    .foregroundStyle(error == nil ? Color.secondary : .red)
-            }
-            Section {
+                    .modifier(Field())
+                if let error {
+                    // The sentence that names the failure, then each address tried and why.
+                    let lines = error.split(separator: "\n", maxSplits: 1)
+                    Text(lines[0]).font(.footnote).foregroundStyle(.failed)
+                    if lines.count > 1 { Text(lines[1]).font(.footnote).foregroundStyle(.muted) }
+                } else {
+                    Text("IP or host name, as in 192.168.1.10:8080").font(.footnote).foregroundStyle(.muted)
+                }
                 Button(action: connect) {
-                    HStack {
-                        Spacer()
-                        if busy { ProgressView() } else { Text("Connect").bold() }
-                        Spacer()
-                    }
+                    if busy { ProgressView().tint(.paper) } else { Text("Connect") }
                 }
+                .buttonStyle(Primary())
                 .disabled(busy || address.trimmingCharacters(in: .whitespaces).isEmpty)
+                .padding(.top, 6)
             }
-            Section {
-                Button(action: store.demo) {
-                    HStack {
-                        Spacer()
-                        Text("Try the demo")
-                        Spacer()
-                    }
-                }
-            } footer: {
+            .bareRow(above: 24)
+
+            VStack(spacing: 2) {
                 Text("No server yet? Look around on made-up runs that keep training while you watch.")
+                    .font(.footnote).foregroundStyle(.muted).multilineTextAlignment(.center)
+                Button("Try the demo", action: store.demo).buttonStyle(.borderless).font(.subheadline.weight(.semibold)).frame(minHeight: 44)
             }
+            .frame(maxWidth: .infinity)
+            .bareRow(above: 20, below: 24)
         }
+        .paperList()
+        .scrollDismissesKeyboard(.interactively)
     }
 
     private func connect() {
@@ -78,43 +92,42 @@ struct LoginView: View {
     @State private var error: String?
 
     var body: some View {
-        Form {
-            Section {
-                VStack(spacing: 6) {
-                    Text("Sign in").font(.largeTitle.bold())
-                    Text(URL(string: store.server)?.host() ?? store.server).foregroundStyle(.secondary)
-                    if store.plainHTTP { Text("http, not encrypted").font(.footnote).foregroundStyle(.orange) }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
-                .listRowBackground(Color.clear)
+        List {
+            VStack(spacing: 6) {
+                Text("Sign in").font(.title.bold()).kerning(-0.5)
+                Text([URL(string: store.server)?.host() ?? store.server, store.plainHTTP ? "http, not encrypted" : nil].compactMap { $0 }.joined(separator: " · "))
+                    .font(.subheadline).foregroundStyle(.muted)
             }
-            Section {
+            .frame(maxWidth: .infinity)
+            .bareRow(above: 40, below: 24)
+
+            VStack(alignment: .leading, spacing: 10) {
                 TextField("Name", text: $name)
                     .textContentType(.username)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("name")
+                    .modifier(Field())
                 SecureField("Password", text: $password)
                     .textContentType(.password)
                     .submitLabel(.go)
                     .onSubmit(login)
                     .accessibilityIdentifier("password")
-            } footer: {
-                if let error { Text(error).foregroundStyle(.red) }
-            }
-            Section {
+                    .modifier(Field())
+                if let error { Text(error).font(.footnote).foregroundStyle(.failed) }
                 Button(action: login) {
-                    HStack {
-                        Spacer()
-                        if busy { ProgressView() } else { Text("Sign in").bold() }
-                        Spacer()
-                    }
+                    if busy { ProgressView().tint(.paper) } else { Text("Sign in") }
                 }
+                .buttonStyle(Primary())
                 .disabled(busy || name.isEmpty || password.isEmpty)
-                Button("Change server") { store.leave() }
+                .padding(.top, 6)
+                Button("Change server") { store.leave() }.buttonStyle(.borderless).font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 44)
             }
+            .bareRow()
         }
+        .paperList()
+        .scrollDismissesKeyboard(.interactively)
     }
 
     private func login() {
@@ -127,12 +140,12 @@ struct LoginView: View {
     }
 }
 
-/// The runyard mark: two running-track lanes forming an r, the inside one in the running teal (the accent).
+/// The runyard mark: two running-track lanes forming an r, the inside one in the running teal.
 struct LogoMark: View {
     var body: some View {
         ZStack {
-            Lane(outer: 108, inner: 72).fill(.primary)
-            Lane(outer: 48, inner: 12).fill(.tint)
+            Lane(outer: 108, inner: 72).fill(.ink)
+            Lane(outer: 48, inner: 12).fill(.running)
         }
         .aspectRatio(1, contentMode: .fit)
         .accessibilityHidden(true)

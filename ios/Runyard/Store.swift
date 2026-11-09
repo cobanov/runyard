@@ -23,8 +23,10 @@ final class Store {
     var loadError: String?
     /// A run a link or a notification asked for; MainView opens it and clears this.
     var openRun: String?
-    /// Alerts nobody put away yet, for the tab's badge.
-    var activeAlerts = 0
+    /// Alerts nobody put away yet, newest first: the tab's badge and the home screen's row.
+    var active: [Alert] = []
+    /// The tab on screen: 0 runs, 1 alerts, 2 server.
+    var tab = 0
 
     init() {
         // A version with one server kept its session under "session".
@@ -97,16 +99,17 @@ final class Store {
     }
 
     func countAlerts() async {
-        if let a: [Alert] = try? await get("/api/v1/alerts?active&limit=20") { activeAlerts = a.count }
+        if let a: [Alert] = try? await get("/api/v1/alerts?active&limit=20") { active = a }
     }
     /// The request stops at 20, so 20 means "20 or more".
-    var alertsBadge: String? { activeAlerts == 0 ? nil : activeAlerts < 20 ? "\(activeAlerts)" : "20+" }
+    var alertsBadge: String? { active.isEmpty ? nil : active.count < 20 ? "\(active.count)" : "20+" }
 
     /// Made-up runs answered inside the app (Demo.swift). It is kept like a server, so a relaunch opens the demo again.
     func demo() { use(DemoServer.base) }
 
     /// Switches to a server in the list. Its session is still in the keychain, so there is no sign-in.
     func use(_ base: String) {
+        tab = 0
         me = nil
         loadError = nil
         server = base

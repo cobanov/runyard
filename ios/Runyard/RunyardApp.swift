@@ -44,17 +44,17 @@ struct RootView: View {
             if store.server.isEmpty {
                 ConnectView()
             } else if store.me == nil, let error = store.loadError {
-                ContentUnavailableView {
-                    Label("Can't reach the server", systemImage: "wifi.exclamationmark")
-                } description: {
-                    Text("\(store.server)\n\(error)\nTrying again on its own.")
-                } actions: {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Can't reach the server").font(.title2.bold())
+                    Text("\(store.server)\n\(error)\nTrying again on its own.").font(.subheadline).foregroundStyle(.muted)
                     Button { Task { await retry() } } label: {
-                        if trying { ProgressView() } else { Text("Try again") }
+                        if trying { ProgressView().tint(.paper) } else { Text("Try again") }
                     }
-                    .buttonStyle(.borderedProminent).disabled(trying)
-                    Button("Change server") { store.leave() }
+                    .buttonStyle(Primary()).disabled(trying).padding(.top, 10)
+                    Button("Change server") { store.leave() }.font(.subheadline.weight(.medium)).frame(maxWidth: .infinity, minHeight: 44)
                 }
+                .padding(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .task {
                     // A server that restarts is back in seconds; one that is off should not be asked all night.
                     var wait = 2.0
@@ -64,13 +64,16 @@ struct RootView: View {
                     }
                 }
             } else if store.me == nil {
-                ProgressView().task { await store.loadMe() }
+                Color.clear.task { await store.loadMe() } // an answer takes less than a spinner needs to be read
             } else if store.needsLogin {
                 LoginView()
             } else {
                 MainView()
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.paper)
+        .monospacedDigit() // tabular figures everywhere
         .onOpenURL(perform: open)
         .alert("Switch server?", isPresented: Binding(present: $switching), presenting: switching) { a in
             Button("Switch") { connect(a) }
@@ -147,14 +150,13 @@ extension Binding where Value == Bool {
 
 struct MainView: View {
     @Environment(Store.self) private var store
-    @State private var tab = 0
     @State private var path: [Route] = []
 
     var body: some View {
         if store.isDemo {
             tabs.tabViewBottomAccessory {
                 HStack {
-                    Text("Demo: made-up runs").font(.subheadline).foregroundStyle(.secondary)
+                    Text("Demo: made-up runs").font(.subheadline).foregroundStyle(.muted)
                     Spacer()
                     Button("Leave demo") { store.leave() }.font(.subheadline.weight(.medium))
                 }
@@ -166,7 +168,8 @@ struct MainView: View {
     }
 
     private var tabs: some View {
-        TabView(selection: $tab) {
+        @Bindable var store = store
+        return TabView(selection: $store.tab) {
             Tab("Runs", systemImage: "chart.xyaxis.line", value: 0) {
                 NavigationStack(path: $path) { HomeView().routes() }
             }
@@ -181,7 +184,7 @@ struct MainView: View {
         .poll(every: { 15 }) { await store.countAlerts() }
         .onChange(of: store.openRun, initial: true) {
             guard let id = store.openRun else { return }
-            tab = 0
+            store.tab = 0
             path = [.run(id)]
             store.openRun = nil
         }
@@ -195,42 +198,77 @@ struct ServerView: View {
     @State private var refused = false
 
     var body: some View {
+        let signedIn = store.me?.auth == true
+        let about = store.isDemo ? "made-up runs, answered inside the app"
+            : [store.plainHTTP ? "http, not encrypted" : nil, store.me.map { $0.auth ? "signed in as \($0.user)" : "open server" }].compactMap { $0 }.joined(separator: " · ")
         List {
-            if !machines.isEmpty {
-                Section {
-                    ForEach(machines) { MachineRow(machine: $0) }
-                } header: {
-                    Text("Machines")
-                } footer: {
-                    Text("From runyard beacon on each machine: every process on its GPUs, whoever started it.")
-                }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(store.isDemo ? "Demo" : store.server).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+                if !about.isEmpty { Text(about).font(.footnote).foregroundStyle(.muted) }
             }
-            Section("Server") {
-                LabeledContent("Address", value: store.isDemo ? "Demo, made-up runs" : store.server)
-                if store.plainHTTP { LabeledContent("Connection", value: "http, not encrypted") }
-                if let me = store.me {
-                    LabeledContent("Signed in as", value: me.auth ? me.user : "Open server, no sign-in")
-                }
+            .panelRow(0, of: signedIn ? 2 : 1, above: 8)
+            if signedIn {
+                Button("Sign out") { Task { await store.logout() } }.font(.subheadline).panelRow(1, of: 2)
             }
-            ServerList()
-            Section {
-                if store.me?.auth == true {
-                    Button("Sign out") { Task { await store.logout() } }
+
+            // In the demo the bar over the tabs already leaves it: only the servers to go back to are listed.
+            let rows = store.servers.count + (store.isDemo ? 0 : 1)
+            if rows > 0 { Heading("Servers") }
+            ForEach(Array(store.servers.enumerated()), id: \.element) { i, s in
+                Button { if s != store.server { store.use(s) } } label: {
+                    HStack {
+                        Text(s).lineLimit(1).truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        if s == store.server { Image(systemName: "checkmark").font(.footnote.weight(.semibold)).accessibilityLabel("Connected") }
+                    }
+                    .contentShape(.rect)
                 }
-                Button(store.isDemo ? "Leave demo" : "Change server") { store.leave() }
+                .buttonStyle(.plain).font(.subheadline)
+                .swipeActions { Button("Forget", systemImage: "trash") { store.forget(s) }.tint(.failed) }
+                .panelRow(i, of: rows)
             }
             if !store.isDemo {
-                Section {
-                    Toggle("Notify when a run ends or alerts", isOn: $notify)
-                } footer: {
-                    Text(refused ? "Notifications are off for runyard in the Settings app. Allow them there, then turn this on."
-                         : "The app asks the server in the background, and iOS decides when that happens: these can be minutes or hours late, and stop if you close the app from the app switcher. For instant ones use the server's channels (ntfy, Slack, Telegram or web push), set up on the web UI's Settings page.")
+                Button { store.leave() } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus").font(.footnote.weight(.semibold)).foregroundStyle(.muted)
+                        Text("Add a server")
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(.rect)
                 }
+                .buttonStyle(.plain).font(.subheadline)
+                .panelRow(rows - 1, of: rows)
             }
-            Section {
-                LabeledContent("App version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
+            if !store.servers.isEmpty {
+                Text("Tap one to switch, with no sign-in again. Swipe to forget it.").font(.footnote).foregroundStyle(.muted).bareRow(above: 8)
             }
+
+            if !store.isDemo {
+                Heading("Notifications")
+                Toggle(isOn: $notify) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("When a run ends or alerts").font(.subheadline)
+                        Text(refused ? "Notifications are off for runyard in the Settings app. Allow them there, then turn this on."
+                             : "Checked in the background, so they can arrive late. For instant ones, use ntfy or web push from the server.")
+                            .font(.footnote).foregroundStyle(.muted)
+                    }
+                }
+                .panelRow()
+            }
+
+            if !machines.isEmpty {
+                Heading("Machines")
+                ForEach(Array(machines.enumerated()), id: \.element.id) { i, m in
+                    MachineRow(machine: m).panelRow(i, of: machines.count)
+                }
+                Text("From runyard beacon on each machine: every process on its GPUs, whoever started it.")
+                    .font(.footnote).foregroundStyle(.muted).bareRow(above: 8)
+            }
+
+            Text("runyard \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
+                .font(.footnote).foregroundStyle(.muted).frame(maxWidth: .infinity).bareRow(above: 24, below: 24)
         }
+        .paperList()
         .onChange(of: notify) {
             guard notify else { return }
             Task {
@@ -251,48 +289,28 @@ struct ServerView: View {
     }
 }
 
-/// The servers the app has connected to, but for the one it is on: tap to switch, swipe to forget.
-struct ServerList: View {
-    @Environment(Store.self) private var store
-
-    var body: some View {
-        let others = store.servers.filter { $0 != store.server }
-        if !others.isEmpty {
-            Section {
-                ForEach(others, id: \.self) { s in
-                    Button(s) { store.use(s) }
-                        .swipeActions { Button("Forget", systemImage: "trash") { store.forget(s) }.tint(.red) }
-                }
-            } header: {
-                Text(store.server.isEmpty ? "Your servers" : "Other servers")
-            } footer: {
-                Text("Tap to switch, with no sign-in again. Swipe to forget one.")
-            }
-        }
-    }
-}
-
 struct MachineRow: View {
     let machine: Machine
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
-                Text(machine.name).font(.headline)
-                Spacer()
-                if machine.silent {
-                    Text("silent since \(machine.seenAt.formatted(date: .omitted, time: .shortened))").font(.caption).foregroundStyle(.orange)
-                }
+                Text(machine.name).font(.callout.weight(.semibold)).lineLimit(1)
+                Spacer(minLength: 8)
+                if machine.silent { Text("silent for \(duration(Date.now.timeIntervalSince(machine.seenAt), units: 1))").font(.footnote).foregroundStyle(.crashed) }
             }
-            MachineStrip(load: machine.load).opacity(machine.silent ? 0.5 : 1)
+            MachineLoad(load: machine.load).opacity(machine.silent ? 0.5 : 1)
             ForEach(Array(machine.procs.enumerated()), id: \.offset) { _, p in
                 Text("GPU \(p.gpu) · \(p.proc.name.isEmpty ? "pid \(p.proc.pid)" : p.proc.name)\(p.proc.user.map { " · \($0)" } ?? "")\(p.proc.memGB > 0 ? String(format: " · %.1f GB", p.proc.memGB) : "")")
-                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                    .font(.footnote).foregroundStyle(.muted).lineLimit(1)
             }
             if !machine.runs.isEmpty {
-                Text("Training " + machine.runs.map(\.name).joined(separator: ", ")).font(.caption).foregroundStyle(.tint)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Dot(color: .running, breathes: true)
+                    Text("training " + machine.runs.map(\.name).joined(separator: ", ")).font(.footnote).foregroundStyle(.running).lineLimit(2)
+                }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 }

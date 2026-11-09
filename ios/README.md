@@ -3,26 +3,44 @@
 A native iPhone app for a runyard server, the way the Jellyfin app works: type the server's address, sign in
 if the server has `RUNYARD_AUTH` on, and read your runs.
 
-- **Projects:** a card per coding agent session from the last day, most urgent first, as on the web's kiosk (none
-  on a server before 0.5.0; a tap opens its last run), a card per running run (its main metric with a sparkline,
-  progress and a time-left guess when the config names a total such as `max_steps` or `num_train_epochs`, heartbeat,
-  and the machine's CPU and per-GPU load), the eight newest runs that are not running (so one that just ended is
-  still there, with its status and project), then every project and its runs. The cards show as soon as the lists
-  answer; the sparklines fill in after. When a refresh fails, one line says for how long ("Not updated for 3m:
-  can't reach the server") and no run is marked silent, since its heartbeat is only old on the phone. The last
-  answers are kept on the phone (the caches directory, per server): when the server is out of reach at launch,
-  this screen opens on them under the same line. Only this screen: a run opened then says it cannot load.
-- **A run:** status, duration, heartbeat and alerts, then tabs for charts (touch a chart for a value), system load
-  (CPU, RAM, and a row per GPU: utilisation, memory, temperature, power), samples, logs, config and summary, and
-  artifacts. The tab you chose is the one the next run opens on. A failed refresh shows the same "Not updated
-  for ..." line, and the heartbeat's age is left out until one works.
-- **Samples:** images, videos and text tables by key, with a slider through the steps. Left at the end, the
-  slider follows the newest step; the image stays until the next step's has loaded. Tap an image for full screen:
-  swipe through the images showing (every key, at the step its slider is on), pinch or double-tap to zoom, share.
-  The page asks for copies at most 640 pixels wide (`/media/...?w=640`; a server that does not know the
-  parameter sends the original), the full-screen viewer for the original.
+- **Runs** (home): one line that sums up ("2 running · 1 failed today", or "Nothing is training"), then the
+  newest alert nobody put away as a row that opens the Alerts tab ("+2 more" when there are several), a card per
+  coding agent session from the last day, most urgent first, as on the web's kiosk (none on a server before 0.5.0;
+  a tap opens its last run), and a card per running run: its name and how long it has run, project and host, the
+  main metric's value with a sparkline, the latest sample image as a thumbnail (a tap opens the run on Samples),
+  progress and a time-left guess when the config names a total such as `max_steps` or `num_train_epochs`, and the
+  machine in one line ("GPU 97% · 31.4 GB · 68 °C", or the CPU and memory without a GPU). A run that has logged
+  nothing for ten minutes (`progress_at`) says "no output for 14m" in the crashed colour. Then the eight newest
+  runs that are not running (so one that just ended is still there, with how it ended and its project), then every
+  project. The cards show as soon as the lists answer; the sparklines and thumbnails fill in after. When a refresh
+  fails, one line says for how long ("Not updated for 3m: can't reach the server") in place of the summary, and no
+  run is marked quiet. The last answers are kept on the phone (the caches directory, per server): when the server
+  is out of reach at launch, this screen opens on them under the same line. Only this screen: a run opened then
+  says it cannot load.
+- **A run:** its name, state and duration, host and heartbeat, progress, and alerts, then tabs in this order:
+  charts (the main metric first; touch a chart for the value at a step), samples, logs (they fill the rest of the
+  screen and follow new lines; lines that name an error, an exception or a traceback are in the failed colour),
+  system load (CPU, RAM, and a row per GPU: utilisation, memory, temperature, power), config and summary (values
+  as written), and artifacts. The tab you chose is the one the next run opens on. A failed refresh shows the same
+  "Not updated for ..." line, and the heartbeat's age is left out until one works.
+- **Samples:** images and videos of every key on one slider, over every step any of them has ("step 1,720 · 9
+  of 13"), side by side in two columns, so each prompt is seen at the same step. Under an image its key and its
+  caption; a key with nothing at the chosen step shows its last one before it and says "from step N". Left at the
+  end, the slider follows the newest step; an image stays until the next step's has loaded. Text tables come
+  below, each key with its own slider. An image under 256 pixels wide is scaled by its nearest pixels, so it
+  stays crisp. Tap an image for full screen: swipe through the images showing, pinch or double-tap to zoom,
+  share. The page asks for copies at most 640 pixels wide (`/media/...?w=640`; a server that does not know the
+  parameter sends the original), the home screen's thumbnail for 320 (from
+  `/runs/{id}/media?kind=image&latest`; a server before 0.7.1 sends every step and the app takes the newest), the
+  full-screen viewer for the original.
 - **Alerts:** the server's alerts, newest first. The tab's badge counts the ones nobody put away, "20+" from
   twenty on.
+- **Server:** the server the app is on and who is signed in, every server it knows (a check mark on the current
+  one, "Add a server"), the notifications switch, and the machines running `runyard beacon`.
+
+The look follows `DESIGN.md` (`Runyard/Theme.swift` holds its tokens): colour means a run's or a machine's state
+and nothing else, so links, buttons and the selected tab are ink; numbers use a dot for decimals, a comma for
+thousands and tabular figures in every locale.
 
 It reads, and deletes: swipe a project on the home screen or a run in a project's list, then confirm. Deleting
 takes the runs' metrics, logs, samples and artifacts with them, and needs an admin (the server says 403
@@ -55,10 +73,10 @@ from `POST /api/v1/login`) are kept in the keychain. On a server without `RUNYAR
 When the server does not answer at launch, the home screen opens on what it said last time; when nothing was
 kept, the app says so and keeps trying on its own (after 2, 4, 8 ... at most 30 seconds).
 
-The app remembers every server it has connected to, each with its own session. The others are listed on the
-Server tab and on the connect screen: tap one to switch, with no address to type and no sign-in again, swipe to
-forget it and its session. "Change server" goes back to the connect screen and forgets nothing; it and "Sign out"
-empty what was kept for offline.
+The app remembers every server it has connected to, each with its own session. They are listed on the Server tab
+and on the connect screen: tap one to switch, with no address to type and no sign-in again, swipe to forget it
+and its session. "Add a server" goes back to the connect screen and forgets nothing; it and "Sign out" empty what
+was kept for offline.
 
 ### Links
 

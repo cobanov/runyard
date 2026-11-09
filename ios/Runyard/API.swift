@@ -31,10 +31,12 @@ nonisolated struct Run: Decodable, Identifiable, Hashable, Sendable {
     let startedAt: Date
     let endedAt: Date?
     let lastHeartbeatAt: Date?
+    let progressAt: Date? // the last time it logged anything; none from a server before 0.7.0
     let metrics: [String: MetricSummary]? // only from GET /runs/{id}
     enum CodingKeys: String, CodingKey {
         case id, project, name, status, config, summary, tags, notes, host, git, metrics
         case startedAt = "started_at", endedAt = "ended_at", lastHeartbeatAt = "last_heartbeat_at"
+        case progressAt = "progress_at"
     }
 
     var running: Bool { status == "running" }
@@ -93,6 +95,15 @@ nonisolated struct SysLoad: Sendable {
     let ramGB: Double?
     let gpus: [GPU]
 
+    /// The machine in one line: its first GPU ("+1" for each more), else the CPU and memory.
+    var line: String {
+        if let g = gpus.first {
+            return "GPU " + [g.util.map { "\(Int($0.rounded()))%" }, g.memGB.map { String(format: "%.1f GB", $0) }, g.tempC.map { "\(Int($0.rounded())) °C" },
+                             gpus.count > 1 ? "+\(gpus.count - 1)" : nil].compactMap { $0 }.joined(separator: " · ")
+        }
+        return [cpu.map { "CPU \(Int($0.rounded()))%" }, ramGB.map { "RAM " + String(format: "%.0f GB", $0) }].compactMap { $0 }.joined(separator: " · ")
+    }
+
     init(cpu: Double?, ramGB: Double?, gpus: [GPU]) {
         (self.cpu, self.ramGB, self.gpus) = (cpu, ramGB, gpus)
     }
@@ -144,6 +155,8 @@ nonisolated struct Media: Decodable, Identifiable, Sendable {
     let kind: String // image | video | text
     let url: String
     let meta: JSONValue?
+    let createdAt: Date?
+    enum CodingKeys: String, CodingKey { case id, key, step, kind, url, meta, createdAt = "created_at" }
     var caption: String? { meta?["caption"]?.string }
     /// Drawn as a still image (a GIF too), so it can open full screen.
     var isImage: Bool { kind != "text" && (kind != "video" || url.hasSuffix(".gif")) }
@@ -282,7 +295,7 @@ nonisolated enum JSONValue: Decodable, Hashable, Sendable {
         switch self {
         case .null: "null"
         case .bool(let b): b ? "true" : "false"
-        case .number(let d): fmt(d)
+        case .number(let d): d == d.rounded() && abs(d) < 1e15 ? String(Int64(d)) : "\(d)" // as written, never rounded
         case .string(let s): s
         case .array(let a): "[" + a.map(\.text).joined(separator: ", ") + "]"
         case .object: "{…}"
@@ -300,11 +313,12 @@ nonisolated enum JSONValue: Decodable, Hashable, Sendable {
     }
 }
 
-/// Numbers short and the same in every locale (a dot for decimals, no grouping), with an exponent only when tiny or huge.
+/// Every number on screen: short and the same in every locale (a dot for decimals, a comma for thousands), with
+/// an exponent only when tiny or huge.
 nonisolated func fmt(_ v: Double) -> String {
     if v.isNaN { return "NaN" }
     if v.isInfinite { return v > 0 ? "∞" : "-∞" }
-    if v == v.rounded() && abs(v) < 1e15 { return String(Int64(v)) }
+    if v == v.rounded() && abs(v) < 1e15 { return Int64(v).formatted(.number.locale(Locale(identifier: "en_US"))) }
     return String(format: "%.4g", v)
 }
 
