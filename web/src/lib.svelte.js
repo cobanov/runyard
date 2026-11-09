@@ -101,7 +101,8 @@ export function seriesLine(s, run, time) {
 }
 
 // thumb is a sample's URL at a width fit for a grid; the server keeps 320, 640 and 1280. A GIF stays itself: it moves.
-export const thumb = (url, w = 640) => (url.endsWith('.gif') ? url : `${url}?w=${w}`)
+// Only the server's own /media/ files have smaller copies: the demo's pictures are data URLs.
+export const thumb = (url, w = 640) => (!url.startsWith('/media/') || url.endsWith('.gif') ? url : `${url}?w=${w}`)
 
 // memo keeps what a page was showing (a list's filter and search, a run's tab) for when you come Back to it.
 export const memo = {}
@@ -111,7 +112,7 @@ export async function checkStale() {
   const mine = document.querySelector('script[type=module][src]')?.getAttribute('src')
   if (!mine || !mine.includes('/assets/')) return // the dev server
   try {
-    const page = await (await fetch('/', { cache: 'no-store' })).text()
+    const page = await (await fetch(location.pathname, { cache: 'no-store' })).text() // this page, wherever it is served from
     live.stale = !page.includes(mine)
   } catch {}
 }

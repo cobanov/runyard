@@ -85,7 +85,7 @@ function addRun(o) {
     project: o.project,
     name: o.name,
     status: 'running',
-    config: o.config,
+    config: o.endStep ? { max_steps: o.endStep, ...o.config } : o.config, // a total, so cards and lists show progress
     summary: {},
     tags: o.tags || [],
     notes: o.notes || '',
