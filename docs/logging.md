@@ -28,9 +28,13 @@ The same calls exist as module functions (`ry.log(...)`) for the current run.
 - **Status:** a clean exit marks the run finished; an exception or non-zero exit, failed; five minutes without a
   heartbeat (sent every 30 seconds), crashed.
 - **Recorded on its own:** stdout and stderr (`capture_output=False` turns it off), GPU, CPU and RAM usage as
-  `sys/` metrics (`system` extra, `system=False` turns it off), the host and the git commit.
-- **Never in the way:** calls are queued and sent by a background thread. When the server is unreachable,
-  what was not sent is saved at exit under `~/.cache/runyard/pending` (`RUNYARD_CACHE`); `runyard sync` sends it.
+  `sys/` metrics (`system` extra, `system=False` turns it off), the host, the git commit and uncommitted diff,
+  the command line, the Python version, the OS and the hardware. No environment variables. A config key or a
+  command-line flag whose name ends in `key`, `token`, `secret` or `password` is recorded as `***`.
+- **Never in the way:** calls are queued and sent by a background thread; `log()` costs a few microseconds.
+  While the server is unreachable the queue is also written to `~/.cache/runyard/pending` (`RUNYARD_CACHE`)
+  every 30 seconds, so a killed process loses seconds, not the run. The next run on the machine sends what
+  earlier ones left, and `runyard sync` does it by hand (`--server URL` to send it somewhere else).
 - **Artifacts:** by default only the record is kept (this host and the path, size, step). `upload=True` sends a
   copy, a directory as one `.tar.gz`, streamed from disk. `runyard artifacts RUN --get NAME` downloads it.
 - **Settings:** `RUNYARD_SERVER`, `RUNYARD_API_KEY`, `RUNYARD_PROJECT` and `RUNYARD_RUN_NAME` fill in what
@@ -54,10 +58,25 @@ be imported before torch.
 
 ## Tools you cannot change
 
-**Weights & Biases.** For tools that only speak W&B (ai-toolkit, diffusers examples, `report_to="wandb"`): install
-runyard into their environment and set `RUNYARD_WANDB=1`. `import wandb` then loads a small bridge that writes to
-runyard: `init`, `log`, `config`, `summary`, `define_metric`, `Image`, `Video`, `Table`, `alert`, `finish`.
-Anything else prints a warning and is skipped.
+**Weights & Biases.** For tools that only speak W&B, install runyard into their environment and set
+`RUNYARD_SERVER` and `RUNYARD_API_KEY`. `import wandb` then loads a small bridge that writes to runyard:
+
+- no `wandb` package installed: the bridge is on by itself (the import would fail otherwise);
+- `wandb` installed too: `RUNYARD_WANDB=1` makes the bridge win;
+- `RUNYARD_WANDB=0`: never.
+
+It covers `init` (also as `with wandb.init() as run:`), `log`, `config`, `summary`, `define_metric`, `Image`,
+`Video`, `Table`, `Artifact` with `log_artifact` and `save` (recorded where the files are, not uploaded),
+`alert`, `finish`, `run.name` and `run.tags`; `mode="disabled"`, `WANDB_MODE=disabled` and `WANDB_DISABLED` make
+no run, as in wandb; `WANDB_PROJECT` and `WANDB_NAME` are read. Anything else prints one warning and is skipped.
+In code you can change, `import runyard.wandb as wandb` is the same module without the environment's help.
+
+| Tool | Checked with | Besides the two settings |
+|---|---|---|
+| [ai-toolkit](https://github.com/ostris/ai-toolkit) | its own `toolkit/logging_aitk.py`: loss, learning rate, one sample key per prompt | `logging: { use_wandb: true, project_name: my-lora }` in the job's YAML |
+| kohya-ss sd-scripts | Accelerate's wandb tracker and the sample-image calls it makes | `--log_with wandb` (its `--wandb_api_key` is not needed and is masked) |
+| transformers `Trainer`, TRL, Unsloth | transformers' own `WandbCallback` | `report_to="wandb"`, `WANDB_PROJECT` for the project |
+| diffusers example scripts | `train_unconditional.py` | `--report_to wandb` (`--logger wandb` on older scripts) |
 
 **TensorBoard.** For tools that write event files (kohya sd-scripts, DeepSpeed, `SummaryWriter`):
 

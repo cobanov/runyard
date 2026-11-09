@@ -9,7 +9,7 @@ Key facts:
 - Log from Python: `pip install runyard`, set `RUNYARD_SERVER` and `RUNYARD_API_KEY`, then
   `run = runyard.init(project=..., config=...)` and `run.log({...}, step=step)`. The library queues in a background
   thread and never stops training.
-- No code change from tools that speak Weights & Biases (`RUNYARD_WANDB=1`), TensorBoard (`runyard watch ./logs`)
+- No code change from tools that speak Weights & Biases (the bridge is on when `wandb` is not installed; `RUNYARD_WANDB=1` when it is), TensorBoard (`runyard watch ./logs`)
   or MLflow (`MLFLOW_TRACKING_URI` pointed at the server).
 - Agents read through the MCP server at `<server>/mcp` (streamable HTTP, `Authorization: Bearer <key>` when the
   server runs with `RUNYARD_AUTH`), or the `runyard` CLI with `--json`.

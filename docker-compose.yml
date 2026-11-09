@@ -7,7 +7,7 @@ services:
     build: .
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://runyard:runyard@db/runyard?sslmode=disable
+      DATABASE_URL: postgres://runyard:${POSTGRES_PASSWORD:-runyard}@db/runyard?sslmode=disable
       RUNYARD_URL: ${RUNYARD_URL:-}  # public address, used for links in notifications
       RUNYARD_AUTH: ${RUNYARD_AUTH:-}  # 1: reads need a login or key, teams see their own projects (README)
       # media and artifacts in an S3-compatible bucket (Cloudflare R2, S3, ...) instead of the media volume
@@ -25,7 +25,8 @@ services:
   db:
     image: postgres:17
     restart: unless-stopped
-    environment: { POSTGRES_USER: runyard, POSTGRES_PASSWORD: runyard, POSTGRES_DB: runyard }
+    # the password only matters on the first start, when the database is made; it is never published outside this network
+    environment: { POSTGRES_USER: runyard, POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-runyard}", POSTGRES_DB: runyard }
     volumes: ["pg:/var/lib/postgresql/data"]
     healthcheck: { test: ["CMD", "pg_isready", "-U", "runyard"], interval: 2s, timeout: 5s, retries: 30 }
 

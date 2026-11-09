@@ -28,6 +28,7 @@ Environment variables of the server (in `.env` next to `docker-compose.yml`):
 | `MEDIA_DIR` | where images, videos and uploaded artifacts go, default `./media` (`/media` volume in compose) |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_PREFIX`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | keep those files in an S3-compatible bucket instead |
 | `RUNYARD_PUSH_CONTACT` | `mailto:` or `https:` address push services may contact, default the project page |
+| `POSTGRES_PASSWORD` | the database's password in compose, default `runyard`; set it before the first start (the database is not reachable from outside the Compose network either way) |
 
 ## Media in S3 or Cloudflare R2
 
@@ -139,9 +140,43 @@ Deleting and the server's keys and channels, for scripts and agents. With `RUNYA
 `POST /api/v1/channels` takes `{"kind", "target", "token", "project", "events"}`: target is the URL, or the chat
 id for telegram; no project means every project, no events all four.
 
-## Backup
+## Backup and restore
 
-`docker compose exec db pg_dump -U runyard runyard > runyard.sql`, plus the `media` volume (or the bucket).
+Everything is in the database and the `media` volume (or the bucket).
+
+```sh
+docker compose exec -T db pg_dump -U runyard -Fc runyard > runyard.dump
+docker run --rm -v runyard_media:/media -v "$PWD":/out alpine tar czf /out/media.tgz -C /media .
+```
+
+The volume is named after the Compose project, `runyard_media` when the folder is `runyard`
+(`docker volume ls`). To restore on a new machine, start the stack once so the volumes exist, then:
+
+```sh
+docker compose stop app
+docker compose exec -T db pg_restore -U runyard -d runyard --clean --if-exists < runyard.dump
+docker run --rm -v runyard_media:/media -v "$PWD":/in alpine tar xzf /in/media.tgz -C /media
+docker compose start app
+```
+
+## Upgrade
+
+```sh
+git pull && docker compose up -d --build
+```
+
+The server applies new migrations when it starts and takes ten seconds to let requests and notifications in
+flight finish when it stops. Runs that are training do not notice: the library queues what it could not send
+and sends it when the server answers again. Take a backup first. One migration (`011`) reads the whole metrics
+table once, so the first start after it takes longer on a large database. Released images are at
+`ghcr.io/cobanov/runyard:<version>`; to run one instead of building, replace `build: .` with
+`image: ghcr.io/cobanov/runyard:<version>` in `docker-compose.yml`.
+
+## Phones
+
+The web UI's Settings page shows a QR code holding `runyard://connect?url=<this server's address>`; the iPhone
+and Android apps open it and connect. Open Settings by the address the phone would use (not `localhost`) first.
+`runyard://run/<run id>` opens a run in the app.
 
 ## Server commands
 

@@ -55,10 +55,15 @@ The web UI's Settings page shows this command with the server's address and a ke
 
 ## REST API
 
-Reads are `GET` under `/api/v1`: `projects`, `runs?project=&status=&tag=`, `runs/{id}` (also an id prefix or
-name), `runs/{id}/metrics?keys=&points=`, `runs/{id}/logs?after=&tail`, `runs/{id}/media?key=&kind=&step=`,
+Reads are `GET` under `/api/v1`: `projects`, `runs?project=&status=&tag=&q=&limit=&before=&sort=ended&metrics=1`
+(`q`: part of a name or tag; `before`: the `started_at` of the last run you have, for the next page; `sort=ended`:
+newest end first; `metrics=1`: each run's last, min and max per metric), `runs/{id}` (also an id prefix or
+name; it carries `env`, what the run started as, and `progress_at`, its last metric or output line),
+`runs/{id}/metrics?keys=&points=`, `runs/{id}/logs?after=&before=&tail`, `runs/{id}/media?key=&kind=&step=`,
 `runs/{id}/artifacts`, `artifacts/{id}/file`, `alerts?run=&project=&active` (active: not dismissed), `hosts`,
 `hosts/{name}/history?hours=`, `agents?project=&hours=` and `events` (server-sent events, one line per change). Writes need
 `Authorization: Bearer <key>`: `POST runs`, `PATCH runs/{id}`, `POST hosts/{name}` (the beacon), `POST agents/events?tool=` (agent hooks), and `POST` of
 `runs/{id}/metrics`, `logs`, `media`, `heartbeat`, `alerts` and `artifacts`. `PATCH runs/{id}/meta`
 `{"notes", "tags"}` and `POST alerts/dismiss` `{"ids"}` (none: all) are what the web UI edits in place, and `PATCH projects/{name}` `{"metric", "goal"}`.
+
+Responses are gzipped for clients that send `Accept-Encoding: gzip`.

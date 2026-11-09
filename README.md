@@ -58,7 +58,9 @@ agents read all of it over MCP. Far fewer features than W&B or MLflow, on purpos
 
 ## Try it
 
-Start the server and make an API key:
+From nothing to a first tracked run, in about five minutes.
+
+**1. Start the server** (Docker, on the machine that will keep your runs) and make an API key:
 
 ```sh
 git clone https://github.com/cobanov/runyard && cd runyard
@@ -66,12 +68,15 @@ docker compose up -d --build                                    # http://localho
 docker compose exec app /runyard-server key create my-laptop     # prints an API key (ry_...)
 ```
 
-Log from your training script:
+**2. On the machine that trains**, install the library and say where the server is. Nothing else is configured
+anywhere; these two settings are all a script, a framework integration or the W&B bridge needs:
 
 ```sh
 pip install "runyard[images,system]"
 export RUNYARD_SERVER=http://localhost:8080 RUNYARD_API_KEY=ry_...
 ```
+
+**3. Log.** In your own loop:
 
 ```python
 import runyard as ry
@@ -81,8 +86,23 @@ run.log({"loss": loss.item()}, step=step)
 run.image("samples", grid, step=step)
 ```
 
-Open `http://localhost:8080`: the run is there, live. [Log runs](docs/logging.md) has every integration, and
-[Run the server](docs/server.md) covers the address, storage, users and teams.
+or without touching the code, when it already logs to Weights & Biases. With no `wandb` package installed,
+`import wandb` is runyard's bridge, so step 2 is the whole change:
+
+| Tool | What turns its logging on |
+|---|---|
+| [ai-toolkit](https://github.com/ostris/ai-toolkit) | `logging: { use_wandb: true }` in the job's YAML |
+| kohya-ss sd-scripts | `--log_with wandb` |
+| transformers `Trainer`, TRL | `report_to="wandb"` |
+| diffusers example scripts | `--report_to wandb` |
+| your own script | `import runyard.wandb as wandb` |
+
+**4. Open `http://localhost:8080`.** The run is there, live: charts, samples, output, config, the command line
+and the machine it runs on. Settings has a QR code that connects the phone app to the same server.
+
+A run never waits for the server: calls are queued, and what could not be sent is kept on disk and sent by the
+next run. [Log runs](docs/logging.md) has every integration, and [Run the server](docs/server.md) covers the
+address, storage, users and teams, backups and upgrades.
 
 **Give it to your agent.** Add the MCP server, or hand the agent one link,
 `https://raw.githubusercontent.com/cobanov/runyard/main/SKILL.md`, and ask how the run is going:

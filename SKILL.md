@@ -38,7 +38,7 @@ Without touching the code:
 - Hugging Face `Trainer` / TRL: `callbacks=[runyard.integrations.hf.RunyardCallback()]`, or `report_to="wandb"` with the bridge below.
 - Accelerate: `Accelerator(log_with=[runyard.integrations.accelerate.RunyardTracker()])`.
 - Lightning, Keras, XGBoost, LightGBM, scikit-learn, torchtune: one line each from `runyard.integrations` (see the README).
-- Anything that supports Weights & Biases (ai-toolkit, diffusers examples): set `RUNYARD_WANDB=1`; `import wandb` then writes to runyard.
+- Anything that supports Weights & Biases (ai-toolkit, diffusers examples): install runyard beside it: with no `wandb` package `import wandb` writes to runyard (`RUNYARD_WANDB=1` when wandb is installed too).
 - Anything that writes TensorBoard event files (kohya, DeepSpeed): `runyard watch ./logs`.
 - Anything that speaks MLflow: `MLFLOW_TRACKING_URI=https://<runyard-host> MLFLOW_TRACKING_TOKEN=$RUNYARD_API_KEY`.
 
