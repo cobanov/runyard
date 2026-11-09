@@ -91,6 +91,7 @@ type Run struct {
 	EndedAt         *time.Time               `json:"ended_at"`
 	LastHeartbeatAt time.Time                `json:"last_heartbeat_at"`
 	Agent           *string                  `json:"agent"` // the agent session that started it, "<tool>:<session>"
+	Env             json.RawMessage          `json:"env,omitempty"` // command line, Python, hardware, diff; GET /runs/{id} only
 	Metrics         map[string]metricSummary `json:"metrics,omitempty"`
 }
 
@@ -146,6 +147,9 @@ func getRun(ctx context.Context, db *pgxpool.Pool, id string) (Run, error) {
 		return r, err
 	}
 	runs := []Run{r}
+	if err = db.QueryRow(ctx, `SELECT env FROM runs WHERE id = $1::uuid`, id).Scan(&runs[0].Env); err != nil { // not in lists: it can hold a diff
+		return r, err
+	}
 	err = addMetrics(ctx, db, runs)
 	return runs[0], err
 }
@@ -279,6 +283,7 @@ type runPatch struct {
 	Summary json.RawMessage `json:"summary"`
 	Tags    *[]string       `json:"tags"`
 	Notes   *string         `json:"notes"`
+	EndedAt *time.Time      `json:"ended_at"` // when it really ended, for a run whose end arrives late (runyard sync)
 }
 
 // patchRun applies p and reports the status before and after, so callers can notify on a transition.
@@ -290,10 +295,10 @@ func patchRun(ctx context.Context, db *pgxpool.Pool, id string, p runPatch) (bef
 			summary = r.summary || coalesce($5::jsonb, '{}'),
 			tags = coalesce($6, r.tags),
 			notes = coalesce($7, r.notes),
-			ended_at = CASE WHEN coalesce($3, r.status) = 'running' THEN NULL ELSE coalesce(r.ended_at, now()) END
+			ended_at = CASE WHEN coalesce($3, r.status) = 'running' THEN NULL ELSE coalesce(r.ended_at, $8, now()) END
 		FROM (SELECT status FROM runs WHERE id = $1::uuid FOR UPDATE) old
 		WHERE r.id = $1::uuid RETURNING old.status, r.status`,
-		id, p.Name, p.Status, nullJSON(p.Config), nullJSON(p.Summary), p.Tags, p.Notes).Scan(&before, &after)
+		id, p.Name, p.Status, nullJSON(p.Config), nullJSON(p.Summary), p.Tags, p.Notes, p.EndedAt).Scan(&before, &after)
 	return
 }
 

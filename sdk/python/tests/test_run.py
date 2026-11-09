@@ -141,6 +141,47 @@ def test_server_down_never_blocks_then_sync(server, monkeypatch, capsys):
     assert len(get(server + f"/api/v1/runs/{run.id}/media")) == 1
 
 
+def test_killed_while_the_server_is_away_then_the_next_run_sends_it(server, tmp_path, monkeypatch):
+    """The queue is also kept on disk while the server is away, so kill -9 loses seconds; the next run sends the file."""
+    script = tmp_path / "train.py"
+    script.write_text("""
+import os, signal, sys, time, runyard as ry, runyard.core as core
+core.SPILL_EVERY = 0
+run = ry.init(project="offline", name="killed", id=sys.argv[1], system=False)
+for i in range(50): run.log({"loss": i}, step=i)
+while not list((core.CACHE / "pending").glob("*.json")): time.sleep(0.05)
+os.kill(os.getpid(), signal.SIGKILL)
+""")
+    cache = tmp_path / "cache"
+    rid = "0a0a0a0a-0000-4000-8000-000000000001"
+    env = dict(os.environ, RUNYARD_CACHE=str(cache), RUNYARD_SERVER="http://127.0.0.1:9")
+    subprocess.run([sys.executable, str(script), rid], env=env, capture_output=True, timeout=60)
+    pending = cache / "pending" / f"{rid}.json"
+    data = json.loads(pending.read_text())
+    assert len(data["items"]) >= 51
+    data["server"] = server  # the server is back
+    pending.write_text(json.dumps(data))
+    old = time.time() - 600
+    os.utime(pending, (old, old))  # not a file some live run is still writing
+
+    monkeypatch.setattr("runyard.core.CACHE", cache)
+    monkeypatch.setattr("runyard.core._synced_old", False)
+    ry.Run(project="offline", name="next", system=False).finish()
+    wait_for(lambda: not pending.exists())
+    r = get(server + "/api/v1/runs/" + rid)
+    assert r["metrics"]["loss"]["count"] == 50 and r["status"] == "running"  # no end was sent: crashed in five minutes
+
+
+def test_env_is_recorded_without_secrets(server, monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["train.py", "--lr", "3e-4", "--hf_token", "hf_secret", "--wandb_api_key=abc", "cfg.yaml"])
+    run = ry.Run(project="env", name="argv", system=False)
+    run.finish()
+    r = get(server + "/api/v1/runs/" + run.id)
+    assert r["env"]["argv"] == ["train.py", "--lr", "3e-4", "--hf_token", "***", "--wandb_api_key=***", "cfg.yaml"]
+    assert r["env"]["python"] and r["env"]["cpus"] and r["ended_at"]
+    assert "env" not in get(server + "/api/v1/runs?project=env")[0]  # lists stay small: env can hold a diff
+
+
 SCRIPT = """
 import sys, runyard as ry
 ry.init(project="exit", name=sys.argv[1], system=False)
@@ -246,7 +287,8 @@ except KeyboardInterrupt:  # how ai-toolkit stops
     time.sleep(0.5)
     sys.exit(0)
 """
-    env = {**os.environ, "RUNYARD_SERVER": f"http://127.0.0.1:{srv.server_port}", "RUNYARD_CACHE": str(tmp_path)}
+    env = {**os.environ, "RUNYARD_SERVER": f"http://127.0.0.1:{srv.server_port}", "RUNYARD_CACHE": str(tmp_path),
+           "RUNYARD_API_KEY": "ry_test"}  # without one the first line printed is the warning about it
     p = subprocess.Popen([sys.executable, "-c", script], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     assert p.stdout.readline().strip() == "ready"
     p.stdout.close()  # `| tee log` in tmux: Ctrl-C kills the reader too, and the closing pane sends a hangup

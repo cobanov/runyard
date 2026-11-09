@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import os
+import platform
 import re
 import shutil
 import signal
@@ -28,6 +29,8 @@ CACHE = Path(os.environ.get("RUNYARD_CACHE") or Path.home() / ".cache" / "runyar
 HEARTBEAT_EVERY = 30
 SYSTEM_EVERY = 15
 BATCH = 5000
+MAX_QUEUE = 1_000_000  # calls held for a server that stays away; past it new metrics and log lines are dropped
+SPILL_EVERY = 30
 
 _active = []  # open runs: the output tee and the exit hooks act on these
 _warned = set()
@@ -85,9 +88,11 @@ class Sender:
         self.items = deque(items)
         self.lock = threading.Lock()
 
-    # shortcut: the queue only lives in memory until exit; a server down for days on a chatty run grows it unbounded.
     def put(self, kind, data):
         with self.lock:
+            if len(self.items) >= MAX_QUEUE and kind in ("metrics", "logs"):  # memory is the training's, not ours
+                warn(f"the server has been away for {MAX_QUEUE} calls; new metrics and log lines are dropped until it is back", once=True)
+                return
             self.items.append((kind, data))
 
     def drain(self):
@@ -154,14 +159,18 @@ class Sender:
                 archive.unlink(missing_ok=True)
 
     def save_pending(self):
-        """Writes what is still queued to the cache so `runyard sync` can send it later; returns the file or None."""
+        """Writes what is still queued to the cache, for `runyard sync` or the next run to send, and removes the file
+        once nothing is queued; returns the file or None. Written whole and renamed, so a kill never leaves half a file."""
         with self.lock:
             items = list(self.items)
-        if not items:
-            return None
         p = CACHE / "pending" / f"{self.run_id}.json"
+        if not items:
+            p.unlink(missing_ok=True)
+            return None
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({"server": self.server, "run_id": self.run_id, "items": items}))
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"server": self.server, "run_id": self.run_id, "items": items}))
+        os.replace(tmp, p)
         return p
 
 
@@ -204,11 +213,12 @@ class Run:
         self.finished = False
         self.config = _Synced(self, "config", config or {})
         self.summary = _Synced(self, "summary", {})
-        self._sender.put("create", {"id": self.id, "project": self.project, "name": self.name, "config": dict(self.config),
-                                    "tags": list(tags or []), "notes": notes, "host": socket.gethostname(), "git": _git(),
-                                    "started_at": _now(), "agent": _agent()})
         _check_sandbox()
         self._system = _System() if system else None
+        self._sender.put("create", {"id": self.id, "project": self.project, "name": self.name, "config": dict(self.config),
+                                    "tags": list(tags or []), "notes": notes, "host": socket.gethostname(), "git": _git(),
+                                    "started_at": _now(), "agent": _agent(), "env": _env(self._system)})
+        _sync_old(server, key)
         self._t0 = time.time()
         _active.append(self)
         _install_hooks()
@@ -308,7 +318,7 @@ class Run:
             return
         if self in _active:
             _active.remove(self)
-        self._sender.put("patch", {"status": status})
+        self._sender.put("patch", {"status": status, "ended_at": _now()})  # the real end, even if it arrives days later
         self.finished = True
         self._closing = True
         self._wake.set()
@@ -321,8 +331,9 @@ class Run:
             warn(f"server unreachable, {len(self._sender.items)} unsent calls saved to {p}; send them with `runyard sync`")
 
     def _loop(self):
-        last_beat = last_sys = 0.0
+        last_beat = last_sys = last_spill = 0.0
         fails = 0
+        spill_every = SPILL_EVERY
         while True:
             self._wake.wait(1.0 if not fails else min(60, 2 ** fails))
             self._wake.clear()
@@ -334,9 +345,16 @@ class Run:
                     self._sender.put("metrics", {"step": int(now - self._t0), "ts": _now(), "values": values})
             closing = self._closing  # read before draining: finish() queues its last call before setting it
             ok = self._sender.drain()
-            fails = 0 if ok else fails + 1
             if closing:
-                return
+                return  # finish() saves what is left
+            # While the server is away the queue is also kept on disk, so a killed process loses a few seconds, not
+            # the run. Writing it holds the interpreter, so a long queue is written less often (2% of the time at most).
+            if (not ok and time.time() - last_spill >= spill_every) or (ok and fails):
+                t = time.time()
+                _safe(self._sender.save_pending)()
+                last_spill = time.time()
+                spill_every = max(SPILL_EVERY, 50 * (last_spill - t))
+            fails = 0 if ok else fails + 1
             if ok and now - last_beat >= HEARTBEAT_EVERY:
                 try:
                     request("POST", f"{self._sender.server}/api/v1/runs/{self.id}/heartbeat", self._sender.key)
@@ -345,15 +363,36 @@ class Run:
                     pass
 
 
-def sync(path, api_key=None):
-    """Sends a pending file written at exit by a run that could not reach its server. True when all of it landed."""
+def sync(path, api_key=None, server=None):
+    """Sends a pending file written by a run that could not reach its server. True when all of it landed.
+    server sends it somewhere else than the address the run was started with."""
     d = json.loads(Path(path).read_text())
-    s = Sender(d["server"], api_key or os.environ.get("RUNYARD_API_KEY", ""), d["run_id"], [tuple(i) for i in d["items"]])
-    if s.drain():
-        Path(path).unlink()
-        return True
-    s.save_pending()
-    return False
+    s = Sender((server or d["server"]).rstrip("/"), api_key or os.environ.get("RUNYARD_API_KEY", ""), d["run_id"], [tuple(i) for i in d["items"]])
+    ok = s.drain()
+    s.save_pending()  # what is left, or nothing: the file goes
+    return ok
+
+
+_synced_old = False
+
+
+def _sync_old(server, key):
+    """Once per process, in the background: sends what earlier runs on this machine could not send to this server.
+    A file touched in the last two minutes belongs to a run that is still going and writes it itself."""
+    global _synced_old
+    if _synced_old:
+        return
+    _synced_old = True
+
+    def go():
+        for f in sorted((CACHE / "pending").glob("*.json")):
+            try:
+                if time.time() - f.stat().st_mtime > 120 and json.loads(f.read_text())["server"] == server and sync(f, key):
+                    warn(f"sent the run saved in {f.name} while the server was away")
+            except Exception:
+                pass
+
+    threading.Thread(target=go, name="runyard-sync", daemon=True).start()
 
 
 def _git():
@@ -368,6 +407,41 @@ def _git():
                 "remote": git("config", "--get", "remote.origin.url")}
     except Exception:
         return None
+
+
+_SECRET = re.compile(r"key|token|secret|passw|credential", re.I)
+
+
+def _argv():
+    """The command line, with the value of anything that looks like a secret (--hf_token X, --api-key=X) left out."""
+    out, hide = [], False
+    for a in sys.argv:
+        if hide and not a.startswith("-"):
+            a = "***"
+        hide = a.startswith("-") and "=" not in a and bool(_SECRET.search(a))
+        if a.startswith("-") and "=" in a and _SECRET.search(a.split("=", 1)[0]):
+            a = a.split("=", 1)[0] + "=***"
+        out.append(a[:2000])
+    return out[:200]
+
+
+def _env(system):
+    """What the run started as: command line, Python, OS, CPUs, memory, GPU models, and the uncommitted diff.
+    No environment variables: they are where secrets live."""
+    env = {"argv": _argv(), "python": platform.python_version(), "platform": platform.platform(), "cpus": os.cpu_count()}
+    try:
+        env["cwd"] = os.getcwd()
+        if system and system.psutil:
+            env["ram_gb"] = round(system.psutil.virtual_memory().total / 1e9, 1)
+        if system and system.nvml:
+            names = [system.nvml.nvmlDeviceGetName(h) for h in system.gpus]
+            env["gpus"] = [n.decode() if isinstance(n, bytes) else n for n in names]
+        diff = subprocess.run(["git", "diff", "HEAD"], capture_output=True, text=True, errors="replace", timeout=5).stdout
+        if diff:
+            env["git_diff"] = diff[:200_000]  # shortcut: cut at 200 kB, binary and untracked files are not in it
+    except Exception:
+        pass
+    return env
 
 
 # Coding agent CLIs that put their session id in the environment of every command they run.

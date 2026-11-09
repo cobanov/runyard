@@ -49,7 +49,7 @@
       <thead><tr><th></th>{#each runs as r, i}<th><span class="swatch" style="background: var({color(i)})"></span>{r.name}</th>{/each}</tr></thead>
       <tbody>
         {#each diff as [k, vals]}
-          <tr><th>{k}</th>{#each vals as v}<td>{v === undefined ? '–' : fmt(v)}</td>{/each}</tr>
+          <tr><th>{k}</th>{#each vals as v}<td>{v === undefined ? '–' : String(v)}</td>{/each}</tr>
         {/each}
       </tbody>
     </table>

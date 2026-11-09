@@ -88,6 +88,13 @@
   }
   const config = $derived(Object.entries(flatten(run?.config)))
   const summary = $derived(Object.entries(flatten(run?.summary)))
+  // What the run started as, from the library: the command, where, on what.
+  const env = $derived.by(() => {
+    const e = run?.env
+    if (!e) return []
+    const hardware = [e.cpus && `${e.cpus} CPUs`, e.ram_gb && `${e.ram_gb} GB RAM`, ...(e.gpus || [])].filter(Boolean).join(', ')
+    return [['command', (e.argv || []).join(' ')], ['directory', e.cwd], ['python', e.python], ['platform', e.platform], ['hardware', hardware]].filter(([, v]) => v)
+  })
 </script>
 
 {#if error}
@@ -187,9 +194,20 @@
     {/if}
     <h2>Config</h2>
     {#if config.length}
-      <dl class="card kv">{#each config as [k, v]}<dt>{k}</dt><dd>{fmt(v)}</dd>{/each}</dl>
+      <!-- as written, not rounded: two learning rates that differ in the fifth digit are two configs -->
+      <dl class="card kv">{#each config as [k, v]}<dt>{k}</dt><dd>{String(v)}</dd>{/each}</dl>
     {:else}
       <p class="empty">This run was started without a config.</p>
+    {/if}
+    {#if env.length}
+      <h2>Environment</h2>
+      <dl class="card kv">{#each env as [k, v]}<dt>{k}</dt><dd>{v}</dd>{/each}</dl>
+    {/if}
+    {#if run.env?.git_diff}
+      <details class="diff">
+        <summary class="small muted">Uncommitted changes when it started</summary>
+        <pre class="card">{run.env.git_diff}</pre>
+      </details>
     {/if}
   {/if}
 {/if}
@@ -374,5 +392,12 @@
   }
   .kv dd {
     margin: 0;
+  }
+  .diff pre {
+    margin: 8px 0 24px;
+    padding: 10px 14px;
+    max-height: 60vh;
+    overflow: auto;
+    font: 0.8125rem/1.5 var(--mono);
   }
 </style>
