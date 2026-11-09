@@ -1,4 +1,5 @@
 <script>
+  import { encode } from 'uqr'
   import { get, send, why, store, ago, live, cred, setKey } from './lib.svelte.js'
 
   let { auth } = $props()
@@ -44,7 +45,11 @@
     ['Python SDK', `export RUNYARD_SERVER=${origin} RUNYARD_API_KEY=${key}`],
     ['MLflow client', `export MLFLOW_TRACKING_URI=${origin} MLFLOW_TRACKING_TOKEN=${key}`],
     ['MCP for agents (Claude Code)', `claude mcp add --transport http runyard ${origin}/mcp --header "Authorization: Bearer ${key}"`],
+    ['A machine’s GPUs, training or not', `pip install "runyard[system]" && RUNYARD_SERVER=${origin} RUNYARD_API_KEY=${key} runyard beacon`],
   ])
+  // The phone apps open this link and connect to this server; the camera reads it from the square.
+  const phone = `runyard://connect?url=${encodeURIComponent(origin)}`
+  const qr = encode(phone)
   const copy = (text) => navigator.clipboard.writeText(text).then(() => (copied = text))
 
   let keyName = $state('')
@@ -120,6 +125,20 @@ docker compose exec app /runyard-server channel add ntfy https://ntfy.sh/my-topi
     {/each}
   </ul>
   <p class="muted small">{made ? 'These use the key you just made.' : 'Make an API key below and the commands fill it in.'} MCP gives agents the runs, metrics, logs and samples to read.</p>
+</section>
+
+<section>
+  <h2>On the phone</h2>
+  <div class="card card-pad phone">
+    <svg viewBox="-2 -2 {qr.size + 4} {qr.size + 4}" role="img" aria-label="QR code that connects the runyard app to {origin}">
+      <rect x="-2" y="-2" width={qr.size + 4} height={qr.size + 4} fill="#fff" />
+      {#each qr.data as row, y}{#each row as on, x}{#if on}<rect {x} {y} width="1" height="1" fill="#000" />{/if}{/each}{/each}
+    </svg>
+    <p class="small">
+      Point the phone’s camera at the square with the runyard app installed: it connects to <code>{origin}</code>. On the phone itself, <a href={phone}>open the app here</a>.
+      {#if /^https?:\/\/(localhost|127\.|\[::1\])/.test(origin)}<br /><span class="muted">This page is open at an address only this computer can reach; open it by the address the phone would use first.</span>{/if}
+    </p>
+  </div>
 </section>
 
 {#if auth || cred.key}
@@ -222,6 +241,22 @@ docker compose exec app /runyard-server channel add ntfy https://ntfy.sh/my-topi
 {/if}
 
 <style>
+  .phone {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+  }
+  .phone svg {
+    width: 132px;
+    height: 132px;
+    border-radius: var(--radius-sm);
+    shape-rendering: crispEdges;
+  }
+  .phone p {
+    flex: 1 1 240px;
+    margin: 0;
+  }
   section {
     margin-top: 24px;
   }

@@ -10,15 +10,16 @@
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
-    "svelte": "^5.57.3",
-    "vite": "^8.3.5",
     "@vitejs/plugin-react": "^6.1.2",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "svelte": "^5.57.3",
+    "vite": "^8.3.5"
   },
   "dependencies": {
     "@fontsource-variable/atkinson-hyperlegible-mono": "^5.3.0",
     "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
-    "uplot": "^1.6.32"
+    "uplot": "^1.6.32",
+    "uqr": "^0.1.3"
   }
 }
