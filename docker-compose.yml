@@ -1,11 +1,15 @@
-# docker compose up -d --build        then open http://localhost:8080
-# API key for training scripts:       docker compose exec app /runyard-server key create <name>
+# docker compose up -d                then open http://localhost:8080 (the released image; --build builds this checkout)
+# API key for training scripts:       the Settings page makes the first one, or
+#                                     docker compose exec app /runyard-server key create <name>
 # Phone notifications:                docker compose exec app /runyard-server channel add ...  (see README)
 # Backup: pg_dump of the db service plus the media volume.
 services:
   app:
+    image: ghcr.io/cobanov/runyard:${RUNYARD_VERSION:-latest}  # pin a version to upgrade when you choose to
     build: .
     restart: unless-stopped
+    # needs 0.7.0 or newer: an older image has no `health` and shows as unhealthy while working
+    healthcheck: { test: ["CMD", "/runyard-server", "health"], interval: 10s, timeout: 3s, retries: 6, start_period: 60s }
     environment:
       DATABASE_URL: postgres://runyard:${POSTGRES_PASSWORD:-runyard}@db/runyard?sslmode=disable
       RUNYARD_URL: ${RUNYARD_URL:-}  # public address, used for links in notifications

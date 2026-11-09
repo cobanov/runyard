@@ -1,12 +1,26 @@
 # Run the server
 
 ```sh
-docker compose up -d --build
-docker compose exec app /runyard-server key create my-laptop
+curl -O https://raw.githubusercontent.com/cobanov/runyard/main/docker-compose.yml
+docker compose up -d
 ```
 
-The image is one static binary with the web UI embedded; `docker compose` adds PostgreSQL 17. Migrations run at
-start. Released images are at `ghcr.io/cobanov/runyard`.
+The image (`ghcr.io/cobanov/runyard`) is one static binary with the web UI embedded; `docker compose` adds
+PostgreSQL 17. Migrations run at start. `RUNYARD_VERSION=0.7.0` in `.env` pins a version instead of `latest`; in a
+clone of the repository, `docker compose up -d --build` builds and runs that checkout.
+
+## API keys
+
+A training script, the CLI and an agent each send a key. On a server without users and without a key yet, the web
+UI's Settings page makes the first one; after that, Settings (with a key that can manage) or the shell makes more:
+
+```sh
+docker compose exec app /runyard-server key create my-laptop        # can do everything
+docker compose exec app /runyard-server key create -log gpu-box     # for a training machine
+```
+
+A key made for a training machine logs and reads; it gets 403 for deleting runs and for making keys and channels,
+so a key copied onto a rented GPU cannot wipe the server. Keys made before 0.7 can do everything, as before.
 
 ## Reaching it
 
@@ -27,6 +41,8 @@ Environment variables of the server (in `.env` next to `docker-compose.yml`):
 | `RUNYARD_AUTH` | `1`: reads need a login or key; teams see their own projects |
 | `MEDIA_DIR` | where images, videos and uploaded artifacts go, default `./media` (`/media` volume in compose) |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_PREFIX`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | keep those files in an S3-compatible bucket instead |
+| `RUNYARD_LOG_LINES` | output lines kept per run, the newest; default `1000000`, `0` keeps all |
+| `RUNYARD_VERSION` | the image tag compose runs, default `latest` |
 | `RUNYARD_PUSH_CONTACT` | `mailto:` or `https:` address push services may contact, default the project page |
 | `POSTGRES_PASSWORD` | the database's password in compose, default `runyard`; set it before the first start (the database is not reachable from outside the Compose network either way) |
 
@@ -137,7 +153,7 @@ Deleting and the server's keys and channels, for scripts and agents. With `RUNYA
 | `GET /api/v1/keys`, `POST /api/v1/keys` `{"name", "user"}`, `DELETE /api/v1/keys/{id}` | list (never the key), create (returns the key once), revoke |
 | `GET /api/v1/channels`, `POST /api/v1/channels`, `DELETE /api/v1/channels/{id}`, `POST /api/v1/channels/{id}/test` | as `channel ls/add/rm/test`; the list leaves out tokens |
 
-`POST /api/v1/channels` takes `{"kind", "target", "token", "project", "events"}`: target is the URL, or the chat
+`POST /api/v1/keys` takes `{"name", "user", "scope"}`; scope `log` makes a training machine's key. `POST /api/v1/channels` takes `{"kind", "target", "token", "project", "events"}`: target is the URL, or the chat
 id for telegram; no project means every project, no events all four.
 
 ## Backup and restore
@@ -162,15 +178,14 @@ docker compose start app
 ## Upgrade
 
 ```sh
-git pull && docker compose up -d --build
+docker compose pull && docker compose up -d      # or, in a clone: git pull && docker compose up -d --build
 ```
 
 The server applies new migrations when it starts and takes ten seconds to let requests and notifications in
 flight finish when it stops. Runs that are training do not notice: the library queues what it could not send
-and sends it when the server answers again. Take a backup first. One migration (`011`) reads the whole metrics
-table once, so the first start after it takes longer on a large database. Released images are at
-`ghcr.io/cobanov/runyard:<version>`; to run one instead of building, replace `build: .` with
-`image: ghcr.io/cobanov/runyard:<version>` in `docker-compose.yml`.
+and sends it when the server answers again. Take a backup first. Two migrations (`011`, `012`) each read the
+whole metrics table once, so the first start with 0.7 takes longer on a large database; `docker compose ps` shows
+the app as healthy when it is done.
 
 ## Phones
 

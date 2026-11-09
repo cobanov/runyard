@@ -24,12 +24,15 @@ run.finish()                                                # optional
 
 The same calls exist as module functions (`ry.log(...)`) for the current run.
 
+To go on with a run after a restart, keep its `run.id` and start with `ry.init(id=that_id, resume=True)`: steps
+and output continue where they were, and the run is running again.
+
 - **Steps:** without `step`, each `log` is the next step after the last one.
 - **Status:** a clean exit marks the run finished; an exception or non-zero exit, failed; five minutes without a
   heartbeat (sent every 30 seconds), crashed.
 - **Recorded on its own:** stdout and stderr (`capture_output=False` turns it off), GPU, CPU and RAM usage as
   `sys/` metrics (`system` extra, `system=False` turns it off), the host, the git commit and uncommitted diff,
-  the command line, the Python version, the OS and the hardware. No environment variables. A config key or a
+  the command line, the Python version, the OS, the hardware and the installed packages. No environment variables. A config key or a
   command-line flag whose name ends in `key`, `token`, `secret` or `password` is recorded as `***`.
 - **Never in the way:** calls are queued and sent by a background thread; `log()` costs a few microseconds.
   While the server is unreachable the queue is also written to `~/.cache/runyard/pending` (`RUNYARD_CACHE`)
@@ -69,6 +72,7 @@ It covers `init` (also as `with wandb.init() as run:`), `log`, `config`, `summar
 `Video`, `Table`, `Artifact` with `log_artifact` and `save` (recorded where the files are, not uploaded),
 `alert`, `finish`, `run.name` and `run.tags`; `mode="disabled"`, `WANDB_MODE=disabled` and `WANDB_DISABLED` make
 no run, as in wandb; `WANDB_PROJECT` and `WANDB_NAME` are read. Anything else prints one warning and is skipped.
+`wandb.init(id=...)` and `WANDB_RUN_ID` continue that run, which is how trainers resume.
 In code you can change, `import runyard.wandb as wandb` is the same module without the environment's help.
 
 | Tool | Checked with | Besides the two settings |
@@ -77,6 +81,17 @@ In code you can change, `import runyard.wandb as wandb` is the same module witho
 | kohya-ss sd-scripts | Accelerate's wandb tracker and the sample-image calls it makes | `--log_with wandb` (its `--wandb_api_key` is not needed and is masked) |
 | transformers `Trainer`, TRL, Unsloth | transformers' own `WandbCallback` | `report_to="wandb"`, `WANDB_PROJECT` for the project |
 | diffusers example scripts | `train_unconditional.py` | `--report_to wandb` (`--logger wandb` on older scripts) |
+
+**Anything else.** A tool that logs nowhere can still be a run:
+
+```sh
+runyard run --project lora --samples output/my_lora/samples -- python run.py config/my_lora.yaml
+```
+
+Its output, exit status (0 is finished, anything else failed), GPU and CPU are recorded, and image files that
+appear under `--samples` become samples, with the step read from the file name (ai-toolkit's
+`<time>__<step>_<index>.jpg`, kohya's `<name>_<step>_<index>_<time>.png`, otherwise the last number). There are no
+loss curves this way: those need the tool's own logging, as above.
 
 **TensorBoard.** For tools that write event files (kohya sd-scripts, DeepSpeed, `SummaryWriter`):
 

@@ -60,13 +60,15 @@ agents read all of it over MCP. Far fewer features than W&B or MLflow, on purpos
 
 From nothing to a first tracked run, in about five minutes.
 
-**1. Start the server** (Docker, on the machine that will keep your runs) and make an API key:
+**1. Start the server** (Docker, on the machine that will keep your runs):
 
 ```sh
-git clone https://github.com/cobanov/runyard && cd runyard
-docker compose up -d --build                                    # http://localhost:8080
-docker compose exec app /runyard-server key create my-laptop     # prints an API key (ry_...)
+curl -O https://raw.githubusercontent.com/cobanov/runyard/main/docker-compose.yml
+docker compose up -d                                             # http://localhost:8080
 ```
+
+Open it and go to Settings: a fresh server offers to make its first API key (`ry_...`) and fills it into the
+commands below. From a shell, `docker compose exec app /runyard-server key create my-laptop` does the same.
 
 **2. On the machine that trains**, install the library and say where the server is. Nothing else is configured
 anywhere; these two settings are all a script, a framework integration or the W&B bridge needs:
@@ -87,7 +89,8 @@ run.image("samples", grid, step=step)
 ```
 
 or without touching the code, when it already logs to Weights & Biases. With no `wandb` package installed,
-`import wandb` is runyard's bridge, so step 2 is the whole change:
+`import wandb` is runyard's bridge, so step 2 is the whole change (and a trainer that resumes its W&B run by id
+resumes its runyard run):
 
 | Tool | What turns its logging on |
 |---|---|
@@ -96,6 +99,7 @@ or without touching the code, when it already logs to Weights & Biases. With no 
 | transformers `Trainer`, TRL | `report_to="wandb"` |
 | diffusers example scripts | `--report_to wandb` |
 | your own script | `import runyard.wandb as wandb` |
+| a tool that logs nowhere | `runyard run --samples out/ -- python train.py`: output, exit status, GPU, and new images as samples |
 
 **4. Open `http://localhost:8080`.** The run is there, live: charts, samples, output, config, the command line
 and the machine it runs on. Settings has a QR code that connects the phone app to the same server.
@@ -119,7 +123,7 @@ to your server by its address, and both have "Try the demo" for a look without o
 
 A Go server (net/http, pgx, the MCP Go SDK) with the Svelte 5 web UI embedded in its binary, a Python library with
 no required dependencies, a SwiftUI app and a Compose Android app. `make server` builds it, `make test` runs the Go and Python tests
-against a PostgreSQL in Docker.
+against a PostgreSQL in Docker, and `docker compose up -d --build` runs your checkout instead of the release.
 
 [Run the server](docs/server.md) ·
 [Log runs](docs/logging.md) ·

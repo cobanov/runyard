@@ -59,7 +59,9 @@ Reads are `GET` under `/api/v1`: `projects`, `runs?project=&status=&tag=&q=&limi
 (`q`: part of a name or tag; `before`: the `started_at` of the last run you have, for the next page; `sort=ended`:
 newest end first; `metrics=1`: each run's last, min and max per metric), `runs/{id}` (also an id prefix or
 name; it carries `env`, what the run started as, and `progress_at`, its last metric or output line),
-`runs/{id}/metrics?keys=&points=`, `runs/{id}/logs?after=&before=&tail`, `runs/{id}/media?key=&kind=&step=`,
+`runs/{id}/metrics?keys=&points=` (per metric `step`, `last`, `min`, `max` and `t`, the unix time of each point),
+`runs/{id}/logs?after=&before=&tail`, `runs/{id}/media?key=&kind=&step=` (an image's `url` takes `?w=320|640|1280`
+for a smaller JPEG),
 `runs/{id}/artifacts`, `artifacts/{id}/file`, `alerts?run=&project=&active` (active: not dismissed), `hosts`,
 `hosts/{name}/history?hours=`, `agents?project=&hours=` and `events` (server-sent events, one line per change). Writes need
 `Authorization: Bearer <key>`: `POST runs`, `PATCH runs/{id}`, `POST hosts/{name}` (the beacon), `POST agents/events?tool=` (agent hooks), and `POST` of

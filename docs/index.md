@@ -7,12 +7,12 @@ lets agents read everything over MCP and a `--json` CLI. Far fewer features than
 ## Five minutes
 
 ```sh
-git clone https://github.com/cobanov/runyard && cd runyard
-docker compose up -d --build                                    # http://localhost:8080
-docker compose exec app /runyard-server key create my-laptop     # prints an API key (ry_...)
+curl -O https://raw.githubusercontent.com/cobanov/runyard/main/docker-compose.yml
+docker compose up -d                                             # http://localhost:8080
 ```
 
-Or make the key on the web UI's Settings page (as an admin, with `RUNYARD_AUTH` on), which shows these commands.
+Open it and go to Settings: a fresh server offers to make its first API key and shows the commands below with it
+filled in. `docker compose exec app /runyard-server key create my-laptop` does the same from a shell.
 
 ```sh
 pip install "runyard[images,system]"

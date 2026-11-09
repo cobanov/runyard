@@ -31,3 +31,15 @@ jobs:
       - name: python
         working-directory: sdk/python
         run: pip install -e '.[dev]' && pytest -q
+
+  # The Android app's unit tests: what its screens derive from the API, and what it notifies about.
+  # shortcut: the iOS tests are not here; they need the Xcode the project targets, which hosted runners may not have.
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - name: unit tests
+        working-directory: android
+        run: ./gradlew --no-daemon testDebugUnitTest

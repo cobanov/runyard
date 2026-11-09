@@ -36,8 +36,11 @@ is deleted. With `RUNYARD_AUTH` on, a device gets only the runs its user may see
 
 ## Checks
 
-Checks raise alerts from the data itself, once per run, through the channels that listen to `alert`. One is built
-in: any `*loss*` metric going NaN or ±Inf. Add your own per project:
+Checks raise alerts from the data itself, once per run, through the channels that listen to `alert`. Two are built
+in: any `*loss*` metric going NaN or ±Inf, and a run whose heartbeats arrive but that has logged no metric and no
+output line for an hour (`stall 60m`; `check rm` takes it out, and runs logged through MLflow are left to a stall
+check of their own project). The web UI and the apps mark such a run after ten minutes already. Add your own per
+project:
 
 ```sh
 runyard-server check add -project sft -after 100 above train/loss 10   # diverged, after warmup
