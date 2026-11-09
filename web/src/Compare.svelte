@@ -179,7 +179,7 @@
   }
   .samples img {
     display: inline-block;
-    width: min(220px, 100%);
+    width: min(220px, 36vw);
     border-radius: var(--radius-sm);
     margin: 0 4px 4px 0;
   }

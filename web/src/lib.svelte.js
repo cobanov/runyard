@@ -209,6 +209,15 @@ export function flatten(obj, prefix = '', out = {}) {
 export const store = $state({ projects: null })
 export const loadProjects = throttle(() => get('/projects').then((p) => void (store.projects = p)).catch(() => {}))
 
+// progressOf is how far a run is, 0 to 1, or null when its config names no total: what progressText says, as a bar.
+export const progressOf = (run, now) => {
+  const pct = progressText(run, now).match(/(\d+)%/)
+  return pct ? pct[1] / 100 : null
+}
+
+// byInterest orders metric names for reading: losses first (the shortest name leads), then the rest by name.
+export const byInterest = (a, b) => /loss/i.test(b) - /loss/i.test(a) || (/loss/i.test(a) ? a.length - b.length : 0) || a.localeCompare(b)
+
 // mainMetric picks the key to show for a run at a glance: a loss if there is one, else the most logged non-sys key.
 export function mainMetric(metrics) {
   const keys = Object.keys(metrics || {}).filter((k) => !k.startsWith('sys/'))

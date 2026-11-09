@@ -1,5 +1,5 @@
 <script>
-  import { get, send, why, onEvent, throttle, runTime, ago, duration, live, plotValue, fmt, flatten, progressText, title, stuck, chartView as view, seriesLine, memo } from './lib.svelte.js'
+  import { get, send, why, onEvent, throttle, runTime, ago, duration, live, plotValue, fmt, flatten, progressText, progressOf, byInterest, title, stuck, chartView as view, seriesLine, memo } from './lib.svelte.js'
   import Chart from './Chart.svelte'
   import Samples from './Samples.svelte'
   import Logs from './Logs.svelte'
@@ -17,7 +17,7 @@
   const loadRun = throttle(() => get('/runs/' + id).then((r) => ((run = r), (error = ''), title(`${r.name} · ${r.status}`))).catch((e) => (error = e.message)))
   // The run's summary names its metrics, so only the open tab's series are asked for.
   const metricKeys = $derived(Object.keys(run?.metrics || {}).sort())
-  const trainKeys = $derived(metricKeys.filter((k) => !k.startsWith('sys/')))
+  const trainKeys = $derived(metricKeys.filter((k) => !k.startsWith('sys/')).sort(byInterest)) // the loss leads
   const sysKeys = $derived(metricKeys.filter((k) => k.startsWith('sys/')))
   const wanted = $derived((tab === 'charts' ? trainKeys : tab === 'system' ? sysKeys : []).join(','))
   const loadMetrics = throttle(() => {
@@ -120,6 +120,9 @@
       {#if run.host}<div><dt>Host</dt><dd><a href="#/machines">{run.host}</a></dd></div>{/if}
       {#if run.git?.commit}<div><dt>Git</dt><dd>{run.git.branch} {run.git.commit.slice(0, 8)}{run.git.dirty ? ', uncommitted changes' : ''}</dd></div>{/if}
     </dl>
+    {#if run.status !== 'finished' && progressOf(run, live.now) != null}
+      <div class="progress" role="progressbar" aria-valuenow={Math.round(progressOf(run, live.now) * 100)} aria-valuemin="0" aria-valuemax="100"><i style="width: {progressOf(run, live.now) * 100}%"></i></div>
+    {/if}
     {#if editing}
       <form class="edit" onsubmit={save}>
         <label class="small">Tags, separated by commas <input class="field" bind:value={editing.tags} placeholder="baseline, lr-sweep" /></label>
@@ -249,6 +252,18 @@
     margin: 0;
     font-weight: 500;
     overflow-wrap: anywhere;
+  }
+  .progress {
+    height: 4px;
+    margin-top: 12px;
+    border-radius: 2px;
+    background: var(--soft);
+    overflow: hidden;
+  }
+  .progress i {
+    display: block;
+    height: 100%;
+    background: var(--state, var(--muted));
   }
   .tags {
     margin: 10px 0 0;

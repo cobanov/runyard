@@ -43,7 +43,6 @@
   const value = {
     status: (r) => r.status,
     run: (r) => r.name,
-    duration: (r) => (r.ended_at ? new Date(r.ended_at) : live.now) - new Date(r.started_at),
     started: (r) => -new Date(r.started_at), // ascending reads as the column does: fewest minutes ago first
   }
   const by = (key) => (sort = { key, dir: sort?.key === key ? -sort.dir : 1 })
@@ -95,16 +94,18 @@
 <p class="crumb"><a href="#/projects">Projects</a> /</p>
 <div class="page-head">
   <h1>{project}</h1>
-  <div class="tools">
-    <input class="field" type="search" bind:value={query} placeholder="Search runs" aria-label="Search runs by name or tag" />
-    <div class="filters" role="group" aria-label="Show runs by status">
-      {#each filters as f}
-        <button aria-pressed={status === f} onclick={() => (status = f)}>{f || 'All'}</button>
-      {/each}
-    </div>
+  <span class="muted small">{total === 1 ? '1 run' : `${fmt(total)} runs`}</span>
+</div>
+<div class="tools">
+  <input class="field" type="search" bind:value={query} placeholder="Search runs by name or tag" aria-label="Search runs by name or tag" />
+  <div class="filters" role="group" aria-label="Show runs by status">
+    {#each filters as f}
+      <button aria-pressed={status === f} onclick={() => (status = f)}>{f || 'All'}</button>
+    {/each}
   </div>
 </div>
 
+{#snippet judged()}
 {#if keys.length}
   <p class="judge muted small">
     <label for="judge-metric">Judged by</label>
@@ -119,6 +120,7 @@
     {#if metricFailed}<span><span class="danger">Failed.</span> {metricFailed}</span>{/if}
   </p>
 {/if}
+{/snippet}
 
 {#snippet head(key, label, cls = '')}
   <th class={cls} aria-sort={aria(key)}>
@@ -138,8 +140,6 @@
           <th class="pick"><span class="sr">Compare</span></th>
           {@render head('status', 'Status', 'st')}
           {@render head('run', 'Run', 'name')}
-          {@render head('duration', 'Duration')}
-          <th>Progress</th>
           {@render head('started', 'Started')}
           <th>Tags</th>
           {#each cols as c}{@render head('m:' + c, c, 'num')}{/each}
@@ -148,15 +148,18 @@
       <tbody>
         {#each shown as r (r.id)}
           {@const m = r.metrics}
+          {@const prog = r.status !== 'finished' && progressText(r, live.now).split(' · ').slice(1).join(' · ')}
           <tr class="status-{r.status}">
             <td class="pick"><input type="checkbox" bind:group={picked} value={r.id} aria-label="Compare {r.name}" /></td>
-            <td class="st"><span class="badge">{r.status}</span>{#if stuck(r, live.now)}<span class="small quiet" title="No metric and no output line since then">no output {duration(stuck(r, live.now))}</span>{/if}</td>
+            <td class="st">
+              <span class="badge">{r.status}</span>
+              {#if stuck(r, live.now)}<span class="small quiet" title="No metric and no output line since then">no output {duration(stuck(r, live.now))}</span>
+              {:else if prog}<span class="small muted sub">{r.status === 'running' ? '' : 'at '}{prog}</span>{/if}
+            </td>
             <td class="name"><a href="#/r/{r.id}">{r.name}</a>{#if r.host}<span class="muted small host">{r.host}</span>{/if}</td>
-            <td>{runTime(r, live.now)}</td>
-            <td class="muted">{(r.status !== 'finished' && progressText(r, live.now).split(' · ').slice(1).join(' · ')) || '–'}</td>
-            <td class="muted" title={new Date(r.started_at).toLocaleString()}>{ago(r.started_at, live.now)}</td>
-            <td>{#each r.tags as t}<span class="tag">{t}</span>{/each}</td>
-            {#each cols as c}<td class="num">{#if m?.[c]}{fmt(m[c].last)}{:else}<span class="muted">–</span>{/if}</td>{/each}
+            <td class="when" title={new Date(r.started_at).toLocaleString()}>{ago(r.started_at, live.now)}<span class="small muted sub">{r.status === 'running' ? 'for' : 'ran'} {runTime(r, live.now)}</span></td>
+            <td class="tags">{#each r.tags as t}<span class="tag">{t}</span>{/each}</td>
+            {#each cols as c, i}<td class="num" class:lead={i === 0} data-k={c}>{#if m?.[c]}{fmt(m[c].last)}{:else}<span class="muted">–</span>{/if}</td>{/each}
           </tr>
         {/each}
       </tbody>
@@ -168,6 +171,8 @@
     <p class="more muted small">The newest 1,000 of {total} runs. Search looks through all of them.</p>
   {/if}
 {/if}
+
+{@render judged()}
 
 <div class="remove">
   {#if confirming}
@@ -203,12 +208,15 @@
     display: block;
     color: var(--crashed);
   }
+  .sub {
+    display: block;
+  }
   .judge {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    margin: -8px 0 16px;
+    margin: 14px 0 0;
   }
   .judge .field {
     height: 32px;
@@ -217,7 +225,8 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 8px 12px;
+    margin: 0 0 14px;
   }
   .tools input {
     flex: 1 1 200px;
@@ -228,44 +237,95 @@
     flex-wrap: wrap;
   }
   /* The compare box, status and name stay put while wide metric columns scroll under them. */
-  .pick,
-  .st,
-  .name {
-    position: sticky;
-    z-index: 1;
-    background: var(--panel);
-  }
-  tr:hover > td:is(.pick, .st, .name) {
-    background: var(--soft);
-  }
-  .pick {
-    left: 0;
-    width: 30px;
-    min-width: 30px;
-    padding-right: 0;
-  }
-  .st {
-    left: 30px;
-    width: 108px;
-    min-width: 108px;
-  }
-  .name {
-    left: 138px;
-  }
-  /* A phone has no room for three pinned columns: only the name stays, shortened. */
-  @media (max-width: 767px) {
+  @media (min-width: 640px) {
     .pick,
+    .st,
+    .name {
+      position: sticky;
+      z-index: 1;
+      background: var(--panel);
+    }
+    tr:hover > td:is(.pick, .st, .name) {
+      background: var(--soft);
+    }
+    .pick {
+      left: 0;
+      width: 30px;
+      min-width: 30px;
+      padding-right: 0;
+    }
     .st {
-      position: static;
+      left: 30px;
+      width: 108px;
+      min-width: 108px;
     }
     .name {
-      left: 0;
+      left: 138px;
     }
-    .name > * {
+  }
+  /* A phone has no room for a table: each run becomes a few lines. Name and state on the first, when it ran and
+     the leading metric on the second, tags under them. */
+  @media (max-width: 639px) {
+    thead {
+      display: none;
+    }
+    tbody tr {
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr) auto;
+      gap: 2px 10px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--rule);
+    }
+    tbody tr:last-child {
+      border-bottom: 0;
+    }
+    tbody td {
+      position: static;
       display: block;
-      max-width: 40vw;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      width: auto;
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      background: none;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+    td.pick {
+      grid-row: 1 / span 3;
+      padding-top: 3px;
+    }
+    td.name {
+      grid-area: 1 / 2;
+    }
+    td.st {
+      grid-area: 1 / 3;
+      text-align: right;
+    }
+    td.when {
+      grid-area: 2 / 2;
+      color: var(--muted);
+      font-size: 0.8125rem;
+    }
+    td.when .sub {
+      display: inline;
+      margin-left: 6px;
+    }
+    td.tags {
+      grid-area: 3 / 2 / auto / span 2;
+    }
+    td.num {
+      display: none;
+    }
+    td.num.lead {
+      display: block;
+      grid-area: 2 / 3;
+      font-weight: 600;
+    }
+    td.num.lead::after {
+      content: ' ' attr(data-k);
+      color: var(--muted);
+      font-weight: 400;
+      font-size: 0.8125rem;
     }
   }
   .sort {

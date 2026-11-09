@@ -1,9 +1,10 @@
 <script>
-  import { get, send, onEvent, throttle, ago, runTime, duration, live, fmt, plotValue, mainMetric, sysLoad, progressText, stuck, store } from './lib.svelte.js'
+  import { get, send, onEvent, throttle, ago, runTime, duration, live, fmt, plotValue, mainMetric, sysLoad, progressText, progressOf, stuck, store, thumb } from './lib.svelte.js'
   import Sparkline from './Sparkline.svelte'
 
   let running = $state(null) // full runs, with their metric summaries
   let spark = $state({}) // run id -> last values of its main metric
+  let latest = $state({}) // run id -> its newest sample images, two at most
   // null until the first answer: "No alerts" is a statement, and must not show while nothing is known yet
   let recent = $state(null)
   let alerts = $state(null)
@@ -14,23 +15,29 @@
     try {
       const full = await get('/runs?status=running&limit=50&metrics=1')
       const sp = {}
+      const im = {}
       await Promise.all(
-        full.map(async (r) => {
-          const k = mainMetric(r.metrics)
-          if (!k) return
-          const s = await get(`/runs/${r.id}/metrics?points=40&keys=${encodeURIComponent(k)}`)
-          sp[r.id] = s[k]?.last.map(plotValue) || []
-        }),
+        full.flatMap((r) => [
+          (async () => {
+            const k = mainMetric(r.metrics)
+            if (!k) return
+            const s = await get(`/runs/${r.id}/metrics?points=40&keys=${encodeURIComponent(k)}`)
+            sp[r.id] = s[k]?.last.map(plotValue) || []
+          })(),
+          // For an image model the newest samples say more than the number does.
+          get(`/runs/${r.id}/media?kind=image&latest`).then((m) => (im[r.id] = m.filter((x) => !x.url.endsWith('.gif')).slice(-2))).catch(() => {}),
+        ]),
       )
       running = full
       spark = sp
+      latest = im
       error = ''
     } catch (e) {
       error = e.message
     }
   }, 4000)
   // By end, so a five-day run that just ended is first; running runs sort last and are left out.
-  const loadRecent = throttle(() => get('/runs?limit=8&sort=ended').then((r) => (recent = r.filter((x) => x.status !== 'running'))).catch(() => {}))
+  const loadRecent = throttle(() => get('/runs?limit=8&sort=ended&metrics=1').then((r) => (recent = r.filter((x) => x.status !== 'running'))).catch(() => {}))
   const loadAlerts = throttle(() => get('/alerts?limit=5&active').then((a) => (alerts = a)).catch(() => {}))
   const loadMachines = throttle(() => get('/hosts').then((h) => (machines = h)).catch(() => {}), 5000)
   const dismissAll = () => send('POST', '/alerts/dismiss', {}).then(loadAlerts)
@@ -77,26 +84,39 @@
   <div class="cards">
     {#each running as r (r.id)}
       {@const k = mainMetric(r.metrics)}
+      {@const done = progressOf(r, live.now)}
       <a href="#/r/{r.id}" class="card run status-{r.status}">
         <div class="who">
           <span class="muted small">{r.project}</span>
           {#if stuck(r, live.now)}<span class="badge status-crashed" title="No metric and no output line since then; the heartbeat still arrives">no output {duration(stuck(r, live.now))}</span>{:else}<span class="badge">{r.status}</span>{/if}
         </div>
         <span class="name">{r.name}</span>
-        {#if k}
-          <div class="metric">
-            <span class="value">{fmt(r.metrics[k].last)}</span>
-            <span class="muted small">{k} at step {fmt(r.metrics[k].step)}</span>
+        <div class="body">
+          <div class="reading">
+            {#if k}
+              <div class="metric">
+                <span class="value">{fmt(r.metrics[k].last)}</span>
+                <span class="muted small">{k}</span>
+              </div>
+              <Sparkline values={spark[r.id] || []} color="--c2" />
+            {:else}
+              <p class="muted small nometric">No metrics logged yet.</p>
+            {/if}
           </div>
-          <Sparkline values={spark[r.id] || []} color="--c2" />
-        {:else}
-          <p class="muted small nometric">No metrics logged yet.</p>
+          {#if latest[r.id]?.length}
+            <div class="shots">
+              {#each latest[r.id] as m (m.id)}<img src={thumb(m.url, 320)} alt={m.meta.caption || m.key} title="{m.key}, step {m.step}" loading="lazy" />{/each}
+            </div>
+          {/if}
+        </div>
+        {#if done != null}
+          <div class="progress" role="progressbar" aria-valuenow={Math.round(done * 100)} aria-valuemin="0" aria-valuemax="100"><i style="width: {done * 100}%"></i></div>
+          <div class="ends muted small"><span>{progressText(r, live.now).split(' · ').slice(0, 2).join(' · ')}</span><span>{progressText(r, live.now).split(' · ')[2] || ''}</span></div>
         {/if}
         <div class="meta muted small">
           <span>{runTime(r, live.now)}</span>
-          {#if progressText(r, live.now)}<span>{progressText(r, live.now).split(' · ').slice(1).join(' · ')}</span>{/if}
-          <span>heartbeat {ago(r.last_heartbeat_at, live.now)}</span>
           {#if r.host}<span>{r.host}</span>{/if}
+          <span>heartbeat {ago(r.last_heartbeat_at, live.now)}</span>
         </div>
       </a>
     {/each}
@@ -147,11 +167,15 @@
     {:else if recent}
       <ul class="card row-list">
         {#each recent as r (r.id)}
+          {@const k = mainMetric(r.metrics)}
           <li class="status-{r.status}">
             <a href="#/r/{r.id}" class="line">
-              <span class="badge" title={r.status}></span>
-              <span class="grow"><span class="name">{r.name}</span> <span class="muted small">{r.project}</span></span>
-              <span class="muted small">{runTime(r, live.now)}, {ago(r.ended_at || r.started_at, live.now)}</span>
+              <span class="pip status-{r.status}" aria-hidden="true"></span>
+              <span class="grow">
+                <span class="name">{r.name}</span>
+                <span class="muted small">{#if r.status !== 'finished'}<span class="how">{r.status}</span>{' · '}{/if}{r.project} · {ago(r.ended_at || r.started_at, live.now)}</span>
+              </span>
+              {#if k}<span class="last"><b>{fmt(r.metrics[k].last)}</b><span class="muted small">{k}</span></span>{/if}
             </a>
           </li>
         {/each}
@@ -181,8 +205,62 @@
 <style>
   .cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
     gap: 14px;
+  }
+  /* The number and its curve on the left, the newest samples on the right, at the same height. */
+  .body {
+    display: flex;
+    gap: 14px;
+    align-items: stretch;
+    margin-top: 8px;
+  }
+  .reading {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .shots {
+    display: flex;
+    gap: 6px;
+  }
+  .shots img {
+    width: 84px;
+    height: 84px;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+    background: var(--soft);
+  }
+  .progress {
+    height: 4px;
+    margin-top: 12px;
+    border-radius: 2px;
+    background: var(--soft);
+    overflow: hidden;
+  }
+  .progress i {
+    display: block;
+    height: 100%;
+    background: var(--state, var(--muted));
+  }
+  .ends {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 6px;
+  }
+  .how {
+    color: var(--state);
+    font-weight: 500;
+  }
+  .last {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    line-height: 1.25;
   }
   .run {
     display: flex;
@@ -207,7 +285,6 @@
   .metric {
     display: flex;
     flex-direction: column;
-    margin-top: 8px;
   }
   .value {
     font-size: 1.75rem;
@@ -299,9 +376,7 @@
     flex: 1;
     min-width: 0;
     display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0 6px;
+    flex-direction: column;
     overflow-wrap: anywhere;
   }
   .level-warn .name {

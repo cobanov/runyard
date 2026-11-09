@@ -59,7 +59,21 @@ Rules: one accent is state colour, nothing else is coloured. No gradients, no gl
 - Overview lists show 3–8 rows with a "View all" link and no pagination.
 - A missing value is a grey dash, never an empty cell or a full-size "–".
 
+## What a run looks like at a glance
+
+- A running run's card reads top to bottom: project and state, name, the main metric's value at KPI size with
+  its curve, the newest sample images at the right at the same height, a 4px progress bar in the state colour
+  with "step N / M · P%" and the time left under it, then elapsed time, host and heartbeat in muted.
+- Where there is a total, progress is a bar as well as a sentence; a finished run shows the sentence only.
+- A list row says how a run ended only when it did not finish: the word in its state colour, then project and age.
+- Samples of every key move on one scrubber, side by side, so each prompt is seen at the same step; the caption
+  under an image is its key and its prompt, never the step again.
+- Below 640px a table of runs is a list: name and state on one line, when it ran and the leading metric on the
+  next, tags under them. Nothing scrolls sideways on a phone.
+
 ## Charts
+
+- The loss leads: charts are ordered losses first, then by name.
 
 - One hue per chart; multi-run comparisons use `--c1`…`--c6` in order with a dot legend, five entries at most.
 - Line 1.5px, straight segments, no point markers. The min–max band of a bucketed series is the line colour at 14%.

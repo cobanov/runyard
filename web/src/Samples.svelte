@@ -22,6 +22,18 @@
     return g
   })
 
+  // Images and videos of every key move together: one scrubber over all the steps any of them was logged at, so
+  // every prompt is seen at the same moment of the training. A key that skipped a step shows its last one before it.
+  const visual = $derived(Object.entries(groups).filter(([, g]) => g.kind !== 'text'))
+  const texts = $derived(Object.entries(groups).filter(([, g]) => g.kind === 'text'))
+  const steps = $derived([...new Set(visual.flatMap(([, g]) => g.steps))].sort((a, b) => a - b))
+  let at = $state(null) // index into steps; null follows the newest
+  const idx = $derived(Math.min(at ?? Infinity, steps.length - 1))
+  const step = $derived(steps[idx])
+  const jump = (i) => (at = i >= steps.length - 1 ? null : Math.max(0, i))
+  const move = (d) => jump(idx + d)
+  const shown = (g) => g.at[g.steps.findLast((x) => x <= step)] || []
+
   function stepOf(key) {
     const g = groups[key]
     return g.steps[pick[key] ?? g.steps.length - 1]
@@ -34,18 +46,18 @@
   // The viewer follows one image through the steps: left and right move in time and keep its place in the step
   // (the same prompt), up and down move to the step's other images.
   let dialog
-  let at = $state(null) // {key, s: index into steps, i: index within the step}
-  const imagesAt = (s) => (at ? (groups[at.key].at[groups[at.key].steps[s]] || []).filter(isImage) : [])
-  const list = $derived(at ? imagesAt(at.s) : [])
-  const cur = $derived(list[Math.min(at?.i ?? 0, list.length - 1)])
-  const count = $derived(at ? groups[at.key].steps.length : 0)
+  let view = $state(null) // {key, s: index into steps, i: index within the step}
+  const imagesAt = (s) => (view ? (groups[view.key].at[groups[view.key].steps[s]] || []).filter(isImage) : [])
+  const list = $derived(view ? imagesAt(view.s) : [])
+  const cur = $derived(list[Math.min(view?.i ?? 0, list.length - 1)])
+  const count = $derived(view ? groups[view.key].steps.length : 0)
   function show(key, m) {
     const g = groups[key]
-    at = { key, s: g.steps.indexOf(m.step), i: g.at[m.step].filter(isImage).findIndex((x) => x.id === m.id) }
+    view = { key, s: g.steps.indexOf(m.step), i: g.at[m.step].filter(isImage).findIndex((x) => x.id === m.id) }
     dialog.showModal()
   }
-  const go = (d) => at && imagesAt(at.s + d).length && (at.s += d)
-  const within = (d) => at && list[at.i + d] && (at.i += d)
+  const go = (d) => view && imagesAt(view.s + d).length && (view.s += d)
+  const within = (d) => view && list[view.i + d] && (view.i += d)
   const keys = (e) =>
     e.key === 'ArrowLeft' ? go(-1) : e.key === 'ArrowRight' ? go(1) : e.key === 'ArrowUp' ? within(-1) : e.key === 'ArrowDown' && within(1)
 </script>
@@ -53,7 +65,34 @@
 {#if media?.length === 0}
   <p class="empty">No samples yet. Log them with <code>run.image()</code>, <code>run.video()</code> or <code>run.text()</code>.</p>
 {/if}
-{#each Object.entries(groups) as [key, g] (key)}
+{#if steps.length}
+  <div class="scrub">
+    <button onclick={() => move(-1)} disabled={idx === 0} aria-label="Earlier step">←</button>
+    <input type="range" min="0" max={steps.length - 1} value={idx} oninput={(e) => jump(+e.target.value)} disabled={steps.length < 2} aria-label="Step of the samples" />
+    <button onclick={() => move(1)} disabled={idx === steps.length - 1} aria-label="Later step">→</button>
+    <span class="where small"><b>step {step.toLocaleString('en-US')}</b> <span class="muted">{idx + 1} of {steps.length}</span></span>
+  </div>
+  <div class="gallery">
+    {#each visual as [key, g] (key)}
+      {#each shown(g) as m (m.id)}
+        <figure>
+          {#if !isImage(m)}
+            <video src={m.url} controls loop muted playsinline></video>
+          {:else}
+            <button class="thumb" onclick={() => show(key, m)} aria-label="View {m.meta.caption || key} large"
+              ><img src={thumb(m.url)} alt={m.meta.caption || key} loading="lazy" onload={crisp} /></button
+            >
+          {/if}
+          <figcaption class="small">
+            <span class="key">{key}</span>{#if m.step !== step}<span class="muted"> from step {m.step.toLocaleString('en-US')}</span>{/if}
+            {#if m.meta.caption}<span class="muted cap">{m.meta.caption}</span>{/if}
+          </figcaption>
+        </figure>
+      {/each}
+    {/each}
+  </div>
+{/if}
+{#each texts as [key, g] (key)}
   {@const step = stepOf(key)}
   <section>
     <div class="bar">
@@ -70,42 +109,25 @@
         aria-label="Step for {key}"
       />
     {/if}
-    {#if g.kind === 'text'}
-      {#each g.at[step] as m (m.id)}
-        <TextTable url={m.url} />
-      {/each}
-    {:else}
-      <div class="gallery">
-        {#each g.at[step] as m (m.id)}
-          <figure>
-            {#if !isImage(m)}
-              <video src={m.url} controls loop muted playsinline></video>
-            {:else}
-              <button class="thumb" onclick={() => show(key, m)} aria-label="View {m.meta.caption || key} large"
-                ><img src={thumb(m.url)} alt={m.meta.caption || key} loading="lazy" onload={crisp} /></button
-              >
-            {/if}
-            {#if m.meta.caption}<figcaption class="small muted">{m.meta.caption}</figcaption>{/if}
-          </figure>
-        {/each}
-      </div>
-    {/if}
+    {#each g.at[step] as m (m.id)}
+      <TextTable url={m.url} />
+    {/each}
   </section>
 {/each}
 
-<dialog bind:this={dialog} aria-label="Sample viewer" onclose={() => (at = null)} onclick={(e) => e.target === dialog && dialog.close()} onkeydown={keys}>
+<dialog bind:this={dialog} aria-label="Sample viewer" onclose={() => (view = null)} onclick={(e) => e.target === dialog && dialog.close()} onkeydown={keys}>
   {#if cur}
     <img src={cur.url} alt={cur.meta.caption || cur.key} onload={crisp} />
     <div class="info">
       <div>
         <strong>{cur.key}</strong>
-        <span class="muted">step {cur.step.toLocaleString('en-US')}, {at.s + 1} of {count}{list.length > 1 ? `, image ${Math.min(at.i, list.length - 1) + 1} of ${list.length} (↑ ↓)` : ''}</span>
+        <span class="muted">step {cur.step.toLocaleString('en-US')}, {view.s + 1} of {count}{list.length > 1 ? `, image ${Math.min(view.i, list.length - 1) + 1} of ${list.length} (↑ ↓)` : ''}</span>
         {#if cur.meta.caption}<p class="small muted">{cur.meta.caption}</p>{/if}
       </div>
       <div class="nav">
         <a class="small" href={cur.url} target="_blank" rel="noopener">Open original</a>
-        <button onclick={() => go(-1)} disabled={!at.s} aria-label="Earlier step">←</button>
-        <button onclick={() => go(1)} disabled={at.s === count - 1} aria-label="Later step">→</button>
+        <button onclick={() => go(-1)} disabled={!view.s} aria-label="Earlier step">←</button>
+        <button onclick={() => go(1)} disabled={view.s === count - 1} aria-label="Later step">→</button>
         <button onclick={() => dialog.close()}>Close</button>
       </div>
     </div>
@@ -127,10 +149,47 @@
     margin: 4px 0 12px;
     accent-color: var(--ink);
   }
+  /* The scrubber stays in reach while the images scroll under it. */
+  .scrub {
+    position: sticky;
+    top: var(--bar, 0px);
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 14px;
+    padding: 8px 0;
+    background: var(--paper);
+  }
+  @media (max-width: 767px) {
+    .scrub {
+      top: 48px; /* under the top bar */
+    }
+  }
+  .scrub input {
+    flex: 1 1 200px;
+    margin: 0;
+  }
+  .scrub button {
+    width: 32px;
+    padding: 0;
+  }
+  .where {
+    min-width: 13ch;
+    font-variant-numeric: tabular-nums;
+  }
   .gallery {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(min(50% - 7px, 240px), 1fr)); /* two across on a phone */
+    gap: 16px 14px;
+    margin-bottom: 28px;
+  }
+  .key {
+    font-family: var(--mono);
+  }
+  .cap {
+    display: block;
   }
   figure {
     margin: 0;
