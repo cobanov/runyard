@@ -228,6 +228,20 @@ func TestTeams(t *testing.T) {
 		t.Fatalf("alice's channel also got %q", title)
 	case <-time.After(300 * time.Millisecond):
 	}
+
+	// A run of her own named like the hidden run's id, and that id in capitals: the guard used to find her run by
+	// name while the handler read the hidden one by id.
+	call(t, "POST", api+"/runs/"+nlp+"/logs", root, []map[string]any{{"seq": 1, "line": "secret"}}, nil)
+	upper := strings.ToUpper(nlp)
+	call(t, "POST", api+"/runs", alice, map[string]any{"project": "shared", "name": upper}, nil)
+	for _, u := range []string{"/logs", "/metrics", "/media", "/artifacts"} {
+		if code := call(t, "GET", api+"/runs/"+upper+u, alice, nil, nil); code != 404 {
+			t.Fatalf("GET %s of a hidden run by its id in capitals: %d", u, code)
+		}
+	}
+	if code := call(t, "PATCH", api+"/runs/"+upper, alice, map[string]any{"status": "failed"}, nil); code != 404 {
+		t.Fatalf("patching a hidden run by its id in capitals: %d", code)
+	}
 }
 
 func must[T any](v T, err error) T {

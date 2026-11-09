@@ -105,7 +105,11 @@ func (s *srv) guard(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), principalKey{}, p)
 		r = r.WithContext(ctx)
 		if p.teams != nil {
-			if run := pathRun(path); run != "" && !s.canSee(ctx, run) {
+			// Only GET /api/v1/runs/<ref> takes a prefix or a name. Everywhere else the handler reads the path as an
+			// id, so a ref that is not exactly one must not be resolved here: the two would name different runs.
+			run := pathRun(path)
+			byName := r.Method == http.MethodGet && path == "/api/v1/runs/"+run
+			if run != "" && (!(byName || uuidRe.MatchString(run)) || !s.canSee(ctx, run)) {
 				httpError(w, http.StatusNotFound, "no run "+run)
 				return
 			}
@@ -198,6 +202,7 @@ func (s *srv) authRoutes(mux *http.ServeMux) {
 	// shortcut: no rate limit on logins beyond PBKDF2's cost (~0.2 s each); put one in front if the server is public.
 	mux.HandleFunc("POST /api/v1/login", func(w http.ResponseWriter, r *http.Request) {
 		var in struct{ Name, Password string }
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // open to anyone: no body to fill memory with
 		if err := decode(r, &in); err != nil {
 			s.fail(w, err)
 			return

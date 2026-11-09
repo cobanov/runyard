@@ -63,7 +63,7 @@ func (s *srv) routes() http.Handler {
 		if k := r.URL.Query().Get("keys"); k != "" {
 			keys = strings.Split(k, ",")
 		}
-		return getMetrics(r.Context(), s.db, r.PathValue("id"), keys, max(1, intParam(r, "points", 1000)))
+		return getMetrics(r.Context(), s.db, r.PathValue("id"), keys, min(max(1, intParam(r, "points", 1000)), 10000))
 	}))
 	mux.HandleFunc("GET /api/v1/runs/{id}/logs", s.read(func(r *http.Request) (any, error) {
 		tail := r.URL.Query().Has("tail")
@@ -132,12 +132,49 @@ func (s *srv) routes() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable") // media files never change
+		cache := "public"
+		if s.auth {
+			cache = "private" // a shared cache in front must not hand a team's samples to anyone with the URL
+		}
+		w.Header().Set("Cache-Control", cache+", max-age=31536000, immutable") // media files never change
+		inert(w)
 		s.store.serve(w, r, key)
 	})
 	static, _ := fs.Sub(webdist, "webdist/dist")
 	mux.Handle("/", http.FileServerFS(static))
-	return s.guard(mux)
+	return gzipped(s.guard(mux))
+}
+
+type gzipWriter struct {
+	http.ResponseWriter
+	gz *gzip.Writer
+}
+
+func (w gzipWriter) Write(b []byte) (int, error) { return w.gz.Write(b) }
+
+// gzipped compresses the JSON API and the web UI's files for clients that take it: a run page's chart data
+// shrinks about fivefold, which matters most to a phone. Streams and files that are already compressed pass through.
+func gzipped(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		api := strings.HasPrefix(p, "/api/v1/") && p != "/api/v1/events" && !strings.HasSuffix(p, "/file")
+		if !(api || strings.HasPrefix(p, "/assets/")) || !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") || r.Header.Get("Range") != "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Add("Vary", "Accept-Encoding")
+		gz, _ := gzip.NewWriterLevel(w, gzip.BestSpeed)
+		defer gz.Close()
+		next.ServeHTTP(gzipWriter{w, gz}, r)
+	})
+}
+
+// inert makes an uploaded file harmless to open in the browser: it comes from this origin, so an .svg or .html
+// "sample" would otherwise run its script with the viewer's session. Embedded images and videos are unaffected.
+func inert(w http.ResponseWriter) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "sandbox")
 }
 
 func intParam(r *http.Request, name string, def int) int {
@@ -201,7 +238,11 @@ func (s *srv) write(f func(*http.Request) (any, error)) http.HandlerFunc {
 			httpError(w, http.StatusUnauthorized, "missing or invalid API key")
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 4<<30)
+		limit := int64(64 << 20) // JSON: 5000 metric rows are about 1 MB
+		if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
+			limit = 4 << 30 // an uploaded checkpoint
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		v, err := f(r)
 		if err != nil {
 			s.fail(w, err)
@@ -245,8 +286,10 @@ func (s *srv) createRun(r *http.Request) (any, error) {
 	if in.Project == "" {
 		return nil, badRequest{errors.New("project is required")}
 	}
-	if in.ID == "" {
+	if in.ID = strings.ToLower(in.ID); in.ID == "" {
 		in.ID = newUUID()
+	} else if !uuidRe.MatchString(in.ID) {
+		return nil, badRequest{errors.New("id must be a UUID")}
 	}
 	if in.Name == "" {
 		in.Name = in.ID[:8]

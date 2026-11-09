@@ -190,7 +190,8 @@ func (s *srv) pushRoutes(mux *http.ServeMux) {
 		writeJSON(w, http.StatusOK, map[string]string{"key": vapidPublic()})
 	})
 	// Subscribing needs no API key, like reading: a subscriber gets told what it could already read.
-	mux.HandleFunc("POST /api/v1/push/subscribe", s.read(func(r *http.Request) (any, error) {
+	// Another site must not subscribe its own endpoint through a visitor's browser, hence curate's origin check.
+	mux.HandleFunc("POST /api/v1/push/subscribe", s.curate(func(r *http.Request) (any, error) {
 		var sub subscription
 		if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&sub); err != nil {
 			return nil, badRequest{err}
@@ -227,7 +228,7 @@ func (s *srv) pushRoutes(mux *http.ServeMux) {
 		}
 		return map[string]int64{"channel": id}, tx.Commit(r.Context())
 	}))
-	mux.HandleFunc("POST /api/v1/push/unsubscribe", s.read(func(r *http.Request) (any, error) {
+	mux.HandleFunc("POST /api/v1/push/unsubscribe", s.curate(func(r *http.Request) (any, error) {
 		var sub subscription
 		if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&sub); err != nil {
 			return nil, badRequest{err}

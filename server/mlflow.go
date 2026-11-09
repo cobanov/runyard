@@ -234,6 +234,7 @@ func (s *srv) mlflowRoutes(mux *http.ServeMux) {
 			mlError(w, notFound("artifact"))
 			return
 		}
+		inert(w)
 		s.store.serve(w, r, *key)
 	})
 	h("GET "+a, false, s.mlListArtifacts)
@@ -291,7 +292,7 @@ func mlError(w http.ResponseWriter, err error) {
 var bareNaN = regexp.MustCompile(`([:\[,]\s*)(-?Infinity|NaN)\b`)
 
 func mlDecode(r *http.Request, v any) error {
-	b, err := io.ReadAll(r.Body)
+	b, err := io.ReadAll(io.LimitReader(r.Body, 64<<20))
 	if err != nil {
 		return err
 	}

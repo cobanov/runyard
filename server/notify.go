@@ -70,7 +70,13 @@ func (s *srv) notify(runID, event string, a *Alert) {
 // deliver sends m to every channel, dropping the ones whose endpoint is gone for good.
 func (s *srv) deliver(ctx context.Context, chans []channel, m message) {
 	for _, c := range chans {
-		err := c.send(ctx, m)
+		one, cancel := context.WithTimeout(ctx, 15*time.Second) // a channel that hangs must not use up the others' time
+		err := c.send(one, m)
+		cancel()
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err // without the URL: it holds the Telegram bot token or the Slack webhook secret
+		}
 		if errors.Is(err, errGone) {
 			s.db.Exec(ctx, `DELETE FROM channels WHERE id = $1`, c.ID)
 		} else if err != nil {

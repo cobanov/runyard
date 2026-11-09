@@ -155,6 +155,14 @@ func TestWriteFlow(t *testing.T) {
 	if res, _ := http.Get(ts.URL + "/media/" + runID + "/"); res.StatusCode != 404 {
 		t.Fatalf("directory listing: %d", res.StatusCode)
 	}
+	// An uploaded "sample" that is really a script must not run with the viewer's session when opened.
+	var svg map[string]string
+	call(t, "POST", api+"/runs/"+runID+"/media", key, mediaForm(map[string]string{"key": "x", "step": "9", "kind": "text"}, "x.svg",
+		[]byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`)), &svg)
+	res, _ = http.Get(ts.URL + svg["url"])
+	if h := res.Header; h.Get("Content-Security-Policy") != "sandbox" || h.Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("an uploaded svg is served live: %v", h)
+	}
 
 	if code := call(t, "POST", api+"/runs/"+runID+"/heartbeat", key, nil, nil); code != 200 {
 		t.Fatalf("heartbeat: %d", code)
@@ -231,7 +239,10 @@ func TestAuthAndBadInput(t *testing.T) {
 		body         any
 		want         int
 	}{
-		{"POST", "/runs", map[string]any{}, 400}, // no project
+		{"POST", "/runs", map[string]any{}, 400},                            // no project
+		{"POST", "/runs", map[string]any{"project": "p", "id": "abc"}, 400}, // was a panic
+		{"POST", "/runs", map[string]any{"project": "p", "name": "ResNet50-A"}, 200},
+		{"GET", "/runs/ResNet50-A", nil, 200},                                                                         // a name keeps its capitals
 		{"POST", "/runs/" + id + "/metrics", []map[string]any{{"step": 1, "values": map[string]any{"x": true}}}, 400}, // not a number
 		{"POST", "/runs/" + newUUID() + "/metrics", []map[string]any{{"step": 1, "values": map[string]any{"x": 1}}}, 404},
 		{"POST", "/runs/" + newUUID() + "/heartbeat", nil, 404},
