@@ -3,7 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val appVersion = "0.4.0"
+val appVersion = "0.5.0"
 val versionParts = appVersion.split('.').map { it.toInt() }
 
 android {

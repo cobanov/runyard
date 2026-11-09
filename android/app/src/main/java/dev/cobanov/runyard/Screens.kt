@@ -4,7 +4,13 @@ package dev.cobanov.runyard
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.Drawable
+import android.net.Uri
 import android.text.format.DateUtils
+import android.widget.ImageView
+import android.widget.VideoView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -40,6 +46,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -69,6 +77,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,6 +105,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
@@ -205,7 +215,7 @@ fun Empty(title: String, text: String) {
     }
 }
 
-fun ago(t: Long): String = DateUtils.getRelativeTimeSpanString(t, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
+fun ago(t: Long): String = DateUtils.getRelativeTimeSpanString(t, serverNow(), DateUtils.MINUTE_IN_MILLIS).toString()
 fun clock(t: Long): String = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(t))
 fun plural(n: Int, word: String) = if (n == 1) "1 $word" else "$n ${word}s"
 
@@ -227,6 +237,25 @@ fun Failure(text: String?, onDismiss: () -> Unit) {
     )
 }
 
+/** The servers the app has connected to: tap one to go back to it as it was left, long-press to forget it. */
+@Composable
+fun ServerList(store: Store) {
+    var forgetting by remember { mutableStateOf<String?>(null) }
+    Panel(padding = 0) {
+        store.servers.forEachIndexed { i, s ->
+            if (i > 0) HorizontalDivider(color = T.rule)
+            Row(Modifier.fillMaxWidth().combinedClickable(onClick = { store.switch(s) }, onLongClick = { forgetting = s }).padding(horizontal = 12.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(s, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (s == store.server) Text("connected", fontSize = 12.sp, color = T.running, modifier = Modifier.padding(start = 8.dp))
+            }
+        }
+    }
+    forgetting?.let { s ->
+        DeleteDialog("Forget $s?", "Its address and your session there leave this phone. Nothing changes on the server.", "Forget", { forgetting = null }) { store.remove(s) }
+    }
+}
+
 // ---- home ----
 
 /** Home: the coding agents, then what is training now, each at a glance, the runs that just ended, then every project. */
@@ -242,13 +271,24 @@ fun HomeScreen(store: Store, open: (Route) -> Unit) {
     var deleting by remember { mutableStateOf<Project?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    // What the last look left on the device, for a launch without the server; the line on top says how old it is.
+    val kept = {
+        runCatching {
+            val (rs, at) = store.kept("/api/v1/runs?limit=20&metrics=1")!!
+            projects = parseProjects(store.kept("/api/v1/projects")!!.first)
+            agents = store.kept("/api/v1/agents?hours=24")?.let { parseAgents(it.first) }.orEmpty()
+            runs = parseRuns(rs); okAt = at; loaded = true
+        }
+    }
     val load: suspend () -> Unit = {
+        // The launch already found the server gone: show the kept screen now, not after this try times out too.
+        if (!loaded && store.loadError != null) { error = "Can't reach the server."; kept() }
         try {
             // Each part shows as it arrives; the sparklines, one request a run, come last and all at once.
             coroutineScope {
-                launch { agents = loadAgents(store::get, agents) }
-                val ps = async { parseProjects(store.get("/api/v1/projects")) }
-                val rs = parseRuns(store.get("/api/v1/runs?limit=20&metrics=1"))
+                launch { agents = loadAgents({ store.get(it, keep = true) }, agents) }
+                val ps = async { parseProjects(store.get("/api/v1/projects", keep = true)) }
+                val rs = parseRuns(store.get("/api/v1/runs?limit=20&metrics=1", keep = true))
                 if (!loaded) runs = rs
                 projects = ps.await()
                 // A run that outlived twenty newer ones is not among them: ask for the running ones by status.
@@ -267,6 +307,7 @@ fun HomeScreen(store: Store, open: (Route) -> Unit) {
             }
         } catch (e: Exception) {
             error = failure(e)
+            if (!loaded) kept()
         }
     }
     val running = runs.filter { it.running }
@@ -349,8 +390,8 @@ fun AgentCard(a: Agent, run: Run?, onClick: () -> Unit) {
 /** A running run on the home screen: enough to see how it is going without opening it. */
 @Composable
 fun LiveRunCard(run: Run, spark: List<Double>, stale: Boolean = false, onClick: () -> Unit) {
-    var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { delay(1000); now = System.currentTimeMillis() } }
+    var now by remember { mutableStateOf(serverNow()) }
+    LaunchedEffect(Unit) { while (true) { delay(1000); now = serverNow() } }
     val beat = remember { Animatable(1f) }
     LaunchedEffect(run.lastHeartbeatAt) { beat.animateTo(1.5f, tween(120)); beat.animateTo(1f, tween(240)) }
     val age = (now - (run.lastHeartbeatAt ?: run.startedAt)) / 1000.0
@@ -359,8 +400,9 @@ fun LiveRunCard(run: Run, spark: List<Double>, stale: Boolean = false, onClick: 
     val silent = !stale && age > 90
     Panel(Modifier.combinedClickable(onClick = onClick)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("♥", fontSize = 12.sp, color = if (silent) T.status("crashed") else T.status(run.status),
-                modifier = Modifier.graphicsLayer { scaleX = beat.value; scaleY = beat.value })
+            // Not the "♥" character: Android draws it as a red emoji whatever colour it is given.
+            Icon(Icons.Filled.Favorite, null, Modifier.size(12.dp).graphicsLayer { scaleX = beat.value; scaleY = beat.value },
+                tint = if (silent) T.status("crashed") else T.status(run.status))
             Text(run.name, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 8.dp).weight(1f))
             if (silent) Text(duration(age), fontSize = 12.sp, color = T.status("crashed"), style = Num, modifier = Modifier.padding(start = 8.dp))
@@ -470,23 +512,29 @@ fun ProjectRow(p: Project, onClick: () -> Unit, onLongClick: (() -> Unit)?) {
 fun RunsScreen(store: Store, project: String, open: (Route) -> Unit, back: () -> Unit) {
     var runs by remember { mutableStateOf(listOf<Run>()) }
     var loaded by remember { mutableStateOf(false) }
+    var okAt by remember { mutableStateOf(0L) }
     var error by remember { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<Run?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
+    var query by rememberSaveable { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val load: suspend () -> Unit = {
         try {
             runs = parseRuns(store.get("/api/v1/runs?project=${q(project)}&limit=200&metrics=1"))
-            loaded = true; error = null
-        } catch (e: Exception) { error = e.message }
+            loaded = true; error = null; okAt = System.currentTimeMillis()
+        } catch (e: Exception) { error = failure(e) }
     }
     Poll(project, { if (runs.any { it.running }) 10_000 else 30_000 }, load)
+    val found = query.trim().let { w -> runs.filter { r -> r.name.contains(w, true) || r.tags.any { it.contains(w, true) } } }
     Screen(project, back) {
         Refreshable(load) {
-            LazyColumn(contentPadding = PaddingValues(16.dp), modifier = Modifier.fillMaxSize()) {
-                if (runs.isNotEmpty()) item {
+            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+                if (loaded && error != null) item { Stale(okAt, error!!) }
+                if (runs.size > 1) item { Field(query, { query = it }, "Search runs by name or tag") }
+                if (runs.isNotEmpty() && found.isEmpty()) item { Empty("No run matches", "") }
+                if (found.isNotEmpty()) item {
                     Panel(padding = 0) {
-                        runs.forEachIndexed { i, r ->
+                        found.forEachIndexed { i, r ->
                             if (i > 0) HorizontalDivider(color = T.rule)
                             RunRow(r, { open(Route.RunR(r.id)) }, onLongClick = if (store.canDelete) ({ deleting = r }) else null)
                         }
@@ -534,13 +582,14 @@ fun RunRow(run: Run, onClick: () -> Unit, project: Boolean = false, onLongClick:
 fun AlertsScreen(store: Store, open: (Route) -> Unit, changed: suspend () -> Unit = {}) {
     var alerts by remember { mutableStateOf(listOf<Alert>()) }
     var loaded by remember { mutableStateOf(false) }
+    var okAt by remember { mutableStateOf(0L) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val load: suspend () -> Unit = {
         try {
             alerts = parseAlerts(store.get("/api/v1/alerts?limit=100")).sortedByDescending { it.ts }
-            loaded = true; error = null
-        } catch (e: Exception) { error = e.message }
+            loaded = true; error = null; okAt = System.currentTimeMillis()
+        } catch (e: Exception) { error = failure(e) }
     }
     Poll(Unit, { 15_000 }, load)
     Screen("Alerts", actions = {
@@ -554,7 +603,8 @@ fun AlertsScreen(store: Store, open: (Route) -> Unit, changed: suspend () -> Uni
         }) { Text("Dismiss all", color = T.ink) }
     }) {
         Refreshable(load) {
-            LazyColumn(contentPadding = PaddingValues(16.dp), modifier = Modifier.fillMaxSize()) {
+            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
+                if (loaded && error != null) item { Stale(okAt, error!!) }
                 if (alerts.isNotEmpty()) item {
                     Panel(padding = 0) {
                         alerts.forEachIndexed { i, a ->
@@ -665,7 +715,7 @@ fun RunHeader(run: Run) {
             Text("for ${duration(run.duration())}, started ${ago(run.startedAt)}", fontSize = 14.sp, color = T.muted)
         }
         val beat = run.lastHeartbeatAt
-        if (run.running && beat != null) Text("Last heartbeat ${duration((System.currentTimeMillis() - beat) / 1000.0)} ago" +
+        if (run.running && beat != null) Text("Last heartbeat ${duration((serverNow() - beat) / 1000.0)} ago" +
             run.host.ifEmpty { null }?.let { " from $it" }.orEmpty(), fontSize = 12.sp, color = T.muted)
         else if (run.host.isNotEmpty()) Text("on ${run.host}", fontSize = 12.sp, color = T.muted)
         RunProgress(run)
@@ -824,7 +874,7 @@ fun LogsTab(store: Store, id: String, running: Boolean) {
     }
 }
 
-/** Images and text tables by key, with a slider through the steps; the latest step by default. Tap an image to look closely. */
+/** Images, videos and text tables by key, with a slider through the steps; the latest step by default. Tap an image to look closely. */
 @Composable
 fun SamplesTab(store: Store, id: String, running: Boolean) {
     var media by remember { mutableStateOf(listOf<Media>()) }
@@ -860,7 +910,7 @@ fun SamplesTab(store: Store, id: String, running: Boolean) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         pair.forEach { m ->
                             Column(Modifier.weight(1f).combinedClickable { viewing = images to images.indexOf(m) }) {
-                                RemoteImage(store, m.url)
+                                RemoteImage(store, thumb(m.url)) // the viewer fetches the original
                                 m.caption?.let { Text(it, fontSize = 11.sp, color = T.muted, maxLines = 2) }
                             }
                         }
@@ -868,9 +918,7 @@ fun SamplesTab(store: Store, id: String, running: Boolean) {
                     }
                 }
                 now.filter { it.kind == "text" }.forEach { TextTable(store, it.url) }
-                now.filter { it.kind == "video" && !it.url.endsWith(".gif") }.forEach {
-                    Text("Video at step ${it.step}: open it on the web UI.", fontSize = 13.sp, color = T.muted)
-                }
+                now.filter { it.kind == "video" && !it.url.endsWith(".gif") }.forEach { Video(store, it.url) }
             }
         }
     }
@@ -913,6 +961,42 @@ fun Viewer(store: Store, images: List<Media>, start: Int, onClose: () -> Unit) {
     }
 }
 
+/** run.video() as a file the platform plays: tap to play, looping and muted, tap again to stop. */
+@Composable
+fun Video(store: Store, url: String) {
+    var playing by remember(url) { mutableStateOf(false) }
+    var ratio by remember(url) { mutableStateOf(16f / 9) }
+    Box(Modifier.fillMaxWidth().aspectRatio(ratio).clip(RoundedCornerShape(8.dp)).background(T.soft).combinedClickable { playing = !playing }, Alignment.Center) {
+        if (playing) AndroidView({ c ->
+            VideoView(c).apply {
+                // The player fetches the file itself, so it is handed the session.
+                setVideoURI(Uri.parse(if ("://" in url) url else store.server + url), store.session?.let { mapOf("Cookie" to "runyard_session=$it") }.orEmpty())
+                setOnPreparedListener { it.isLooping = true; it.setVolume(0f, 0f); if (it.videoHeight > 0) ratio = it.videoWidth.toFloat() / it.videoHeight; start() }
+                setOnErrorListener { _, _, _ -> playing = false; true } // no "Can't play this video" dialog over the app
+            }
+        }, Modifier.fillMaxSize())
+        else Icon(Icons.Filled.PlayArrow, "Play the video", Modifier.size(48.dp), tint = T.muted)
+    }
+}
+
+/** A GIF (run.video() where there is no ffmpeg), moving: the platform decodes and animates it. */
+@Composable
+private fun Gif(store: Store, url: String, modifier: Modifier) {
+    var drawable by remember(url) { mutableStateOf<Drawable?>(null) }
+    LaunchedEffect(url) {
+        drawable = runCatching {
+            val b = store.api.bytes(url)
+            withContext(kotlinx.coroutines.Dispatchers.Default) { ImageDecoder.decodeDrawable(ImageDecoder.createSource(java.nio.ByteBuffer.wrap(b))) }
+        }.getOrNull()
+    }
+    val d = drawable
+    if (d == null) Box(modifier.aspectRatio(1f).clip(RoundedCornerShape(8.dp)).background(T.soft))
+    else AndroidView({ ImageView(it) }, modifier.aspectRatio(d.intrinsicWidth.toFloat() / d.intrinsicHeight).clip(RoundedCornerShape(8.dp))) {
+        it.setImageDrawable(d)
+        (d as? AnimatedImageDrawable)?.start()
+    }
+}
+
 /** Halves the size until the long side is under twice `max`: a camera-sized sample is too large a bitmap to draw. */
 private fun decode(b: ByteArray, max: Int): Bitmap? {
     val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -926,6 +1010,7 @@ private fun decode(b: ByteArray, max: Int): Bitmap? {
 /** An image fetched with the session. Pixel art stays sharp. */
 @Composable
 fun RemoteImage(store: Store, url: String, max: Int = 1024, modifier: Modifier = Modifier.fillMaxWidth()) {
+    if (url.endsWith(".gif")) return Gif(store, url, modifier)
     // Not keyed on the url: when the slider moves, the old image stays until the new one has loaded.
     var image by remember { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(url) {

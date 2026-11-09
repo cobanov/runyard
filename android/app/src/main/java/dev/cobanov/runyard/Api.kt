@@ -54,7 +54,7 @@ data class Run(
         }
 
     /** How long it ran: until it ended, until now while running, else until its last heartbeat (a crash). */
-    fun duration(now: Long = System.currentTimeMillis()) =
+    fun duration(now: Long = serverNow()) =
         ((endedAt ?: if (running) now else lastHeartbeatAt ?: startedAt) - startedAt) / 1000.0
 
     data class Progress(val done: Double, val total: Double, val unit: String)
@@ -294,16 +294,28 @@ fun duration(seconds: Double): String {
     return parts.drop(first).take(2).filter { it.first > 0 }.joinToString(" ") { "${it.first}${it.second}" }
 }
 
+/** How far the server's clock is ahead of the phone's, from the Date header of its last answer (to the second). */
+@Volatile var serverAhead = 0L
+
+/** Now on the server's clock: heartbeats and start times are the server's, and a phone can be minutes off. */
+fun serverNow() = System.currentTimeMillis() + serverAhead
+
+/** A sample's URL at no more than `w` pixels wide, for the grid. A server before `?w=` ignores it and sends the original; a GIF would lose its frames. */
+fun thumb(url: String, w: Int = 640) = if (url.startsWith("/media/") && !url.endsWith(".gif")) "$url?w=$w" else url
+
 /** What the background check tells the phone about; `run` is what a tap opens. */
 data class Note(val id: Int, val title: String, val text: String, val run: String)
 
 /**
  * The background check's comparison. `before` is every run's status as it saw them last time, null the first time
- * after the switch went on, when nothing is news; `seen` is the highest alert id it saw.
+ * after the switch went on, when nothing is news; `seen` is the highest alert id it saw. A run it never saw is news
+ * when it ended after `since`, the time of that last look: it started and ended in between. One that ended before
+ * (it came from a machine's offline cache, or a deleted run made room for it in the list) stays quiet.
  */
-fun news(before: Map<String, String>?, seen: Int, runs: List<Run>, alerts: List<Alert>): List<Note> {
+fun news(before: Map<String, String>?, seen: Int, runs: List<Run>, alerts: List<Alert>, since: Long = Long.MAX_VALUE): List<Note> {
     if (before == null) return emptyList()
-    return runs.filter { before[it.id] == "running" && it.status in setOf("finished", "failed", "crashed") }
+    return runs.filter { it.status in setOf("finished", "failed", "crashed") }
+        .filter { r -> before[r.id]?.let { it == "running" } ?: ((r.endedAt ?: r.lastHeartbeatAt ?: 0) > since) }
         .map { Note(it.id.hashCode(), "${it.name} ${it.status}", "${it.project} · after ${duration(it.duration())}", it.id) } +
         alerts.filter { it.id > seen }
             .map { a -> Note(-a.id, a.title, listOf("${a.project}/${a.runName}", a.body.lineSequence().first()).filter { it.isNotEmpty() }.joinToString(" · "), a.run) }
@@ -338,7 +350,8 @@ fun reason(e: Throwable): String {
             when {
                 "REFUSED" in all || "refused" in all -> "connection refused"
                 "UNREACH" in all -> "not reachable from this network"
-                else -> m
+                // Android's own HTTP client drops the cause: all that is left is "Failed to connect to /10.0.0.5:8080".
+                else -> "could not connect: nothing listens on that port, or this network cannot reach it"
             }
         }
         else -> m
@@ -378,6 +391,8 @@ class Http(val base: String, private val session: String?) : Backend {
                 c.outputStream.use { it.write(json.toByteArray()) }
             }
             val code = c.responseCode
+            // Not from a cached sample, whose Date is the day it was fetched.
+            if (!c.useCaches && "://" !in path) c.getHeaderFieldDate("Date", 0).takeIf { it > 0 }?.let { serverAhead = it - System.currentTimeMillis() }
             val body = (if (code in 200..299) c.inputStream else c.errorStream)?.use { it.readBytes() } ?: ByteArray(0)
             return Triple(code, body, c.headerFields["Set-Cookie"].orEmpty())
         } finally {

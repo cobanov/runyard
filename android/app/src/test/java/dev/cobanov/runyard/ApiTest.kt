@@ -148,6 +148,19 @@ class ApiTest {
         assertEquals("qwen-sft/run-a · step 2400", n.last().text)
         assertEquals(n.size, n.map { it.id }.distinct().size)
         assertEquals(emptyList<Note>(), news(now.associate { it.id to it.status }, 8, now, listOf(alert(8))))
+        // A run never seen running: news when it ended after the last check (it started and ended in between), quiet when it
+        // ended before (synced late from a machine's offline cache). A crash has no end, so its last heartbeat counts.
+        val t = 1_000_000L
+        val late = listOf(run("g", "finished").copy(endedAt = t + 1), run("h", "failed").copy(endedAt = t - 1),
+            run("i", "crashed").copy(endedAt = null, lastHeartbeatAt = t + 5), run("j", "running").copy(endedAt = null))
+        assertEquals(listOf("run-g finished", "run-i crashed"), news(before, 7, late, emptyList(), since = t).map { it.title })
+        assertEquals(emptyList<Note>(), news(before, 7, late, emptyList())) // no time of a last check: as before
+    }
+
+    @Test fun thumbnails() {
+        assertEquals("/media/ab/cd.png?w=640", thumb("/media/ab/cd.png"))
+        assertEquals("/media/ab/cd.gif", thumb("/media/ab/cd.gif")) // a resized GIF would be one frame
+        assertEquals("demo:sprite/5/100", thumb("demo:sprite/5/100"))
     }
 
     @Test fun whereToLookForAServer() {
@@ -158,6 +171,7 @@ class ApiTest {
         assertEquals("no such host (DNS)", reason(java.net.UnknownHostException("toji")))
         assertEquals("timed out", reason(java.net.SocketTimeoutException()))
         assertEquals("connection refused", reason(java.net.ConnectException("failed to connect to /10.0.0.5 (port 80): ECONNREFUSED (Connection refused)")))
+        assertEquals("could not connect: nothing listens on that port, or this network cannot reach it", reason(java.net.ConnectException("Failed to connect to /10.0.2.2:9999"))) // as seen on a device
         assertEquals("its certificate is not trusted", reason(javax.net.ssl.SSLHandshakeException("x").apply { initCause(java.security.cert.CertificateException("y")) }))
         assertEquals("only an admin can do this", reason(ApiError(403, "only an admin can do this")))
     }

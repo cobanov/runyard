@@ -115,8 +115,10 @@ class MainActivity : ComponentActivity() {
         val link = intent?.data?.takeIf { it.scheme == "runyard" } ?: return
         val store = Store.get(this)
         when (link.host) {
-            "connect" -> link.getQueryParameter("url")?.trim()?.trimEnd('/')
-                ?.takeIf { it.isNotEmpty() && it !in setOf(store.server, store.server.substringAfter("://")) }?.let { store.link = it }
+            // A server on the list is gone back to as it was left (nothing to do when it is this one); a new one is asked about.
+            "connect" -> link.getQueryParameter("url")?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }?.let { url ->
+                store.servers.firstOrNull { url == it || url == it.substringAfter("://") }?.let(store::switch) ?: run { store.link = url }
+            }
             "run" -> link.lastPathSegment?.takeIf { Regex("[A-Za-z0-9-]+").matches(it) }?.let { store.openRun = it } // it goes into a URL
         }
     }
@@ -149,14 +151,14 @@ fun Root(store: Store) {
             Text("${store.server}\n$error", color = T.muted, fontSize = 14.sp, modifier = Modifier.padding(vertical = 12.dp))
             PrimaryButton("Try again", busy = busy) { scope.launch { retry() } }
             Text("It keeps trying on its own.", color = T.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
-            TextButton(onClick = store::forget) { Text("Change server") }
+            TextButton(onClick = store::leave) { Text("Change server") }
         }
         store.me == null -> Centered {
             CircularProgressIndicator(color = T.running)
             LaunchedEffect(store.server) { store.loadMe() }
         }
         store.needsLogin -> LoginScreen(store)
-        else -> Main(store)
+        else -> key(store.server) { Main(store) } // another server's open run and tab are not this one's
     }
 }
 
@@ -168,7 +170,7 @@ fun SwitchDialog(store: Store, address: String) {
     val scope = rememberCoroutineScope()
     AlertDialog(
         onDismissRequest = { store.link = null }, title = { Text("Switch server?") },
-        text = { Text(error ?: "Connect to $address and leave ${store.server}?") },
+        text = { Text(error ?: "Connect to $address? ${store.server} stays on your list of servers.") },
         confirmButton = {
             TextButton(enabled = !busy, onClick = {
                 busy = true
@@ -245,6 +247,10 @@ fun ConnectScreen(store: Store) {
             color = if (error == null) T.muted else T.failed, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 16.dp),
         )
         PrimaryButton("Connect", enabled = address.isNotBlank(), busy = busy, onClick = connect)
+        if (store.servers.isNotEmpty()) {
+            Text("Your servers", color = T.muted, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 6.dp))
+            ServerList(store)
+        }
         Spacer(Modifier.height(28.dp))
         HorizontalDivider(color = T.rule)
         Spacer(Modifier.height(20.dp))
@@ -283,7 +289,7 @@ fun LoginScreen(store: Store) {
         Field(password, { password = it }, "Password", password = true, keyboard = KeyboardType.Password, done = login)
         Text(error ?: "", color = T.failed, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
         PrimaryButton("Sign in", enabled = name.isNotEmpty() && password.isNotEmpty(), busy = busy, onClick = login)
-        TextButton(onClick = store::forget) { Text("Change server", color = T.muted) }
+        TextButton(onClick = store::leave) { Text("Change server", color = T.muted) }
     }
 }
 
@@ -416,11 +422,16 @@ fun ServerScreen(store: Store) {
                         )
                     }
                 }
+                if (!store.demo) {
+                    item { SectionTitle("Your servers") }
+                    item { ServerList(store) }
+                    item { Text("Tap one to switch to it, signed in as you left it. Long-press to forget it.", fontSize = 12.sp, color = T.muted) }
+                }
                 item {
                     Column {
                         if (store.me?.auth == true && !store.demo) TextButton(onClick = { scope.launch { store.logout() } }) { Text("Sign out", color = T.ink) }
                         if (store.demo) TextButton(onClick = store::leaveDemo) { Text("Leave the demo", color = T.ink) }
-                        else TextButton(onClick = store::forget) { Text("Change server", color = T.failed) }
+                        else TextButton(onClick = store::leave) { Text("Change server", color = T.ink) }
                     }
                 }
             }

@@ -11,8 +11,11 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 
-/** Which server the app talks to and who it is signed in as. The address and the session live in app-private prefs. */
-class Store private constructor(private val prefs: SharedPreferences, private val samples: File) {
+/** Which server the app talks to and who it is signed in as. The addresses and their sessions live in app-private prefs. */
+class Store private constructor(private val prefs: SharedPreferences, cache: File) {
+    private val samples = File(cache, "samples")
+    /** The home screen's last answers, a file per server and path, for a launch without the server. */
+    private val offline = File(cache, "offline")
     var server by mutableStateOf(prefs.getString("server", "").orEmpty()); private set
     var session by mutableStateOf(prefs.getString("session", null)); private set
     var demo by mutableStateOf(false); private set
@@ -26,8 +29,15 @@ class Store private constructor(private val prefs: SharedPreferences, private va
     /** The background check for ended runs and new alerts (Notify.kt) is on. */
     var notify by mutableStateOf(prefs.getBoolean("notify", false)); private set
     private var demoBackend: Demo? = null
+    /** Every server the app connected to, with its session ("" for none): one tap goes back, with no typing and no sign-in. */
+    private val known = JSONObject(prefs.getString("servers", null) ?: "{}")
+    var servers by mutableStateOf(listOf<String>()); private set
 
-    init { HttpResponseCache.install(samples, 1L shl 30) } // samples never change, so they stay on the device
+    init {
+        HttpResponseCache.install(samples, 1L shl 30) // samples never change, so they stay on the device
+        if (server.isNotEmpty() && !known.has(server)) known.put(server, session.orEmpty()) // connected before there was a list
+        servers = known.keys().asSequence().toList()
+    }
 
     private fun dropSamples() {
         HttpResponseCache.getInstalled()?.delete() // this also uninstalls it
@@ -41,11 +51,43 @@ class Store private constructor(private val prefs: SharedPreferences, private va
     val plainHttp get() = !demo && server.startsWith("http://")
 
     private fun save(server: String, session: String?) {
-        val e = prefs.edit().putString("server", server).putString("session", session)
-        if (server != this.server) e.remove("runs").remove("alert") // another server's runs are not news
+        if (server.isNotEmpty()) known.put(server, session.orEmpty())
+        val e = prefs.edit().putString("server", server).putString("session", session).putString("servers", known.toString())
+        if (server != this.server) {
+            e.remove("runs").remove("alert") // another server's runs are not news
+            serverAhead = 0
+        }
         e.apply()
         this.server = server
         this.session = session
+        servers = known.keys().asSequence().toList()
+    }
+
+    private fun sessionOf(server: String) = known.optString(server).ifEmpty { null }
+    private fun file(path: String) = File(offline, q(server + path))
+
+    /** What `get(path, keep = true)` last answered on this server, and when. */
+    fun kept(path: String): Pair<String, Long>? = file(path).let { f -> runCatching { f.readText() to f.lastModified() }.getOrNull() }
+
+    private fun drop(server: String) {
+        offline.listFiles { f -> f.name.startsWith(q("$server/")) }?.forEach { it.delete() }
+    }
+
+    /** Back to a server from the list, as it was left: no typing, no sign-in. */
+    fun switch(address: String) {
+        if (demo) leaveDemo()
+        if (address == server) return
+        me = null
+        loadError = null
+        save(address, sessionOf(address))
+    }
+
+    /** Takes a server off the list, with its session and everything kept of it. */
+    fun remove(address: String) {
+        known.remove(address)
+        drop(address)
+        dropSamples()
+        if (address == server) leave() else save(server, session)
     }
 
     /** Finds a runyard server at what the user typed (`candidates`), and says why each try failed when none answers. */
@@ -65,7 +107,7 @@ class Store private constructor(private val prefs: SharedPreferences, private va
             }
             if (why == null) {
                 me = null
-                save(base, null)
+                save(base, sessionOf(base))
                 loadMe()
                 return
             }
@@ -87,17 +129,24 @@ class Store private constructor(private val prefs: SharedPreferences, private va
         val alerts = parseAlerts(api.get("/api/v1/alerts?limit=20"))
         val before = prefs.getString("runs", null)?.let(::JSONObject)?.let { o -> o.keys().asSequence().associateWith(o::getString) }
         val seen = prefs.getInt("alert", 0)
+        val since = prefs.getLong("checked", Long.MAX_VALUE)
         prefs.edit().putString("runs", JSONObject(runs.associate { it.id to it.status }).toString())
-            .putInt("alert", maxOf(seen, alerts.maxOfOrNull { it.id } ?: 0)).apply()
-        return news(before, seen, runs, alerts)
+            .putInt("alert", maxOf(seen, alerts.maxOfOrNull { it.id } ?: 0)).putLong("checked", serverNow()).apply() // the server's clock, as ended_at is
+        return news(before, seen, runs, alerts, since)
     }
 
     suspend fun loadMe() {
+        val asked = server
         try {
-            me = parseMe(api.get("/api/v1/me"))
+            val m = parseMe(get("/api/v1/me", keep = true))
+            if (asked != server) return // the list switched servers meanwhile
+            me = m
             loadError = null
         } catch (e: Exception) {
+            if (asked != server) return
             loadError = reason(e)
+            // Not reachable at launch: who the server last said we are, so the home screen can show what it kept.
+            if (me == null && e !is ApiError) me = kept("/api/v1/me")?.let { runCatching { parseMe(it.first) }.getOrNull() }?.takeIf { !it.auth || it.user.isNotEmpty() }
         }
     }
 
@@ -123,15 +172,17 @@ class Store private constructor(private val prefs: SharedPreferences, private va
         runCatching { api.send("/api/v1/logout", "POST") }
         save(server, null)
         me = null
+        drop(server)
         dropSamples()
         loadMe()
     }
 
-    fun forget() {
+    /** To the connect screen. The server stays on the list with its session; what the home screen kept of it goes. */
+    fun leave() {
+        drop(server)
         save("", null)
         me = null
         loadError = null
-        dropSamples()
     }
 
     /** The demo: made-up runs that keep training, with no server. */
@@ -158,9 +209,13 @@ class Store private constructor(private val prefs: SharedPreferences, private va
         }
     }
 
-    /** GET for the screens: a 401 means the session ended, so the app goes back to the login form. */
-    suspend fun get(path: String): String = try {
-        api.get(path)
+    /**
+     * GET for the screens: a 401 means the session ended, so the app goes back to the login form. `keep` leaves the
+     * answer on the device for `kept`.
+     */
+    suspend fun get(path: String, keep: Boolean = false): String = try {
+        val to = file(path) // named before the request: the server can change while it is out
+        api.get(path).also { if (keep && !demo) withContext(Dispatchers.IO) { runCatching { offline.mkdirs(); to.writeText(it) } } }
     } catch (e: ApiError) {
         if (e.status == 401) {
             save(server, null)
@@ -172,7 +227,7 @@ class Store private constructor(private val prefs: SharedPreferences, private va
     companion object {
         @Volatile private var instance: Store? = null
         fun get(context: Context) = instance ?: synchronized(this) {
-            instance ?: Store(context.applicationContext.getSharedPreferences("runyard", Context.MODE_PRIVATE), File(context.cacheDir, "samples")).also { instance = it }
+            instance ?: Store(context.applicationContext.getSharedPreferences("runyard", Context.MODE_PRIVATE), context.cacheDir).also { instance = it }
         }
     }
 }
