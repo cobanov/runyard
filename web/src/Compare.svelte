@@ -1,15 +1,37 @@
 <script>
-  import { get, plotValue, fmt, flatten, palette } from './lib.svelte.js'
+  import { get, plotValue, flatten, palette, chartView as view } from './lib.svelte.js'
   import Chart from './Chart.svelte'
 
-  let { ids } = $props()
+  let { ids: asked } = $props()
+  let ids = $state(asked)
   let runs = $state([])
   let series = $state([])
+  let media = $state([]) // per run, its images
+  let gone = $state(0) // runs in the link that no longer exist
 
   $effect(() => {
-    Promise.all(ids.map((id) => get('/runs/' + id))).then((r) => (runs = r))
-    Promise.all(ids.map((id) => get(`/runs/${id}/metrics?points=600`))).then((s) => (series = s))
+    // A deleted run must not take the comparison of the others with it.
+    Promise.allSettled(asked.map((id) => get('/runs/' + id))).then((res) => {
+      const ok = res.filter((r) => r.status === 'fulfilled').map((r) => r.value)
+      gone = res.length - ok.length
+      runs = ok
+      ids = ok.map((r) => r.id)
+      Promise.all(ids.map((id) => get(`/runs/${id}/metrics?points=600`))).then((s) => (series = s))
+      Promise.all(ids.map((id) => get(`/runs/${id}/media?kind=image`))).then((m) => (media = m))
+    })
   })
+
+  // Samples side by side: for each key any run logged images under, one row, a column per run, each showing its
+  // images at the step nearest below the chosen one. One slider moves them all.
+  const sampleKeys = $derived([...new Set(media.flat().map((m) => m.key))].sort())
+  const steps = $derived([...new Set(media.flat().map((m) => m.step))].sort((a, b) => a - b))
+  let stepAt = $state(null) // index into steps; null follows the last
+  const step = $derived(steps[stepAt ?? steps.length - 1])
+  function at(i, key) {
+    const mine = (media[i] || []).filter((m) => m.key === key && m.step <= step)
+    const last = Math.max(...mine.map((m) => m.step))
+    return mine.filter((m) => m.step === last)
+  }
 
   const color = (i) => palette[i % palette.length]
   const keys = $derived([...new Set(series.flatMap((s) => Object.keys(s)))].filter((k) => !k.startsWith('sys/')).sort())
@@ -34,11 +56,51 @@
   </ul>
 </div>
 
+{#if gone}<p class="empty">{gone === 1 ? 'One run in this link no longer exists' : `${gone} runs in this link no longer exist`}; comparing the rest.</p>{/if}
+{#if keys.length}
+  <div class="view">
+    <label class="small muted"
+      >Smoothing <input type="range" min="0" max="0.99" step="0.01" bind:value={view.smooth} /><output>{view.smooth ? view.smooth.toFixed(2) : 'off'}</output></label
+    >
+    <button aria-pressed={view.log} onclick={() => (view.log = !view.log)}>Log scale</button>
+  </div>
+{/if}
 <div class="grid">
   {#each keys as k (k)}
-    <Chart title={k} lines={lines(k)} />
+    <Chart title={k} lines={lines(k)} smooth={view.smooth} log={view.log} />
   {/each}
 </div>
+
+{#if sampleKeys.length}
+  <div class="bar">
+    <h2>Samples</h2>
+    <span class="muted small">up to step {step.toLocaleString('en-US')}</span>
+  </div>
+  {#if steps.length > 1}
+    <input class="steps" type="range" min="0" max={steps.length - 1} value={stepAt ?? steps.length - 1} oninput={(e) => (stepAt = +e.target.value)} aria-label="Step for the samples of every run" />
+  {/if}
+  <div class="card table samples">
+    <table>
+      <thead><tr><th></th>{#each runs as r, i}<th><span class="swatch" style="background: var({color(i)})"></span>{r.name}</th>{/each}</tr></thead>
+      <tbody>
+        {#each sampleKeys as key (key)}
+          <tr>
+            <th>{key}</th>
+            {#each runs as r, i (r.id)}
+              <td>
+                {#each at(i, key) as m (m.id)}
+                  <a href={m.url} target="_blank" rel="noopener" title="{m.meta.caption || key}, step {m.step}"><img src={m.url} alt="{m.meta.caption || key} of {r.name} at step {m.step}" loading="lazy" /></a>
+                {:else}
+                  <span class="muted">–</span>
+                {/each}
+              </td>
+            {/each}
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
+{/if}
 
 <h2>Config differences</h2>
 {#if runs.length && !diff.length}
@@ -77,6 +139,47 @@
     border-radius: 3px;
     margin-right: 6px;
     vertical-align: -1px;
+  }
+  .view {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    margin: 0 0 12px;
+  }
+  .view label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .view input,
+  .steps {
+    accent-color: var(--ink);
+  }
+  .view output {
+    min-width: 3ch;
+    color: var(--ink);
+  }
+  .bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .steps {
+    width: 100%;
+    margin: 0 0 12px;
+  }
+  .samples {
+    margin-bottom: 28px;
+  }
+  .samples td {
+    vertical-align: top;
+  }
+  .samples img {
+    display: inline-block;
+    width: min(220px, 100%);
+    border-radius: var(--radius-sm);
+    margin: 0 4px 4px 0;
   }
   .grid {
     display: grid;

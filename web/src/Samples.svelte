@@ -31,18 +31,23 @@
   const crisp = (e) => e.target.classList.toggle('crisp', e.target.naturalWidth < 256)
   const isImage = (m) => m.kind !== 'video' || m.url.endsWith('.gif')
 
-  // The viewer walks through every image of one key, oldest step first.
+  // The viewer follows one image through the steps: left and right move in time and keep its place in the step
+  // (the same prompt), up and down move to the step's other images.
   let dialog
-  let at = $state(null) // {key, i}
-  const list = $derived(at ? groups[at.key].steps.flatMap((s) => groups[at.key].at[s]).filter(isImage) : [])
-  const cur = $derived(list[at?.i])
+  let at = $state(null) // {key, s: index into steps, i: index within the step}
+  const imagesAt = (s) => (at ? (groups[at.key].at[groups[at.key].steps[s]] || []).filter(isImage) : [])
+  const list = $derived(at ? imagesAt(at.s) : [])
+  const cur = $derived(list[Math.min(at?.i ?? 0, list.length - 1)])
+  const count = $derived(at ? groups[at.key].steps.length : 0)
   function show(key, m) {
-    at = { key, i: 0 }
-    at.i = list.findIndex((x) => x.id === m.id)
+    const g = groups[key]
+    at = { key, s: g.steps.indexOf(m.step), i: g.at[m.step].filter(isImage).findIndex((x) => x.id === m.id) }
     dialog.showModal()
   }
-  const go = (d) => at && list[at.i + d] && (at.i += d)
-  const keys = (e) => (e.key === 'ArrowLeft' ? go(-1) : e.key === 'ArrowRight' && go(1))
+  const go = (d) => at && imagesAt(at.s + d).length && (at.s += d)
+  const within = (d) => at && list[at.i + d] && (at.i += d)
+  const keys = (e) =>
+    e.key === 'ArrowLeft' ? go(-1) : e.key === 'ArrowRight' ? go(1) : e.key === 'ArrowUp' ? within(-1) : e.key === 'ArrowDown' && within(1)
 </script>
 
 {#if media?.length === 0}
@@ -93,13 +98,14 @@
     <img src={cur.url} alt={cur.meta.caption || cur.key} onload={crisp} />
     <div class="info">
       <div>
-        <strong>{cur.key}</strong> <span class="muted">step {cur.step.toLocaleString('en-US')}, {at.i + 1} of {list.length}</span>
+        <strong>{cur.key}</strong>
+        <span class="muted">step {cur.step.toLocaleString('en-US')}, {at.s + 1} of {count}{list.length > 1 ? `, image ${Math.min(at.i, list.length - 1) + 1} of ${list.length} (↑ ↓)` : ''}</span>
         {#if cur.meta.caption}<p class="small muted">{cur.meta.caption}</p>{/if}
       </div>
       <div class="nav">
         <a class="small" href={cur.url} target="_blank" rel="noopener">Open original</a>
-        <button onclick={() => go(-1)} disabled={!at.i} aria-label="Previous sample">←</button>
-        <button onclick={() => go(1)} disabled={at.i === list.length - 1} aria-label="Next sample">→</button>
+        <button onclick={() => go(-1)} disabled={!at.s} aria-label="Earlier step">←</button>
+        <button onclick={() => go(1)} disabled={at.s === count - 1} aria-label="Later step">→</button>
         <button onclick={() => dialog.close()}>Close</button>
       </div>
     </div>
