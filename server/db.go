@@ -335,20 +335,25 @@ func keyHash(key string) string {
 
 // createKey makes a write API key and returns it, keeping only its hash; with a user name it acts as that user
 // (empty: a server key that sees everything).
-func createKey(ctx context.Context, db *pgxpool.Pool, name, user string) (string, error) {
+// logOnly makes a key for a training machine: it logs and reads, and cannot delete or manage keys and channels.
+func createKey(ctx context.Context, db *pgxpool.Pool, name, user string, logOnly bool) (string, error) {
 	b := make([]byte, 24)
 	rand.Read(b)
 	key := "ry_" + hex.EncodeToString(b)
-	tag, err := db.Exec(ctx, `INSERT INTO api_keys (name, hash, user_id) SELECT $1, $2, (SELECT id FROM users WHERE name = $3)
-		WHERE $3 = '' OR EXISTS (SELECT 1 FROM users WHERE name = $3)`, name, keyHash(key), user)
+	scopes := []string{"write", "admin"}
+	if logOnly {
+		scopes = scopes[:1]
+	}
+	tag, err := db.Exec(ctx, `INSERT INTO api_keys (name, hash, user_id, scopes) SELECT $1, $2, (SELECT id FROM users WHERE name = $3), $4
+		WHERE $3 = '' OR EXISTS (SELECT 1 FROM users WHERE name = $3)`, name, keyHash(key), user, scopes)
 	if err == nil && tag.RowsAffected() == 0 {
 		return "", noSuch("user " + user)
 	}
 	return key, err
 }
 
-func validKey(ctx context.Context, db *pgxpool.Pool, key string) bool {
+func validKey(ctx context.Context, db *pgxpool.Pool, key, scope string) bool {
 	var ok bool
-	db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM api_keys WHERE hash = $1 AND 'write' = ANY(scopes))`, keyHash(key)).Scan(&ok)
+	db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM api_keys WHERE hash = $1 AND $2 = ANY(scopes))`, keyHash(key), scope).Scan(&ok)
 	return ok
 }

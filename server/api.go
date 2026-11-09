@@ -259,7 +259,7 @@ func (s *srv) write(f func(*http.Request) (any, error)) http.HandlerFunc {
 
 func (s *srv) keyOK(r *http.Request) bool {
 	key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	return key != "" && validKey(r.Context(), s.db, key)
+	return key != "" && validKey(r.Context(), s.db, key, "write")
 }
 
 type badRequest struct{ error }

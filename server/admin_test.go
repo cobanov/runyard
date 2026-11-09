@@ -31,7 +31,7 @@ func TestAdmin(t *testing.T) {
 
 	s.auth = true
 	s.db.Exec(ctx, `INSERT INTO users (name, password, admin) VALUES ('alice', $1, false), ('boss', $2, true)`, hashPassword("a"), hashPassword("b"))
-	alice, _ := createKey(ctx, s.db, "alice-laptop", "alice")
+	alice, _ := createKey(ctx, s.db, "alice-laptop", "alice", false)
 	res, err := http.Post(api+"/login", "application/json", strings.NewReader(`{"name":"boss","password":"b"}`))
 	if err != nil || res.StatusCode != 200 {
 		t.Fatal("login", err)

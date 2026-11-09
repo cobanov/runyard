@@ -20,7 +20,8 @@ const usersUsage = `usage (users and teams matter when RUNYARD_AUTH=1):
   runyard-server team add NAME | rm NAME | ls
   runyard-server team join TEAM USER | leave TEAM USER
   runyard-server project team PROJECT TEAM  only TEAM's members (and admins) see PROJECT; - for everyone
-  runyard-server key create [-user USER] NAME  a key that acts as USER; without -user it sees everything`
+  runyard-server key create [-user USER] [-log] NAME  a key that acts as USER (without -user it sees everything);
+                                            -log: for a training machine, it logs and reads but cannot delete or manage`
 
 func password() string {
 	b := make([]byte, 12)
@@ -132,10 +133,11 @@ func projectCmd(ctx context.Context, db *pgxpool.Pool, args []string) error {
 func keyCmd(ctx context.Context, db *pgxpool.Pool, args []string) error {
 	fs := flag.NewFlagSet("key", flag.ContinueOnError)
 	user := fs.String("user", "", "the key acts as this user")
+	logOnly := fs.Bool("log", false, "a key for a training machine: it logs and reads, cannot delete or manage")
 	if len(args) == 0 || args[0] != "create" || fs.Parse(args[1:]) != nil || fs.NArg() != 1 {
 		return errors.New(usersUsage)
 	}
-	key, err := createKey(ctx, db, fs.Arg(0), strings.TrimSpace(*user))
+	key, err := createKey(ctx, db, fs.Arg(0), strings.TrimSpace(*user), *logOnly)
 	if err != nil {
 		return err
 	}

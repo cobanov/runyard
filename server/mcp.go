@@ -245,7 +245,7 @@ func (s *srv) addNote(ctx context.Context, run, note string) error {
 
 func (s *srv) mcpKey(ctx context.Context, req *mcp.CallToolRequest) error {
 	key, _ := strings.CutPrefix(req.Extra.Header.Get("Authorization"), "Bearer ")
-	if key == "" || !validKey(ctx, s.db, key) {
+	if key == "" || !validKey(ctx, s.db, key, "write") {
 		return errors.New("writing needs the runyard API key: configure the MCP server with the header Authorization: Bearer <key>")
 	}
 	return nil

@@ -42,8 +42,8 @@ func TestTeams(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	alice, _ := createKey(ctx, s.db, "alice-laptop", "alice")
-	boss, _ := createKey(ctx, s.db, "boss", "boss")
+	alice, _ := createKey(ctx, s.db, "alice-laptop", "alice", false)
+	boss, _ := createKey(ctx, s.db, "boss", "boss", false)
 
 	if code := call(t, "GET", api+"/runs", "", nil, nil); code != 401 {
 		t.Fatalf("anonymous read: %d", code)

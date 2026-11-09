@@ -27,7 +27,7 @@ func (s *srv) admin(f func(*http.Request) (any, error)) http.HandlerFunc {
 			s.write(f)(w, r)
 			return
 		}
-		if p := principalOf(r.Context()); p == nil || p.teams != nil {
+		if p := principalOf(r.Context()); p == nil || p.teams != nil || p.logOnly {
 			httpError(w, http.StatusForbidden, "only an admin can do this")
 			return
 		}
@@ -65,22 +65,34 @@ func (s *srv) adminRoutes(mux *http.ServeMux) {
 			Name      string    `json:"name"`
 			User      string    `json:"user"` // "" for a server key, which sees everything
 			CreatedAt time.Time `json:"created_at"`
+			Scope     string    `json:"scope"` // "log": a training machine's key; "full": it also deletes and manages
 		}
-		rows, _ := s.db.Query(r.Context(), `SELECT k.id, k.name, coalesce(u.name, ''), k.created_at FROM api_keys k
+		rows, _ := s.db.Query(r.Context(), `SELECT k.id, k.name, coalesce(u.name, ''), k.created_at,
+			CASE WHEN 'admin' = ANY(k.scopes) THEN 'full' ELSE 'log' END FROM api_keys k
 			LEFT JOIN users u ON u.id = k.user_id ORDER BY k.id`)
 		return pgx.CollectRows(rows, pgx.RowToStructByPos[key])
 	}))
-	mux.HandleFunc("POST /api/v1/keys", s.admin(func(r *http.Request) (any, error) {
-		var in struct{ Name, User string }
+	makeKey := func(r *http.Request) (any, error) {
+		var in struct{ Name, User, Scope string }
 		if err := decode(r, &in); err != nil {
 			return nil, err
 		}
 		if strings.TrimSpace(in.Name) == "" {
 			return nil, badRequest{errors.New("name is required")}
 		}
-		key, err := createKey(r.Context(), s.db, strings.TrimSpace(in.Name), strings.TrimSpace(in.User))
+		// The first key of a server is always a full one: something has to be able to make the others.
+		key, err := createKey(r.Context(), s.db, strings.TrimSpace(in.Name), strings.TrimSpace(in.User), in.Scope == "log" && s.hasKeys(r.Context()))
 		return map[string]string{"key": key}, err // the only time the key is shown
-	}))
+	}
+	mux.HandleFunc("POST /api/v1/keys", func(w http.ResponseWriter, r *http.Request) {
+		// A fresh server without users has no key to ask for, so whoever opens it first makes the first one from the
+		// browser, as most self-hosted tools start. Once a key exists this door is shut.
+		if !s.auth && r.Header.Get("Authorization") == "" && !s.hasKeys(r.Context()) {
+			s.curate(makeKey)(w, r)
+			return
+		}
+		s.admin(makeKey)(w, r)
+	})
 	mux.HandleFunc("DELETE /api/v1/keys/{id}", s.admin(func(r *http.Request) (any, error) {
 		return struct{}{}, exec(r.Context(), s.db, "key", `DELETE FROM api_keys WHERE id = $1::bigint`, r.PathValue("id"))
 	}))
@@ -103,6 +115,12 @@ func (s *srv) adminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/channels/{id}/test", s.admin(func(r *http.Request) (any, error) {
 		return map[string]bool{"sent": true}, testChannel(r.Context(), s.db, r.PathValue("id"))
 	}))
+}
+
+func (s *srv) hasKeys(ctx context.Context) bool {
+	var ok bool
+	s.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM api_keys)`).Scan(&ok)
+	return ok
 }
 
 // purge deletes runs and the files they had in the blob store. runs selects the run ids (from arg) and locks

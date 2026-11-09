@@ -258,7 +258,7 @@ func (s *srv) ml(write bool, f func(*http.Request) (any, error)) http.HandlerFun
 	return func(w http.ResponseWriter, r *http.Request) {
 		if write {
 			key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if key == "" || !validKey(r.Context(), s.db, key) {
+			if key == "" || !validKey(r.Context(), s.db, key, "write") {
 				mlError(w, mlErr{401, "UNAUTHENTICATED", "set MLFLOW_TRACKING_TOKEN to a runyard API key"})
 				return
 			}

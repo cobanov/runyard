@@ -9,10 +9,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -23,9 +25,10 @@ import (
 // users see projects without a team and their teams' projects. Without RUNYARD_AUTH reads are open, as before.
 
 type principal struct {
-	user  int64 // 0 for a server key
-	name  string
-	teams []int64 // nil: sees everything
+	user    int64 // 0 for a server key
+	name    string
+	teams   []int64 // nil: sees everything
+	logOnly bool    // came with a key made for logging: no deleting, no keys or channels, whoever it acts as
 }
 
 type principalKey struct{}
@@ -53,8 +56,8 @@ func (s *srv) lookup(r *http.Request) (*principal, error) {
 		key, _ := strings.CutPrefix(h, "Bearer ")
 		var user *int64
 		var name *string
-		err := s.db.QueryRow(ctx, `SELECT k.user_id, u.name, coalesce(u.admin, false) FROM api_keys k LEFT JOIN users u ON u.id = k.user_id
-			WHERE k.hash = $1`, keyHash(key)).Scan(&user, &name, &admin)
+		err := s.db.QueryRow(ctx, `SELECT k.user_id, u.name, coalesce(u.admin, false), NOT 'admin' = ANY(k.scopes)
+			FROM api_keys k LEFT JOIN users u ON u.id = k.user_id WHERE k.hash = $1`, keyHash(key)).Scan(&user, &name, &admin, &p.logOnly)
 		if err != nil {
 			return nil, err
 		}
@@ -198,8 +201,56 @@ func checkPassword(stored, pw string) bool {
 // dummyHash makes a login for a missing user take as long as one with a wrong password.
 var dummyHash = hashPassword("")
 
+// logins stops password guessing: ten wrong passwords for one name from one address, then five minutes of 429.
+// Each try also costs 0.2 s of CPU, which is the other reason.
+// shortcut: in memory and per process; behind several servers put the limit in the proxy.
+var logins = &limiter{fails: map[string][]time.Time{}}
+
+type limiter struct {
+	mu    sync.Mutex
+	fails map[string][]time.Time
+}
+
+func (l *limiter) recent(who string) []time.Time {
+	keep := l.fails[who][:0]
+	for _, t := range l.fails[who] {
+		if time.Since(t) < 5*time.Minute {
+			keep = append(keep, t)
+		}
+	}
+	if len(keep) == 0 {
+		delete(l.fails, who)
+	} else {
+		l.fails[who] = keep
+	}
+	return keep
+}
+
+func (l *limiter) allow(who string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.recent(who)) < 10
+}
+
+func (l *limiter) failed(who string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.fails) > 100000 { // a flood of made-up names must not grow the map without end
+		clear(l.fails)
+	}
+	l.fails[who] = append(l.recent(who), time.Now())
+}
+
+// clientIP is the browser's address: the first hop a proxy reports, else the connection's.
+func clientIP(r *http.Request) string {
+	if f, _, _ := strings.Cut(r.Header.Get("X-Forwarded-For"), ","); strings.TrimSpace(f) != "" {
+		return strings.TrimSpace(f)
+	}
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return host
+}
+
 func (s *srv) authRoutes(mux *http.ServeMux) {
-	// shortcut: no rate limit on logins beyond PBKDF2's cost (~0.2 s each); put one in front if the server is public.
 	mux.HandleFunc("POST /api/v1/login", func(w http.ResponseWriter, r *http.Request) {
 		var in struct{ Name, Password string }
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // open to anyone: no body to fill memory with
@@ -207,10 +258,16 @@ func (s *srv) authRoutes(mux *http.ServeMux) {
 			s.fail(w, err)
 			return
 		}
+		who := strings.ToLower(in.Name) + " " + clientIP(r)
+		if !logins.allow(who) {
+			httpError(w, http.StatusTooManyRequests, "too many wrong passwords; try again in a few minutes")
+			return
+		}
 		var id int64
 		stored := dummyHash
 		err := s.db.QueryRow(r.Context(), `SELECT id, password FROM users WHERE name = $1`, in.Name).Scan(&id, &stored)
 		if !checkPassword(stored, in.Password) || err != nil {
+			logins.failed(who)
 			httpError(w, http.StatusUnauthorized, "wrong name or password")
 			return
 		}
@@ -235,7 +292,8 @@ func (s *srv) authRoutes(mux *http.ServeMux) {
 		writeJSON(w, http.StatusOK, struct{}{})
 	})
 	mux.HandleFunc("GET /api/v1/me", func(w http.ResponseWriter, r *http.Request) {
-		me := map[string]any{"auth": s.auth, "user": ""}
+		// setup: a server without users and without a single key, where the web UI offers to make the first one
+		me := map[string]any{"auth": s.auth, "user": "", "setup": !s.auth && !s.hasKeys(r.Context())}
 		if s.auth {
 			if p, err := s.lookup(r); err == nil {
 				me["user"] = or2(p.name, "server key")
