@@ -4,6 +4,7 @@ CREATE TABLE metric_summary (
   run_id uuid NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
   key_id bigint NOT NULL,
   count  bigint NOT NULL,
+  first  bigint NOT NULL, -- the first step
   step   bigint NOT NULL, -- the last step
   last   double precision NOT NULL,
   min    double precision NOT NULL,
@@ -12,7 +13,7 @@ CREATE TABLE metric_summary (
 );
 -- Existing runs: one pass over the metrics table, which takes a while on a large database, once.
 INSERT INTO metric_summary
-  SELECT run_id, key_id, count(*), max(step), (array_agg(value ORDER BY step DESC))[1], min(value), max(value) FROM metrics GROUP BY 1, 2;
+  SELECT run_id, key_id, count(*), min(step), max(step), (array_agg(value ORDER BY step DESC))[1], min(value), max(value) FROM metrics GROUP BY 1, 2;
 
 -- Deleting a project deleted its metric keys, and each key then searched the whole metrics table for its rows,
 -- with no index to do it by. The rows go with their runs anyway.

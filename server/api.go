@@ -428,10 +428,10 @@ func (s *srv) writeMetrics(ctx context.Context, id string, rows []metricRow) (in
 			SELECT $1::uuid, k, st, t, v FROM unnest($2::bigint[], $3::bigint[], $4::timestamptz[], $5::float8[]) AS u(k, st, t, v)
 			ON CONFLICT (run_id, key_id, step) DO UPDATE SET value = excluded.value, ts = excluded.ts
 			RETURNING key_id, step, value, (xmax = 0) AS fresh)
-		INSERT INTO metric_summary AS s (run_id, key_id, count, step, last, min, max)
-			SELECT $1::uuid, key_id, count(*) FILTER (WHERE fresh), max(step), (array_agg(value ORDER BY step DESC))[1], min(value), max(value)
+		INSERT INTO metric_summary AS s (run_id, key_id, count, first, step, last, min, max)
+			SELECT $1::uuid, key_id, count(*) FILTER (WHERE fresh), min(step), max(step), (array_agg(value ORDER BY step DESC))[1], min(value), max(value)
 			FROM ins GROUP BY key_id ORDER BY key_id
-		ON CONFLICT (run_id, key_id) DO UPDATE SET count = s.count + excluded.count,
+		ON CONFLICT (run_id, key_id) DO UPDATE SET count = s.count + excluded.count, first = least(s.first, excluded.first),
 			last = CASE WHEN excluded.step >= s.step THEN excluded.last ELSE s.last END,
 			step = greatest(s.step, excluded.step), min = least(s.min, excluded.min), max = greatest(s.max, excluded.max)`,
 		id, keyCol, stepCol, tsCol, valCol)
