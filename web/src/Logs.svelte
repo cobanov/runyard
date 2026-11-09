@@ -6,13 +6,26 @@
   let loaded = $state(false)
   let box = $state()
   let follow = true // stick to the bottom unless the reader scrolled up
+  let find = $state('')
+  let top = $state(false) // the first line is loaded
+  const shown = $derived(find.trim() ? lines.filter((l) => l.line.toLowerCase().includes(find.trim().toLowerCase())) : lines)
+  // tqdm and logging write to stderr, so the stream says nothing; the failed colour is for lines that name a failure.
+  const bad = (l) => l.stream === 2 && /error|exception|traceback|nan\b/i.test(l.line)
+  async function earlier() {
+    const before = lines[0].seq
+    const prev = await get(`/runs/${id}/logs?tail&before=${before}&limit=2000`)
+    top = prev.length < 2000
+    follow = false
+    lines = [...prev, ...lines]
+  }
 
   async function more() {
     const after = lines.at(-1)?.seq ?? 0
     const next = await get(after ? `/runs/${id}/logs?after=${after}&limit=2000` : `/runs/${id}/logs?tail&limit=1000`)
     loaded = true
     if (!next.length) return
-    lines = [...lines, ...next].slice(-5000)
+    if (!after) top = next.length < 1000
+    lines = [...lines, ...next].slice(-20000)
     if (follow) requestAnimationFrame(() => box && (box.scrollTop = box.scrollHeight))
   }
   const load = throttle(more, 1500)
@@ -23,11 +36,26 @@
 {#if loaded && !lines.length}
   <p class="empty">No output yet. Whatever the script prints shows up here{running ? ' as it happens' : ''}.</p>
 {:else}
-  <pre bind:this={box} onscroll={() => (follow = box.scrollTop + box.clientHeight >= box.scrollHeight - 8)}>{#each lines as l (l.seq)}<span class:err={l.stream === 2}>{l.line}
+  <div class="tools">
+    <input class="field" type="search" bind:value={find} placeholder="Find in the output" aria-label="Show only lines containing" />
+    {#if loaded && !top}<button onclick={earlier}>Earlier lines</button>{/if}
+    {#if find.trim()}<span class="muted small">{shown.length} of {lines.length} lines</span>{/if}
+  </div>
+  <pre bind:this={box} onscroll={() => (follow = box.scrollTop + box.clientHeight >= box.scrollHeight - 8)}>{#each shown as l (l.seq)}<span class:err={bad(l)} title={new Date(l.ts).toLocaleString()}>{l.line}
 </span>{/each}</pre>
 {/if}
 
 <style>
+  .tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .tools .field {
+    flex: 1 1 200px;
+  }
   pre {
     margin: 0;
     background: var(--panel);

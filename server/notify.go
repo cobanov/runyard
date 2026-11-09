@@ -171,7 +171,7 @@ func results(run Run) string {
 }
 
 func (s *srv) lastLines(ctx context.Context, runID string) string {
-	lines, _ := getLogs(ctx, s.db, runID, 0, 6, true)
+	lines, _ := getLogs(ctx, s.db, runID, 0, 0, 6, true)
 	if len(lines) == 0 {
 		return ""
 	}

@@ -112,7 +112,7 @@ func (s *srv) mcpHandler() http.Handler {
 			if err != nil {
 				return nil, nil, err
 			}
-			lines, err := getLogs(ctx, s.db, id, 0, or(in.Lines, 50), true)
+			lines, err := getLogs(ctx, s.db, id, 0, 0, or(in.Lines, 50), true)
 			if err != nil {
 				return nil, nil, err
 			}

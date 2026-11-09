@@ -72,7 +72,7 @@ func (s *srv) routes() http.Handler {
 	}))
 	mux.HandleFunc("GET /api/v1/runs/{id}/logs", s.read(func(r *http.Request) (any, error) {
 		tail := r.URL.Query().Has("tail")
-		return getLogs(r.Context(), s.db, r.PathValue("id"), int64(intParam(r, "after", 0)), intParam(r, "limit", 1000), tail)
+		return getLogs(r.Context(), s.db, r.PathValue("id"), int64(intParam(r, "after", 0)), int64(intParam(r, "before", 0)), intParam(r, "limit", 1000), tail)
 	}))
 	mux.HandleFunc("GET /api/v1/runs/{id}/media", s.read(func(r *http.Request) (any, error) {
 		q := r.URL.Query()

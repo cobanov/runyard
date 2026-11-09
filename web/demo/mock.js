@@ -641,6 +641,9 @@ function route(method, path, q, body) {
       let rs = [...runs.values()].sort(byStart)
       if (q.get('project')) rs = rs.filter((r) => r.project === q.get('project'))
       if (q.get('status')) rs = rs.filter((r) => r.status === q.get('status'))
+      const find = (q.get('q') || '').toLowerCase()
+      if (find) rs = rs.filter((r) => [r.name, ...(r.tags || [])].join(' ').toLowerCase().includes(find))
+      if (q.get('sort') === 'ended') rs.sort((a, b) => (b.ended_at || '').localeCompare(a.ended_at || ''))
       return ok(rs.slice(0, +q.get('limit') || 100).map((r) => pub(r, q.get('metrics') === '1')))
     }
     if (run && p.length === 2) return ok(pub(run, true))
@@ -651,11 +654,12 @@ function route(method, path, q, body) {
     }
     if (run && p[2] === 'logs') {
       const limit = +q.get('limit') || 1000
-      if (q.has('tail')) return ok(run.lines.slice(-limit))
+      const before = +q.get('before') || Infinity
+      if (q.has('tail')) return ok(run.lines.filter((l) => l.seq < before).slice(-limit))
       const after = +q.get('after') || 0
       return ok(run.lines.filter((l) => l.seq > after).slice(0, limit))
     }
-    if (run && p[2] === 'media') return ok(run.media)
+    if (run && p[2] === 'media') return ok(run.media.filter((m) => !q.get('kind') || m.kind === q.get('kind')))
     if (run && p[2] === 'artifacts') return ok([...run.artifacts].reverse())
     if (path === '/alerts') {
       let as = alerts.map((a) => ({ ...a, run_name: runs.get(a.run)?.name, project: runs.get(a.run)?.project })).filter((a) => a.run_name)

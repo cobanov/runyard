@@ -200,6 +200,10 @@ func TestWriteFlow(t *testing.T) {
 	if len(lines) != 1 || lines[0].Line != "warning" || lines[0].Stream != 2 {
 		t.Fatalf("logs: %+v", lines)
 	}
+	call(t, "GET", api+"/runs/"+runID+"/logs?tail&before=2&limit=5", "", nil, &lines) // paging back from line 2
+	if len(lines) != 1 || lines[0].Line != "epoch 1" {
+		t.Fatalf("earlier logs: %+v", lines)
+	}
 	var media []Media
 	call(t, "GET", api+"/runs/"+runID+"/media?kind=image", "", nil, &media)
 	if len(media) != 1 || media[0].Step != 3 || !strings.Contains(string(media[0].Meta), "grid") {

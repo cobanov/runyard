@@ -235,13 +235,15 @@ type LogLine struct {
 	Line   string    `json:"line"`
 }
 
-// getLogs returns up to limit lines after seq after, or the last limit lines when tail is set.
-func getLogs(ctx context.Context, db *pgxpool.Pool, id string, after int64, limit int, tail bool) ([]LogLine, error) {
-	q := `SELECT seq, ts, stream, line FROM logs WHERE run_id = $1::uuid AND seq > $2 ORDER BY seq LIMIT $3`
+// getLogs returns up to limit lines after seq after, or the last limit lines when tail is set; before (when not 0)
+// keeps to the lines ahead of that seq, so tail with before pages backwards through a long log.
+func getLogs(ctx context.Context, db *pgxpool.Pool, id string, after, before int64, limit int, tail bool) ([]LogLine, error) {
+	q := `SELECT seq, ts, stream, line FROM logs WHERE run_id = $1::uuid AND seq > $2 AND ($4 = 0 OR seq < $4) ORDER BY seq LIMIT $3`
 	if tail {
-		q = `SELECT * FROM (SELECT seq, ts, stream, line FROM logs WHERE run_id = $1::uuid AND seq > $2 ORDER BY seq DESC LIMIT $3) t ORDER BY seq`
+		q = `SELECT * FROM (SELECT seq, ts, stream, line FROM logs WHERE run_id = $1::uuid AND seq > $2 AND ($4 = 0 OR seq < $4)
+			ORDER BY seq DESC LIMIT $3) t ORDER BY seq`
 	}
-	rows, _ := db.Query(ctx, q, id, after, limit)
+	rows, _ := db.Query(ctx, q, id, after, min(limit, 10000), before)
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[LogLine])
 }
 
