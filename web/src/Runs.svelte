@@ -1,17 +1,29 @@
 <script>
-  import { get, send, why, onEvent, throttle, ago, runTime, live, fmt, plotValue, store, loadProjects } from './lib.svelte.js'
+  import { get, send, why, onEvent, throttle, ago, runTime, duration, live, fmt, plotValue, store, loadProjects, progressText, stuck } from './lib.svelte.js'
 
   let { project } = $props()
   let runs = $state(null)
   let status = $state('')
   let picked = $state([])
 
-  const load = throttle(() => get(`/runs?project=${encodeURIComponent(project)}&status=${status}&metrics=1`).then((r) => (runs = r)))
+  let limit = $state(200) // "Show more" raises it; the search asks the server, so it also finds runs past it
+  let query = $state('')
+  const load = throttle(() =>
+    get(`/runs?project=${encodeURIComponent(project)}&status=${status}&metrics=1&limit=${limit}&q=${encodeURIComponent(query.trim())}`)
+      .then((r) => (runs = r))
+      .catch(() => {}),
+  )
+  const refresh = throttle(load, 10000) // running runs' numbers: often enough to follow, not once per logged step
   $effect(() => {
-    status
+    status, limit, query
     load()
   })
-  $effect(() => onEvent((e) => (e.type === 'run' || e.type === 'reconnect') && load()))
+  $effect(() =>
+    onEvent((e) => {
+      if (e.type === 'run' || e.type === 'reconnect') load()
+      if (e.type === 'metrics' && runs?.some((r) => r.id === e.run)) refresh()
+    }),
+  )
 
   // Metric columns: the three keys logged by most runs, losses first.
   const cols = $derived.by(() => {
@@ -24,7 +36,6 @@
   const filters = ['', 'running', 'finished', 'failed', 'crashed']
 
   // Search by name or tag, then sort by a clicked column; null keeps the server's order (newest first).
-  let query = $state('')
   let sort = $state(null) // {key, dir: 1 | -1}
   const value = {
     status: (r) => r.status,
@@ -125,6 +136,7 @@
           {@render head('status', 'Status', 'st')}
           {@render head('run', 'Run', 'name')}
           {@render head('duration', 'Duration')}
+          <th>Progress</th>
           {@render head('started', 'Started')}
           <th>Tags</th>
           {#each cols as c}{@render head('m:' + c, c, 'num')}{/each}
@@ -135,17 +147,23 @@
           {@const m = r.metrics}
           <tr class="status-{r.status}">
             <td class="pick"><input type="checkbox" bind:group={picked} value={r.id} aria-label="Compare {r.name}" /></td>
-            <td class="st"><span class="badge">{r.status}</span></td>
+            <td class="st"><span class="badge">{r.status}</span>{#if stuck(r, live.now)}<span class="small quiet" title="No metric and no output line since then">no output {duration(stuck(r, live.now))}</span>{/if}</td>
             <td class="name"><a href="#/r/{r.id}">{r.name}</a>{#if r.host}<span class="muted small host">{r.host}</span>{/if}</td>
             <td>{runTime(r, live.now)}</td>
-            <td class="muted">{ago(r.started_at, live.now)}</td>
+            <td class="muted">{(r.status !== 'finished' && progressText(r, live.now).split(' · ').slice(1).join(' · ')) || '–'}</td>
+            <td class="muted" title={new Date(r.started_at).toLocaleString()}>{ago(r.started_at, live.now)}</td>
             <td>{#each r.tags as t}<span class="tag">{t}</span>{/each}</td>
-            {#each cols as c}<td class="num">{m?.[c] ? fmt(m[c].last) : ''}</td>{/each}
+            {#each cols as c}<td class="num">{#if m?.[c]}{fmt(m[c].last)}{:else}<span class="muted">–</span>{/if}</td>{/each}
           </tr>
         {/each}
       </tbody>
     </table>
   </div>
+  {#if runs.length >= limit && limit < 1000}
+    <p class="more muted small">The newest {runs.length} of {total} runs. <button onclick={() => (limit += 200)}>Show more</button> Search looks through all of them.</p>
+  {:else if runs.length >= 1000}
+    <p class="more muted small">The newest 1,000 of {total} runs. Search looks through all of them.</p>
+  {/if}
 {/if}
 
 <div class="remove">
@@ -172,6 +190,16 @@
 {/if}
 
 <style>
+  .more {
+    margin: 10px 0 0;
+  }
+  .more button {
+    margin: 0 6px;
+  }
+  .quiet {
+    display: block;
+    color: var(--crashed);
+  }
   .judge {
     display: flex;
     flex-wrap: wrap;

@@ -137,7 +137,7 @@ func listProjects(ctx context.Context, db *pgxpool.Pool) ([]Project, error) {
 // runFilter narrows a run list; empty fields match everything.
 type runFilter struct {
 	Project, Status, Tag string
-	Q                    string     // part of the name, any case
+	Q                    string     // part of the name or of a tag, any case
 	Before               *time.Time // started before this: the next page after a list's last run
 	Ended                bool       // newest end first instead of newest start, for "recently ended"
 }
@@ -150,7 +150,8 @@ func listRuns(ctx context.Context, db *pgxpool.Pool, f runFilter, limit int) ([]
 	}
 	rows, _ := db.Query(ctx, runSelect+`WHERE ($1 = '' OR p.name = $1) AND ($2 = '' OR r.status = $2) AND ($3 = '' OR $3 = ANY(r.tags))
 		AND ($5::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($5))
-		AND ($6 = '' OR position(lower($6) in lower(r.name)) > 0) AND ($7::timestamptz IS NULL OR r.started_at < $7)
+		AND ($6 = '' OR position(lower($6) in lower(r.name || ' ' || array_to_string(r.tags, ' '))) > 0)
+		AND ($7::timestamptz IS NULL OR r.started_at < $7)
 		ORDER BY `+order+` LIMIT $4`, f.Project, f.Status, f.Tag, limit, vis(ctx), f.Q, f.Before)
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Run, error) { return scanRun(row) })
 }

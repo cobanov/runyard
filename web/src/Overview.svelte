@@ -1,12 +1,13 @@
 <script>
-  import { get, send, onEvent, throttle, ago, runTime, live, fmt, plotValue, mainMetric, sysLoad } from './lib.svelte.js'
+  import { get, send, onEvent, throttle, ago, runTime, duration, live, fmt, plotValue, mainMetric, sysLoad, progressText, stuck, store } from './lib.svelte.js'
   import Sparkline from './Sparkline.svelte'
 
   let running = $state(null) // full runs, with their metric summaries
   let spark = $state({}) // run id -> last values of its main metric
-  let recent = $state([])
-  let alerts = $state([])
-  let machines = $state([]) // hosts running `runyard beacon`
+  // null until the first answer: "No alerts" is a statement, and must not show while nothing is known yet
+  let recent = $state(null)
+  let alerts = $state(null)
+  let machines = $state(null) // hosts running `runyard beacon`
   let error = $state('')
 
   const loadRunning = throttle(async () => {
@@ -28,9 +29,10 @@
       error = e.message
     }
   }, 4000)
-  const loadRecent = throttle(() => get('/runs?limit=40').then((r) => (recent = r.filter((x) => x.status !== 'running').slice(0, 8))))
-  const loadAlerts = throttle(() => get('/alerts?limit=5&active').then((a) => (alerts = a)))
-  const loadMachines = throttle(() => get('/hosts').then((h) => (machines = h)), 5000)
+  // By end, so a five-day run that just ended is first; running runs sort last and are left out.
+  const loadRecent = throttle(() => get('/runs?limit=8&sort=ended').then((r) => (recent = r.filter((x) => x.status !== 'running'))).catch(() => {}))
+  const loadAlerts = throttle(() => get('/alerts?limit=5&active').then((a) => (alerts = a)).catch(() => {}))
+  const loadMachines = throttle(() => get('/hosts').then((h) => (machines = h)).catch(() => {}), 5000)
   const dismissAll = () => send('POST', '/alerts/dismiss', {}).then(loadAlerts)
   loadRunning()
   loadRecent()
@@ -47,8 +49,8 @@
 
   // The beacons' machines, then any other host a running run reports sys/ metrics from.
   const hosts = $derived.by(() => {
-    const beacons = machines.map((m) => ({ host: m.name, silent: m.silent, ...m.stats, gpus: m.stats.gpus || [] }))
-    return [...beacons, ...sysLoad(running || []).filter((h) => !machines.some((m) => m.name === h.host))]
+    const beacons = (machines || []).map((m) => ({ host: m.name, silent: m.silent, ...m.stats, gpus: m.stats.gpus || [] }))
+    return [...beacons, ...sysLoad(running || []).filter((h) => !beacons.some((m) => m.host === h.host))]
   })
   const pct = (v) => (typeof v === 'number' ? Math.max(0, Math.min(100, v)) : 0)
   // Machine readings are glanced at, not compared: whole numbers, one decimal for gigabytes.
@@ -61,8 +63,12 @@
   {#if running}<span class="muted small">{running.length} running</span>{/if}
 </div>
 
-{#if error}
+{#if error && !running}
   <p class="empty">Could not load runs: {error}</p>
+{:else if running?.length === 0 && store.projects?.length === 0}
+  <div class="card card-pad quiet">
+    <p>No runs yet. <a href="#/settings">Settings</a> makes an API key and has the two lines to copy onto the machine that trains; the first run shows up here as it starts.</p>
+  </div>
 {:else if running?.length === 0}
   <div class="card card-pad quiet">
     <p class="muted">Nothing is training right now.</p>
@@ -74,7 +80,7 @@
       <a href="#/r/{r.id}" class="card run status-{r.status}">
         <div class="who">
           <span class="muted small">{r.project}</span>
-          <span class="badge">{r.status}</span>
+          {#if stuck(r, live.now)}<span class="badge status-crashed" title="No metric and no output line since then; the heartbeat still arrives">no output {duration(stuck(r, live.now))}</span>{:else}<span class="badge">{r.status}</span>{/if}
         </div>
         <span class="name">{r.name}</span>
         {#if k}
@@ -88,6 +94,7 @@
         {/if}
         <div class="meta muted small">
           <span>{runTime(r, live.now)}</span>
+          {#if progressText(r, live.now)}<span>{progressText(r, live.now).split(' · ').slice(1).join(' · ')}</span>{/if}
           <span>heartbeat {ago(r.last_heartbeat_at, live.now)}</span>
           {#if r.host}<span>{r.host}</span>{/if}
         </div>
@@ -98,7 +105,7 @@
 
 <section>
   <h2><a href="#/machines" class="h2link">Machine load</a></h2>
-  {#if !hosts.length}
+  {#if !hosts.length && machines}
     <p class="empty">No machines yet. Run <code>runyard beacon</code> on each one to see its GPUs, CPU and memory here, training or not: <a href="#/machines">Machines</a>.</p>
   {:else}
     <div class="hosts">
@@ -135,9 +142,9 @@
 <div class="two">
   <section>
     <h2>Recently ended</h2>
-    {#if !recent.length}
+    {#if recent?.length === 0}
       <p class="empty">No finished runs yet.</p>
-    {:else}
+    {:else if recent}
       <ul class="card row-list">
         {#each recent as r (r.id)}
           <li class="status-{r.status}">
@@ -153,9 +160,9 @@
   </section>
   <section>
     <h2>Alerts</h2>
-    {#if !alerts.length}
+    {#if alerts?.length === 0}
       <p class="empty">No alerts. Runs raise them when they stall, fail or call <code>run.alert()</code>.</p>
-    {:else}
+    {:else if alerts}
       <ul class="card row-list">
         {#each alerts as a (a.id)}
           <li class="level-{a.level}">

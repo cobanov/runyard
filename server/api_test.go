@@ -245,6 +245,9 @@ func TestWriteFlow(t *testing.T) {
 	if got := page("q=PIXEL64"); got != "Pixel64-long" {
 		t.Fatalf("search: %s", got)
 	}
+	if got := page("q=swee"); got != "pixel32" { // by tag
+		t.Fatalf("search by tag: %s", got)
+	}
 	call(t, "PATCH", api+"/runs/"+created["id"], key, map[string]any{"status": "finished"}, nil)
 	if got := page("sort=ended"); got != "Pixel64-long,pixel32" {
 		t.Fatalf("by end: %s", got)
