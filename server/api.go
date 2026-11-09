@@ -46,7 +46,11 @@ func (s *srv) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/projects", s.read(func(r *http.Request) (any, error) { return listProjects(r.Context(), s.db) }))
 	mux.HandleFunc("GET /api/v1/runs", s.read(func(r *http.Request) (any, error) {
 		q := r.URL.Query()
-		runs, err := listRuns(r.Context(), s.db, q.Get("project"), q.Get("status"), q.Get("tag"), intParam(r, "limit", 200))
+		f := runFilter{Project: q.Get("project"), Status: q.Get("status"), Tag: q.Get("tag"), Q: q.Get("q"), Ended: q.Get("sort") == "ended"}
+		if t, err := time.Parse(time.RFC3339Nano, q.Get("before")); err == nil {
+			f.Before = &t
+		}
+		runs, err := listRuns(r.Context(), s.db, f, min(intParam(r, "limit", 200), 1000))
 		if err == nil && q.Has("metrics") { // each run's metric summary too, as GET /runs/{id} has it
 			err = addMetrics(r.Context(), s.db, runs)
 		}
@@ -568,6 +572,7 @@ func (s *srv) heartbeat(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.hub.publish(event{Type: "run", Run: id}) // open pages show the heartbeat's age, and a revived run as running
 	return map[string]string{"status": status}, nil
 }
 

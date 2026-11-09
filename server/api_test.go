@@ -10,9 +10,11 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -20,12 +22,12 @@ import (
 // testServer gives a server on a freshly reset schema of the database in RUNYARD_TEST_DATABASE_URL
 // (`make test` starts a Postgres container for it) and a valid write key.
 func testServer(t *testing.T) (*httptest.Server, string, *srv) {
-	url := os.Getenv("RUNYARD_TEST_DATABASE_URL")
-	if url == "" {
+	dsn := os.Getenv("RUNYARD_TEST_DATABASE_URL")
+	if dsn == "" {
 		t.Skip("RUNYARD_TEST_DATABASE_URL not set; run `make test`")
 	}
 	ctx := context.Background()
-	db, err := pgxpool.New(ctx, url)
+	db, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,6 +221,39 @@ func TestWriteFlow(t *testing.T) {
 	call(t, "GET", api+"/runs?project=gba&metrics=1", "", nil, &runs)
 	if m := runs[0].Metrics["loss"]; len(runs) != 1 || m.Count != 3 || m.Step != 3 {
 		t.Fatalf("runs with metrics: %+v", runs)
+	}
+
+	// A long list comes in pages: before is the start of the last run shown. q searches names; sort=ended is
+	// for "recently ended", where a long run that just ended comes first.
+	second := map[string]any{"project": "gba", "name": "Pixel64-long", "started_at": time.Now().Add(-time.Hour)}
+	call(t, "POST", api+"/runs", key, second, &created)
+	page := func(query string) string {
+		var rs []Run
+		call(t, "GET", api+"/runs?project=gba&"+query, "", nil, &rs)
+		names := []string{}
+		for _, r := range rs {
+			names = append(names, r.Name)
+		}
+		return strings.Join(names, ",")
+	}
+	if got := page("limit=1"); got != "pixel32" {
+		t.Fatalf("first page: %s", got)
+	}
+	if got := page("limit=1&before=" + url.QueryEscape(run.StartedAt.Format(time.RFC3339Nano))); got != "Pixel64-long" {
+		t.Fatalf("second page: %s", got)
+	}
+	if got := page("q=PIXEL64"); got != "Pixel64-long" {
+		t.Fatalf("search: %s", got)
+	}
+	call(t, "PATCH", api+"/runs/"+created["id"], key, map[string]any{"status": "finished"}, nil)
+	if got := page("sort=ended"); got != "Pixel64-long,pixel32" {
+		t.Fatalf("by end: %s", got)
+	}
+	// Clients that ask get the API compressed.
+	req, _ := http.NewRequest("GET", api+"/runs", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	if res, _ := http.DefaultTransport.RoundTrip(req); res.Header.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("not compressed: %v", res.Header)
 	}
 }
 

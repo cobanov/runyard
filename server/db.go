@@ -90,7 +90,8 @@ type Run struct {
 	StartedAt       time.Time                `json:"started_at"`
 	EndedAt         *time.Time               `json:"ended_at"`
 	LastHeartbeatAt time.Time                `json:"last_heartbeat_at"`
-	Agent           *string                  `json:"agent"` // the agent session that started it, "<tool>:<session>"
+	ProgressAt      time.Time                `json:"progress_at"`   // the last metric (not sys/) or output line: alive but stuck shows here
+	Agent           *string                  `json:"agent"`         // the agent session that started it, "<tool>:<session>"
 	Env             json.RawMessage          `json:"env,omitempty"` // command line, Python, hardware, diff; GET /runs/{id} only
 	Metrics         map[string]metricSummary `json:"metrics,omitempty"`
 }
@@ -104,12 +105,12 @@ type metricSummary struct {
 }
 
 const runSelect = `SELECT r.id::text, p.name, r.name, r.status, r.config, r.summary, r.tags, r.notes, r.host, r.git,
-	r.started_at, r.ended_at, r.last_heartbeat_at, r.agent FROM runs r JOIN projects p ON p.id = r.project_id `
+	r.started_at, r.ended_at, r.last_heartbeat_at, r.progress_at, r.agent FROM runs r JOIN projects p ON p.id = r.project_id `
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.Project, &r.Name, &r.Status, &r.Config, &r.Summary, &r.Tags, &r.Notes, &r.Host, &r.Git,
-		&r.StartedAt, &r.EndedAt, &r.LastHeartbeatAt, &r.Agent)
+		&r.StartedAt, &r.EndedAt, &r.LastHeartbeatAt, &r.ProgressAt, &r.Agent)
 	return r, err
 }
 
@@ -133,10 +134,24 @@ func listProjects(ctx context.Context, db *pgxpool.Pool) ([]Project, error) {
 	})
 }
 
-// listRuns filters by project, status and tag; empty filters match everything.
-func listRuns(ctx context.Context, db *pgxpool.Pool, project, status, tag string, limit int) ([]Run, error) {
+// runFilter narrows a run list; empty fields match everything.
+type runFilter struct {
+	Project, Status, Tag string
+	Q                    string     // part of the name, any case
+	Before               *time.Time // started before this: the next page after a list's last run
+	Ended                bool       // newest end first instead of newest start, for "recently ended"
+}
+
+// listRuns returns the newest runs that pass f.
+func listRuns(ctx context.Context, db *pgxpool.Pool, f runFilter, limit int) ([]Run, error) {
+	order := `r.started_at DESC`
+	if f.Ended {
+		order = `r.ended_at DESC NULLS LAST`
+	}
 	rows, _ := db.Query(ctx, runSelect+`WHERE ($1 = '' OR p.name = $1) AND ($2 = '' OR r.status = $2) AND ($3 = '' OR $3 = ANY(r.tags))
-		AND ($5::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($5)) ORDER BY r.started_at DESC LIMIT $4`, project, status, tag, limit, vis(ctx))
+		AND ($5::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($5))
+		AND ($6 = '' OR position(lower($6) in lower(r.name)) > 0) AND ($7::timestamptz IS NULL OR r.started_at < $7)
+		ORDER BY `+order+` LIMIT $4`, f.Project, f.Status, f.Tag, limit, vis(ctx), f.Q, f.Before)
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Run, error) { return scanRun(row) })
 }
 
@@ -154,8 +169,8 @@ func getRun(ctx context.Context, db *pgxpool.Pool, id string) (Run, error) {
 	return runs[0], err
 }
 
-// addMetrics fills in each run's per-key metric summary, for all the runs in one query.
-// shortcut: scans every metric row of the runs; fine to ~10M rows, keep a per-key summary table past that.
+// addMetrics fills in each run's per-key metric summary, for all the runs in one query, from the table
+// writeMetrics keeps.
 func addMetrics(ctx context.Context, db *pgxpool.Pool, runs []Run) error {
 	ids := make([]string, len(runs))
 	byID := make(map[string]*Run, len(runs))

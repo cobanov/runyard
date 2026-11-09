@@ -14,7 +14,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -75,7 +77,21 @@ func main() {
 	addr := env("ADDR", ":8080")
 	log.Printf("runyard listening on %s", addr)
 	hs := &http.Server{Addr: addr, Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second} // no WriteTimeout: SSE streams stay open
-	log.Fatal(hs.ListenAndServe())
+	// On an upgrade (docker compose up sends SIGTERM) requests in flight and notifications being sent get ten
+	// seconds to end; the open event streams are what the deadline cuts.
+	stop, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	go func() {
+		<-stop.Done()
+		end, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		hs.Shutdown(end)
+	}()
+	if err := hs.ListenAndServe(); err != http.ErrServerClosed {
+		log.Fatal(err)
+	}
+	<-stop.Done()
+	time.Sleep(time.Second) // shortcut: notify goroutines are not tracked; a second covers the usual send
 }
 
 // waitDB retries the first connection for a while; under docker compose Postgres often starts after us.

@@ -88,7 +88,7 @@ func (s *srv) mcpHandler() http.Handler {
 		})
 	mcp.AddTool(server, &mcp.Tool{Name: "list_runs", Description: "Runs, newest first, with status, config and summary."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in listRunsIn) (*mcp.CallToolResult, any, error) {
-			return jsonResult(listRuns(ctx, s.db, in.Project, in.Status, in.Tag, or(in.Limit, 30)))
+			return jsonResult(listRuns(ctx, s.db, runFilter{Project: in.Project, Status: in.Status, Tag: in.Tag}, or(in.Limit, 30)))
 		})
 	mcp.AddTool(server, &mcp.Tool{Name: "get_run", Description: "One run: status, timing, host, git, config, summary, and per metric its count, last, min and max."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, any, error) {
@@ -221,8 +221,9 @@ func jsonResult(v any, err error) (*mcp.CallToolResult, any, error) {
 func (s *srv) resolveRun(ctx context.Context, ref string) (string, error) {
 	var id string
 	err := s.db.QueryRow(ctx, `SELECT r.id::text FROM runs r JOIN projects p ON p.id = r.project_id
-		WHERE (r.id::text LIKE $1 || '%' OR r.name = $1) AND ($2::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($2))
-		ORDER BY (r.id::text = $1) DESC, r.started_at DESC LIMIT 1`, strings.ToLower(strings.TrimSpace(ref)), vis(ctx)).Scan(&id)
+		WHERE (r.id::text LIKE $1 || '%' OR r.name = $3) AND ($2::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($2))
+		ORDER BY (r.id::text = $1) DESC, (r.name = $3) DESC, r.started_at DESC LIMIT 1`, // a name wins over another run's id prefix
+		strings.ToLower(strings.TrimSpace(ref)), vis(ctx), strings.TrimSpace(ref)).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) || ref == "" {
 		return "", fmt.Errorf("no run matches %q; list_runs shows the runs: %w", ref, pgx.ErrNoRows)
 	}
