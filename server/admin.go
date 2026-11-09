@@ -24,6 +24,11 @@ func (s *srv) admin(f func(*http.Request) (any, error)) http.HandlerFunc {
 			return
 		}
 		if !s.auth {
+			key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if s.keyOK(r) && !validKey(r.Context(), s.db, key, "admin") {
+				httpError(w, http.StatusForbidden, "this key only logs; use a key with full access")
+				return
+			}
 			s.write(f)(w, r)
 			return
 		}

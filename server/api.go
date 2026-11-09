@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -504,10 +505,25 @@ func (s *srv) postLogs(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A run keeps its newest keepLogs lines. The library numbers lines from 1, so the cut is a range on the primary
+	// key; it is made each time the count passes another ten thousand, not on every batch.
+	if n := len(seq); n > 0 && keepLogs > 0 && seq[n-1] > keepLogs && seq[n-1]/10000 != (seq[0]-1)/10000 {
+		s.db.Exec(r.Context(), `DELETE FROM logs WHERE run_id = $1::uuid AND seq <= $2`, id, seq[n-1]-keepLogs)
+	}
 	s.progressed(r.Context(), id)
 	s.hub.publish(event{Type: "logs", Run: id})
 	return map[string]int{"written": len(lines)}, nil
 }
+
+// keepLogs is how many output lines a run keeps, RUNYARD_LOG_LINES (0: all of them). A million lines is a week of
+// a line every half second; a run that prints a hundred a second would otherwise add 8.6 million rows a day.
+var keepLogs = func() int64 {
+	n, err := strconv.ParseInt(os.Getenv("RUNYARD_LOG_LINES"), 10, 64)
+	if err != nil {
+		return 1_000_000
+	}
+	return n
+}()
 
 var safeExt = regexp.MustCompile(`^\.[a-z0-9]{1,5}$`)
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)

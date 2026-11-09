@@ -272,6 +272,7 @@ func (s *srv) markCrashed(ctx context.Context, after time.Duration) []string {
 func (s *srv) watchCrashes(ctx context.Context) {
 	// Wait one window first: right after a server restart every run looks silent until its next heartbeat.
 	t := time.NewTimer(crashAfter)
+	sweeps := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -282,6 +283,10 @@ func (s *srv) watchCrashes(ctx context.Context) {
 		s.markStalled(ctx)
 		s.markSilentHosts(ctx)
 		s.notifyWaiting(ctx)
+		if sweeps++; sweeps%120 == 1 { // hourly: agent sessions that never became a card are noise after a month
+			s.db.Exec(ctx, `DELETE FROM agent_sessions a WHERE a.seen_at < now() - interval '30 days' AND NOT a.card AND a.report = ''
+				AND NOT EXISTS (SELECT 1 FROM runs WHERE agent = a.id)`)
+		}
 		t.Reset(30 * time.Second)
 	}
 }

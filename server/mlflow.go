@@ -621,7 +621,7 @@ func (s *srv) mlPutArtifact(r *http.Request) (any, error) {
 	if !ok || name == "" || strings.HasSuffix(name, "/") {
 		return nil, mlErr{400, "INVALID_PARAMETER_VALUE", "not an artifact path of a run: " + r.PathValue("path")}
 	}
-	s.mlRemoveArtifact(r.Context(), runID, name) // MLflow overwrites by path
+	// MLflow overwrites by path; addArtifact removes the old file once the new one has landed.
 	_, err := s.addArtifact(r.Context(), runID, Artifact{ID: newUUID(), Name: name, Kind: "mlflow"}, r.Body, r.ContentLength, name)
 	return struct{}{}, err
 }

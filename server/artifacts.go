@@ -97,6 +97,17 @@ func (s *srv) postArtifact(r *http.Request) (any, error) {
 }
 
 // addArtifact stores body (when not nil) and records the artifact. A retry of one that already landed returns it as is.
+type counted struct {
+	io.Reader
+	n int64
+}
+
+func (c *counted) Read(p []byte) (int, error) {
+	n, err := c.Reader.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
 func (s *srv) addArtifact(ctx context.Context, runID string, a Artifact, body io.Reader, size int64, filename string) (Artifact, error) {
 	if prev, err := scanArtifacts(s.db.Query(ctx, artifactSelect+`WHERE id = $1::uuid`, a.ID)); err != nil || len(prev) == 1 {
 		if err != nil {
@@ -116,10 +127,15 @@ func (s *srv) addArtifact(ctx context.Context, runID string, a Artifact, body io
 			ext = ""
 		}
 		key := runID + "/artifacts/" + a.ID + ext
-		if err := s.store.put(ctx, key, body, size); err != nil {
+		n := &counted{Reader: body}
+		if err := s.store.put(ctx, key, n, size); err != nil {
 			return a, err
 		}
+		size = n.n // a chunked upload comes without a length
 		a.Path, a.Size = &key, &size
+		if a.Kind == "mlflow" {
+			s.mlRemoveArtifact(ctx, runID, a.Name) // only now: a failed upload leaves the old file in place
+		}
 	}
 	err := s.db.QueryRow(ctx, `INSERT INTO artifacts (id, run_id, name, kind, step, uri, path, size, meta)
 		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9::jsonb) RETURNING created_at`,

@@ -99,7 +99,7 @@ func listAgents(ctx context.Context, db *pgxpool.Pool, project string, hours int
 		FROM agent_sessions a LEFT JOIN projects p ON p.id = a.project_id LEFT JOIN runs rr ON rr.id = a.report_run
 		LEFT JOIN runs r ON r.agent = a.id
 		LEFT JOIN LATERAL (SELECT id, name, status, ended_at FROM runs WHERE agent = a.id ORDER BY started_at DESC LIMIT 1) l ON true
-		WHERE ($1::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($1)) AND ($2 = '' OR p.name = $2)
+		WHERE ($1::bigint[] IS NULL OR (p.id IS NOT NULL AND (p.team_id IS NULL OR p.team_id = ANY($1)))) AND ($2 = '' OR p.name = $2)
 		GROUP BY a.id, p.id, rr.id, l.id, l.name, l.status, l.ended_at
 		HAVING (a.card OR count(r.id) > 0 OR a.report <> '') AND greatest(a.seen_at, max(coalesce(r.ended_at, r.last_heartbeat_at))) > now() - $3 * interval '1 hour'
 		ORDER BY 24 DESC LIMIT 200`, vis(ctx), project, hours)

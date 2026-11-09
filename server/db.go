@@ -63,6 +63,9 @@ func (n num) MarshalJSON() ([]byte, error) {
 
 func (n *num) UnmarshalJSON(b []byte) error {
 	var f float64
+	if string(b) == "null" { // Go reads null into a float as 0, which would be a made-up measurement
+		return errors.New("metric values must be numbers, not null")
+	}
 	if err := json.Unmarshal(b, &f); err == nil {
 		*n = num(f)
 		return nil
@@ -316,6 +319,11 @@ type runPatch struct {
 
 // patchRun applies p and reports the status before and after, so callers can notify on a transition.
 func patchRun(ctx context.Context, db *pgxpool.Pool, id string, p runPatch) (before, after string, err error) {
+	for _, j := range []json.RawMessage{p.Config, p.Summary} {
+		if nullJSON(j) != nil && j[0] != '{' { // || would turn the column into an array for good
+			return "", "", badRequest{errors.New("config and summary must be objects")}
+		}
+	}
 	err = db.QueryRow(ctx, `UPDATE runs r SET
 			name = coalesce($2, r.name),
 			status = coalesce($3, r.status),

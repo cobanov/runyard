@@ -98,6 +98,7 @@ func (s *srv) markStalled(ctx context.Context) {
 	rows, _ := s.db.Query(ctx, `SELECT r.id::text, c.id, c.level, c.value FROM runs r
 		JOIN checks c ON c.kind = 'stall' AND (c.project_id IS NULL OR c.project_id = r.project_id)
 		WHERE r.status = 'running' AND r.progress_at < now() - c.value * interval '1 minute'
+		AND (r.crash_after IS NULL OR c.project_id IS NOT NULL) -- MLflow runs are quiet by nature: only their project's own check
 		AND NOT EXISTS (SELECT 1 FROM alerts WHERE run_id = r.id AND check_id = c.id)`)
 	type hit struct {
 		Run     string

@@ -12,6 +12,7 @@ import (
 	"embed"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -38,6 +39,14 @@ var cmds = map[string]func(context.Context, *pgxpool.Pool, []string) error{
 
 func main() {
 	ctx := context.Background()
+	if len(os.Args) > 1 && os.Args[1] == "health" { // the container's healthcheck: is the server on this machine answering
+		_, port, _ := net.SplitHostPort(env("ADDR", ":8080"))
+		res, err := http.Get("http://127.0.0.1:" + port + "/api/v1/health")
+		if err != nil || res.StatusCode != http.StatusOK {
+			os.Exit(1)
+		}
+		return
+	}
 	db, err := pgxpool.New(ctx, env("DATABASE_URL", "postgres://runyard:runyard@localhost:5432/runyard?sslmode=disable"))
 	if err != nil {
 		log.Fatal(err)
