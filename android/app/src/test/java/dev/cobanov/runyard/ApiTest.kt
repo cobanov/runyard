@@ -228,4 +228,45 @@ class ApiTest {
         demo.send("/api/v1/runs/${live.id}", "DELETE")
         assertEquals(listOf("waiting", "done"), parseAgents(demo.get("/api/v1/agents")).map { it.state })
     }
+
+    @Test fun designHelpers() {
+        // Counts read like a person wrote them, with a dot for decimals in every locale.
+        val was = java.util.Locale.getDefault()
+        java.util.Locale.setDefault(java.util.Locale.GERMANY)
+        try {
+            assertEquals("1,500", count(1500.0))
+            assertEquals("2.5", count(2.5))
+            assertEquals("31.4 GB", gb(31.44))
+            assertEquals("97%", pct(97.4))
+        } finally { java.util.Locale.setDefault(was) }
+        assertEquals("12m", brief(12 * 60 + 40.0))
+        assertEquals("2h", brief(2 * 3600 + 300.0))
+        // Gridlines: three to five round values inside the range.
+        assertEquals(listOf(0.3, 0.4, 0.5, 0.6, 0.7), ticks(0.28, 0.75).map { Math.round(it * 10) / 10.0 })
+        assertEquals(listOf(0.0, 25.0, 50.0, 75.0, 100.0), ticks(-3.0, 103.0).map { it + 0.0 })
+        assertEquals(listOf(5.0), ticks(5.0, 5.0))
+        for ((lo, hi) in listOf(0.0 to 1.0, 0.123 to 0.129, -40.0 to 2600.0, 1e-5 to 1.1e-4)) assertTrue("$lo..$hi", ticks(lo, hi).size in 2..5)
+        // The machine in a line: the first GPU and how many more, or the CPU where there is none.
+        val gpu = SysLoad.Gpu(0, 97.2, 31.44, 68.4, 300.0)
+        assertEquals("GPU 97% · 31.4 GB · 68 °C · +1", SysLoad(33.0, 11.2, listOf(gpu, gpu.copy(id = 1))).line)
+        assertEquals("CPU 33% · RAM 11.2 GB", SysLoad(33.0, 11.2, emptyList()).line)
+        // Config values as written.
+        assertEquals(listOf("a" to "0.0001", "b" to "16", "c" to "3600", "d" to "0.000123456", "e" to "2.5e-05"),
+            flat(org.json.JSONObject("""{"a":1e-4,"b":16.0,"c":3600,"d":0.000123456,"e":0.000025}""")))
+        // The newest image by the time it was logged, by step where the server does not say.
+        val m = Media("1", "k", 10, "image", "/media/a.png", null)
+        assertEquals("b", latestImage(listOf(m, m.copy(id = "b", step = 20), m.copy(id = "t", step = 30, kind = "text")))?.id)
+        assertEquals("old", latestImage(listOf(m.copy(createdAt = 5), m.copy(id = "old", step = 1, createdAt = 9)))?.id)
+        // One scrubber for every key: a key with nothing at the step shows its last before it, one that starts later shows nothing yet.
+        val grid = listOf(m.copy(id = "a10", key = "a"), m.copy(id = "a20", key = "a", step = 20), m.copy(id = "b10", key = "b"), m.copy(id = "c20", key = "c", step = 20))
+        assertEquals(listOf("a10", "b10"), samplesAt(grid, 10).map { it.id })
+        assertEquals(listOf("a20", "b10", "c20"), samplesAt(grid, 20).map { it.id })
+        // The line under the home screen's title.
+        val now = date("2026-05-01T12:00:00Z")!!
+        val r = parseRuns(runs).single()
+        val utc = java.time.ZoneOffset.UTC
+        assertEquals("Nothing is training", summary(emptyList(), now, utc))
+        assertEquals("1 running · 1 failed today", summary(listOf(r.copy(status = "running"), r.copy(status = "failed", endedAt = now - 3_600_000),
+            r.copy(status = "failed", endedAt = now - 2 * 86_400_000)), now, utc))
+    }
 }

@@ -57,7 +57,9 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -76,6 +78,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -151,10 +154,10 @@ fun Root(store: Store) {
             Text("${store.server}\n$error", color = T.muted, fontSize = 14.sp, modifier = Modifier.padding(vertical = 12.dp))
             PrimaryButton("Try again", busy = busy) { scope.launch { retry() } }
             Text("It keeps trying on its own.", color = T.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
-            TextButton(onClick = store::leave) { Text("Change server") }
+            TextButton(onClick = store::leave) { Text("Change server", color = T.ink) }
         }
         store.me == null -> Centered {
-            CircularProgressIndicator(color = T.running)
+            CircularProgressIndicator(color = T.muted, strokeWidth = 2.dp)
             LaunchedEffect(store.server) { store.loadMe() }
         }
         store.needsLogin -> LoginScreen(store)
@@ -185,7 +188,7 @@ fun SwitchDialog(store: Store, address: String) {
     )
 }
 
-val Title = androidx.compose.ui.text.TextStyle(fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+val Title = androidx.compose.ui.text.TextStyle(fontSize = 24.sp, fontWeight = FontWeight.Bold, letterSpacing = Tight)
 
 @Composable
 fun Centered(content: @Composable () -> Unit) {
@@ -200,7 +203,8 @@ fun PrimaryButton(text: String, enabled: Boolean = true, busy: Boolean = false, 
     Button(
         onClick = onClick, enabled = enabled && !busy, modifier = Modifier.fillMaxWidth().height(44.dp),
         shape = RoundedCornerShape(6.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = T.ink, contentColor = T.paper),
+        // Disabled it is still plainly the screen's one filled button, only fainter: never a pale pill that reads as a field.
+        colors = ButtonDefaults.buttonColors(containerColor = T.ink, contentColor = T.paper, disabledContainerColor = T.ink.copy(alpha = 0.3f), disabledContentColor = T.paper),
     ) {
         if (busy) CircularProgressIndicator(Modifier.size(18.dp), color = T.paper, strokeWidth = 2.dp)
         else Text(text, fontWeight = FontWeight.Medium)
@@ -212,6 +216,8 @@ fun Field(value: String, onChange: (String) -> Unit, label: String, placeholder:
           keyboard: KeyboardType = KeyboardType.Text, done: () -> Unit = {}) {
     OutlinedTextField(
         value, onChange, label = { Text(label) }, placeholder = { Text(placeholder, color = T.muted) }, singleLine = true,
+        colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = T.rule, focusedBorderColor = T.ink, unfocusedLabelColor = T.muted, focusedLabelColor = T.ink,
+            cursorColor = T.ink, unfocusedContainerColor = T.panel, focusedContainerColor = T.panel),
         visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         keyboardOptions = KeyboardOptions(keyboardType = keyboard, imeAction = ImeAction.Go, autoCorrectEnabled = false),
         keyboardActions = KeyboardActions(onGo = { done() }),
@@ -237,28 +243,24 @@ fun ConnectScreen(store: Store) {
     }
     LaunchedEffect(store.link) { store.link?.let { address = it; store.link = null; connect() } }
     Centered {
-        LogoMark(Modifier.size(72.dp))
-        Text("runyard", fontSize = 34.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-        Text("Connect to your training server", color = T.muted)
+        LogoMark(Modifier.size(56.dp))
+        Text("runyard", style = Title, modifier = Modifier.padding(top = 8.dp))
+        Text("Your training runs, from your own server", color = T.muted, fontSize = 14.sp)
         Spacer(Modifier.height(32.dp))
-        Field(address, { address = it }, "Server address", "192.168.1.10:8080", keyboard = KeyboardType.Uri, done = connect)
+        if (store.servers.isNotEmpty()) {
+            Text("Your servers", color = T.muted, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+            ServerList(store)
+            Spacer(Modifier.height(24.dp))
+        }
+        Field(address, { address = it }, if (store.servers.isEmpty()) "Server address" else "Another server's address", keyboard = KeyboardType.Uri, done = connect)
         Text(
-            error ?: "An IP address or host name. Without http:// the app tries https first, and without a port also 8080.",
+            error ?: "IP or host name, as in 192.168.1.10:8080",
             color = if (error == null) T.muted else T.failed, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 16.dp),
         )
         PrimaryButton("Connect", enabled = address.isNotBlank(), busy = busy, onClick = connect)
-        if (store.servers.isNotEmpty()) {
-            Text("Your servers", color = T.muted, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 6.dp))
-            ServerList(store)
-        }
-        Spacer(Modifier.height(28.dp))
-        HorizontalDivider(color = T.rule)
         Spacer(Modifier.height(20.dp))
-        Text("No server yet?", color = T.muted, fontSize = 14.sp)
-        OutlinedButton(
-            onClick = store::startDemo, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(44.dp), shape = RoundedCornerShape(6.dp),
-        ) { Text("Try the demo", color = T.ink, fontWeight = FontWeight.Medium) }
-        Text("Made-up runs that keep training on your phone.", color = T.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+        TextButton(onClick = store::startDemo) { Text("Try the demo", color = T.ink, fontWeight = FontWeight.Medium) }
+        Text("Made-up runs that keep training on your phone.", color = T.muted, fontSize = 13.sp)
     }
 }
 
@@ -280,33 +282,34 @@ fun LoginScreen(store: Store) {
         Unit
     }
     Centered {
-        Text("Sign in", fontSize = 34.sp, fontWeight = FontWeight.Bold)
-        Text(store.server.substringAfter("://"), color = T.muted)
-        if (store.plainHttp) Text("http, not encrypted", color = T.crashed, fontSize = 13.sp)
+        Text("Sign in", style = Title)
+        Text(store.server.substringAfter("://") + if (store.plainHttp) " · http, not encrypted" else "", color = T.muted, fontSize = 14.sp)
         Spacer(Modifier.height(24.dp))
         Field(name, { name = it }, "Name")
         Spacer(Modifier.height(8.dp))
         Field(password, { password = it }, "Password", password = true, keyboard = KeyboardType.Password, done = login)
         Text(error ?: "", color = T.failed, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
         PrimaryButton("Sign in", enabled = name.isNotEmpty() && password.isNotEmpty(), busy = busy, onClick = login)
-        TextButton(onClick = store::leave) { Text("Change server", color = T.muted) }
+        TextButton(onClick = store::leave) { Text("Change server", color = T.ink) }
     }
 }
 
 sealed interface Route {
     data class Project(val name: String) : Route
-    data class RunR(val id: String) : Route
+    /** `samples` opens the run on its samples: the tap on a running card's thumbnail. */
+    data class RunR(val id: String, val samples: Boolean = false) : Route
 }
 
 @Composable
 fun Main(store: Store) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val stack = rememberSaveable(saver = listSaver(
-        save = { it.map { r -> when (r) { is Route.Project -> "p" + r.name; is Route.RunR -> "r" + r.id } } },
-        restore = { it.map { s -> if (s[0] == 'p') Route.Project(s.drop(1)) else Route.RunR(s.drop(1)) }.toMutableStateList() },
+        save = { it.map { r -> when (r) { is Route.Project -> "p" + r.name; is Route.RunR -> (if (r.samples) "s" else "r") + r.id } } },
+        restore = { it.map { s -> if (s[0] == 'p') Route.Project(s.drop(1)) else Route.RunR(s.drop(1), s[0] == 's') }.toMutableStateList() },
     )) { mutableStateListOf<Route>() }
-    var active by remember { mutableIntStateOf(0) }
-    val badge: suspend () -> Unit = { runCatching { active = parseAlerts(store.get("/api/v1/alerts?active&limit=20")).size } }
+    // The alerts nobody dismissed: the tab's badge, and the first row of the home screen.
+    var active by remember { mutableStateOf(listOf<Alert>()) }
+    val badge: suspend () -> Unit = { runCatching { active = parseAlerts(store.get("/api/v1/alerts?active&limit=20")) } }
     Poll(Unit, { 15_000 }, badge)
     LaunchedEffect(store.openRun) {
         store.openRun?.let { if (stack.lastOrNull() != Route.RunR(it)) stack.add(Route.RunR(it)); store.openRun = null }
@@ -325,7 +328,7 @@ fun Main(store: Store) {
                             selected = tab == i, onClick = { tab = i; stack.clear() },
                             icon = {
                                 BadgedBox(badge = {
-                                    if (i == 1 && active > 0) Badge(containerColor = T.failed, contentColor = T.paper) { Text(if (active < 20) "$active" else "20+") }
+                                    if (i == 1 && active.isNotEmpty()) Badge(containerColor = T.failed, contentColor = T.paper) { Text(if (active.size < 20) "${active.size}" else "20+") }
                                 }) { Icon(icon, contentDescription = null) }
                             },
                             label = { Text(label) },
@@ -346,12 +349,12 @@ fun Main(store: Store) {
                         Box(Modifier.fillMaxSize().layout { m, c -> m.measure(c).let { p -> layout(p.width, p.height) { if (top) p.place(0, 0) } } }) {
                             when (r) {
                                 null -> when (tab) {
-                                    0 -> HomeScreen(store, open)
+                                    0 -> HomeScreen(store, active, { tab = 1 }, open)
                                     1 -> AlertsScreen(store, open, badge)
                                     else -> ServerScreen(store)
                                 }
                                 is Route.Project -> RunsScreen(store, r.name, open, back)
-                                is Route.RunR -> RunScreen(store, r.id, back)
+                                is Route.RunR -> RunScreen(store, r.id, back, r.samples)
                             }
                         }
                     }
@@ -368,8 +371,7 @@ fun DemoBar(store: Store) {
         Modifier.fillMaxWidth().background(T.soft).statusBarsPadding().padding(start = 16.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Dot(T.running)
-        Text("Demo: made-up runs", fontSize = 13.sp, color = T.ink, modifier = Modifier.padding(start = 8.dp).weight(1f))
+        Text("Demo: made-up runs", fontSize = 13.sp, color = T.muted, modifier = Modifier.weight(1f))
         TextButton(onClick = store::leaveDemo, contentPadding = PaddingValues(horizontal = 12.dp)) {
             Text("Connect a server", fontSize = 13.sp, color = T.ink, fontWeight = FontWeight.Medium)
         }
@@ -389,67 +391,87 @@ fun ServerScreen(store: Store) {
     Poll(Unit, { 10_000 }, load)
     Screen("Server") {
         Refreshable(load) {
-            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
-                if (machines.isNotEmpty()) {
-                    item { SectionTitle("Machines") }
-                    items(machines, key = { it.name }) { MachineRow(it) }
-                    item { Text("From runyard beacon on each machine: every process on its GPUs, whoever started it.", fontSize = 12.sp, color = T.muted) }
-                }
-                item { SectionTitle("Server") }
+            LazyColumn(contentPadding = ListPadding, verticalArrangement = ListGap, modifier = Modifier.fillMaxSize()) {
+                // Where the app is and as whom: the title already says "Server", so no heading says it again.
                 item {
                     Panel {
-                        KeyValue("Address", if (store.demo) "Demo, inside the app" else store.server)
-                        if (store.plainHttp) KeyValue("Connection", "http, not encrypted")
-                        store.me?.let { KeyValue("Signed in as", if (it.auth) it.user else "Open server, no sign-in") }
-                        KeyValue("App version", version)
-                    }
-                }
-                if (!store.demo) item {
-                    Panel {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Notify me when a run ends or an alert fires", modifier = Modifier.weight(1f).padding(end = 12.dp))
-                            Switch(checked = store.notify, onCheckedChange = { on ->
-                                if (on && Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-                                    ask.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                else notify(on)
-                            })
+                            Column(Modifier.weight(1f)) {
+                                Text(if (store.demo) "The demo" else store.server, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    if (store.demo) "made-up runs, inside the app"
+                                    else listOfNotNull(if (store.plainHttp) "http, not encrypted" else null, store.me?.let { if (it.auth) "signed in as ${it.user}" else "open server" }).joinToString(" · "),
+                                    fontSize = 13.sp, color = T.muted,
+                                )
+                            }
+                            if (store.demo) TextButton(onClick = store::leaveDemo) { Text("Leave", color = T.ink) }
+                            else if (store.me?.auth == true) TextButton(onClick = { scope.launch { store.logout() } }) { Text("Sign out", color = T.ink) }
                         }
-                        Text(
-                            if (denied) "Android does not let runyard notify. Allow it in the system settings, then turn this on."
-                            else "The app asks the server when Android lets it, about every 15 minutes and less often while the phone sleeps, " +
-                                "so a notification can be that late. The server's own channels are instant: ntfy, Slack or Telegram.",
-                            fontSize = 12.sp, color = if (denied) T.crashed else T.muted, modifier = Modifier.padding(top = 6.dp),
-                        )
                     }
                 }
                 if (!store.demo) {
-                    item { SectionTitle("Your servers") }
-                    item { ServerList(store) }
-                    item { Text("Tap one to switch to it, signed in as you left it. Long-press to forget it.", fontSize = 12.sp, color = T.muted) }
-                }
-                item {
-                    Column {
-                        if (store.me?.auth == true && !store.demo) TextButton(onClick = { scope.launch { store.logout() } }) { Text("Sign out", color = T.ink) }
-                        if (store.demo) TextButton(onClick = store::leaveDemo) { Text("Leave the demo", color = T.ink) }
-                        else TextButton(onClick = store::leave) { Text("Change server", color = T.ink) }
+                    item { SectionTitle("Servers") }
+                    item { ServerList(store, add = store::leave) }
+                    item { SectionTitle("Notifications") }
+                    item {
+                        Panel {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("When a run ends or an alert fires", modifier = Modifier.weight(1f).padding(end = 12.dp))
+                                Switch(checked = store.notify, onCheckedChange = { on ->
+                                    if (on && Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                                        ask.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    else notify(on)
+                                }, colors = SwitchDefaults.colors(uncheckedTrackColor = T.soft, uncheckedBorderColor = T.rule, uncheckedThumbColor = T.muted))
+                            }
+                            Text(
+                                if (denied) "Android does not let runyard notify. Allow it in the system settings, then turn this on."
+                                else "Checked in the background, so they can arrive late. For instant ones, use ntfy or web push from the server.",
+                                fontSize = 13.sp, color = if (denied) T.crashed else T.muted, modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
                     }
                 }
+                if (machines.isNotEmpty()) {
+                    item { SectionTitle("Machines") }
+                    items(machines, key = { it.name }) { MachineRow(it) }
+                    item { Text("From runyard beacon on each machine: every process on its GPUs, whoever started it.", fontSize = 13.sp, color = T.muted) }
+                }
+                item { Text("runyard $version", fontSize = 13.sp, color = T.muted, modifier = Modifier.padding(top = 10.dp)) }
             }
         }
     }
 }
 
+/**
+ * A machine: the CPU and RAM in a line, then each GPU with its load at the right, one neutral bar, and under it
+ * what runs there, so "GPU 0" is said once. Amber only when the machine went silent; its last readings then fade.
+ */
 @Composable
 fun MachineRow(m: Machine) {
+    val small = @Composable { text: String -> Text(text, fontSize = 13.sp, color = T.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
     Panel {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(m.name, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            if (m.silent) Text("silent since ${clock(m.seenAt)}", fontSize = 12.sp, color = T.crashed)
+            Text(m.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (m.silent) Text("silent since ${clock(m.seenAt)}", fontSize = 13.sp, color = T.crashed, modifier = Modifier.padding(start = 8.dp))
         }
-        Spacer(Modifier.height(8.dp))
-        MachineStrip(m.load, dim = m.silent)
-        m.procs.forEach { Text(it, fontSize = 12.sp, color = T.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, style = Num) }
-        if (m.runs.isNotEmpty()) Text("Training " + m.runs.joinToString(", "), fontSize = 12.sp, color = T.running, modifier = Modifier.padding(top = 4.dp))
+        Column(Modifier.alpha(if (m.silent) 0.5f else 1f)) {
+            listOfNotNull(m.load.cpu?.let { "CPU ${pct(it)}" }, m.load.ramGB?.let { "RAM ${gb(it)}" }).takeIf { it.isNotEmpty() }?.let { small(it.joinToString(" · ")) }
+            m.load.gpus.forEach { g ->
+                Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("GPU ${g.id}", fontSize = 13.sp)
+                    Text(listOfNotNull(g.memGB?.let(::gb), g.tempC?.let { "${Math.round(it)} °C" }, g.powerW?.let { "${Math.round(it)} W" }).joinToString(" · "),
+                        fontSize = 13.sp, color = T.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp).weight(1f))
+                    Text(g.util?.let(::pct) ?: "–", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (g.util == null) T.muted else T.ink)
+                }
+                Meter(g.util ?: 0.0, Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp))
+                m.procs.filter { it.startsWith("GPU ${g.id} · ") }.forEach { small(it.removePrefix("GPU ${g.id} · ")) }
+            }
+            m.procs.filter { p -> m.load.gpus.none { p.startsWith("GPU ${it.id} · ") } }.forEach { small(it) }
+        }
+        if (m.runs.isNotEmpty()) Text(androidx.compose.ui.text.buildAnnotatedString {
+            pushStyle(androidx.compose.ui.text.SpanStyle(color = T.running)); append("training"); pop()
+            append(" " + m.runs.joinToString(", "))
+        }, fontSize = 13.sp, color = T.muted, modifier = Modifier.padding(top = 10.dp))
     }
 }
 

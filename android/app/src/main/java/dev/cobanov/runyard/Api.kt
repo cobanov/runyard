@@ -39,6 +39,7 @@ data class Run(
     val startedAt: Long,
     val endedAt: Long?,
     val lastHeartbeatAt: Long?,
+    val progressAt: Long?, // the last time it logged anything; a server before 0.7 does not say
     val metrics: Map<String, MetricSummary>?, // only with metrics=1 or from GET /runs/{id}
 ) {
     val running get() = status == "running"
@@ -83,7 +84,14 @@ data class Run(
 
 /** A machine's latest readings, from the sys/ metrics the client logs (sys/cpu, sys/ram_gb, sys/gpu{i}.util ...). */
 data class SysLoad(val cpu: Double?, val ramGB: Double?, val gpus: List<Gpu>) {
-    data class Gpu(val id: Int, val util: Double?, val memGB: Double?, val tempC: Double?, val powerW: Double?)
+    data class Gpu(val id: Int, val util: Double?, val memGB: Double?, val tempC: Double?, val powerW: Double?) {
+        val line get() = listOfNotNull("GPU" + util?.let { " ${pct(it)}" }.orEmpty(), memGB?.let(::gb), tempC?.let { "${Math.round(it)} °C" }).joinToString(" · ")
+    }
+
+    /** The machine in one line: the first GPU ("+1" when there are more), or the CPU and RAM where there is none. */
+    val line: String
+        get() = gpus.firstOrNull()?.let { it.line + if (gpus.size > 1) " · +${gpus.size - 1}" else "" }
+            ?: listOfNotNull(cpu?.let { "CPU ${pct(it)}" }, ramGB?.let { "RAM ${gb(it)}" }).joinToString(" · ")
 
     companion object {
         fun of(metrics: Map<String, MetricSummary>?): SysLoad? {
@@ -105,7 +113,15 @@ data class Series(val step: List<Int>, val min: List<Double>, val max: List<Doub
 
 data class LogLine(val seq: Int, val ts: Long, val stream: Int, val line: String)
 
-data class Media(val id: String, val key: String, val step: Int, val kind: String, val url: String, val caption: String?)
+data class Media(val id: String, val key: String, val step: Int, val kind: String, val url: String, val caption: String?, val createdAt: Long? = null)
+
+/** What the samples grid shows at `step`, key by key: what each key logged there, or the last it logged before. */
+fun samplesAt(media: List<Media>, step: Int): List<Media> = media.groupBy { it.key }.toSortedMap().values.flatMap { items ->
+    items.filter { it.step <= step }.maxOfOrNull { it.step }?.let { s -> items.filter { it.step == s } }.orEmpty()
+}
+
+/** The newest image, for a running card. A server before 0.7.1 ignores `latest` and sends them all. */
+fun latestImage(media: List<Media>) = media.filter { it.kind == "image" }.maxWithOrNull(compareBy({ it.createdAt ?: 0 }, { it.step }))
 
 data class Alert(
     val id: Int, val run: String, val runName: String, val project: String, val ts: Long,
@@ -178,6 +194,7 @@ fun parseRun(o: JSONObject) = Run(
     startedAt = date(o.getString("started_at"))!!,
     endedAt = date(o.str("ended_at")),
     lastHeartbeatAt = date(o.str("last_heartbeat_at")),
+    progressAt = date(o.str("progress_at")),
     metrics = o.obj("metrics")?.let { m ->
         m.keys().asSequence().associateWith { k ->
             val x = m.getJSONObject(k)
@@ -203,7 +220,7 @@ fun parseLogs(s: String) = JSONArray(s).list {
 
 fun parseMedia(s: String) = JSONArray(s).list {
     Media(it.optString("id"), it.getString("key"), it.optInt("step"), it.optString("kind"), it.getString("url"),
-        it.obj("meta")?.str("caption"))
+        it.obj("meta")?.str("caption"), date(it.str("created_at")))
 }
 
 fun parseAlerts(s: String) = JSONArray(s).list {
@@ -266,7 +283,13 @@ fun flat(o: JSONObject?, prefix: String = ""): List<Pair<String, String>> {
 private fun text(v: Any?): String = when (v) {
     null, JSONObject.NULL -> "null"
     is Boolean -> v.toString()
-    is Number -> fmt(v.toDouble())
+    // Every digit, never rounded, the way Python prints a float: 0.0001 and 16, an exponent only under 1e-4 or from 1e16.
+    is Int, is Long -> v.toString()
+    is Number -> v.toString().toBigDecimalOrNull()?.stripTrailingZeros()?.let { d ->
+        val exp = d.precision() - d.scale() - 1
+        if (d.signum() == 0 || exp in -4..15) d.toPlainString()
+        else "${d.movePointLeft(exp).toPlainString()}e${if (exp < 0) "-" else "+"}${"%02d".format(Locale.ROOT, abs(exp))}"
+    } ?: v.toString()
     is JSONArray -> (0 until v.length()).joinToString(", ", "[", "]") { text(v.opt(it)) }
     is JSONObject -> "{…}"
     else -> v.toString()
@@ -285,6 +308,33 @@ fun fmt(v: Double): String {
     }
     return r.stripTrailingZeros().toPlainString()
 }
+
+/** A count the way a person writes it: 1,500. Anything with a fraction goes through `fmt`. */
+fun count(v: Double): String = if (v == floor(v) && abs(v) < 1e15) "%,d".format(Locale.US, v.toLong()) else fmt(v)
+fun pct(v: Double) = "${Math.round(v)}%"
+fun gb(v: Double) = if (v < 100) "%.1f GB".format(Locale.US, v) else "${Math.round(v)} GB"
+
+/** Three to five round values inside lo..hi, for a chart's gridlines: the finest of 1, 2, 2.5 and 5 times a power of ten that fits. */
+fun ticks(lo: Double, hi: Double): List<Double> {
+    if (!(hi > lo)) return listOf(lo)
+    val mag = Math.pow(10.0, floor(log10(hi - lo)) - 1)
+    return listOf(1.0, 2.0, 2.5, 5.0, 10.0, 20.0, 25.0, 50.0, 100.0).firstNotNullOf { m ->
+        val step = m * mag
+        generateSequence(Math.ceil(lo / step - 1e-9) * step) { it + step }.takeWhile { it <= hi + step * 1e-9 }.take(6).toList().takeIf { it.size <= 5 }
+    }
+}
+
+/** The line under the home screen's title: what is training and what broke today. */
+fun summary(runs: List<Run>, now: Long = serverNow(), zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): String {
+    fun day(t: Long) = java.time.Instant.ofEpochMilli(t).atZone(zone).toLocalDate()
+    fun today(status: String) = runs.count { it.status == status && day(it.endedAt ?: it.lastHeartbeatAt ?: it.startedAt) == day(now) }
+        .takeIf { it > 0 }?.let { "$it $status today" }
+    return listOfNotNull(runs.count { it.running }.takeIf { it > 0 }?.let { "$it running" } ?: "Nothing is training", today("failed"), today("crashed"))
+        .joinToString(" · ")
+}
+
+/** One unit: 45s, 12m, 3h, 2d. For "12m ago" and "~10m left", where a second unit is noise. */
+fun brief(seconds: Double) = duration(seconds).substringBefore(' ')
 
 /** Two units at most: 3d 4h, 2h 5m, 52m 10s. */
 fun duration(seconds: Double): String {
