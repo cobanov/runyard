@@ -132,6 +132,26 @@ Found by reading; the fixes were then run on the iPhone 18 Pro simulator and an 
 | A16 | A run that starts and ends between two background looks is never notified | both | Low | S | Fixed: unit tests on both |
 | A17 | Android: the heartbeat mark renders as a red emoji, so its state colour never shows; video is still a line of text | Android | Low | S | Fixed: the heart takes the state colour, videos play inline and GIFs move; heartbeat age is measured on the server's clock |
 
+## Design (2026-11-10)
+
+The first two passes fixed what was broken and added what was missing, and left the screens looking as they had,
+with the new parts bolted on. The owner said so. This pass applied `DESIGN.md` screen by screen, looking at each
+in light and dark.
+
+| # | Finding | Where | Status |
+|---|---|---|---|
+| U1 | Colour was not state only: teal marked links, buttons and the selected tab, a busy CPU bar turned amber, a finished run was green | apps | Fixed: ink for anything you can press, teal, red and amber only for a state, grey for finished |
+| U2 | The phone's home screen was titled "Projects" and a running card was five bands with a box inside a box and no sample | apps | Fixed: "Runs" with a line that sums up, the active alert first, a card that reads number, curve, newest sample, progress, machine |
+| U3 | A run's name was said twice, its charts had frames and dashed lines with the latest value small and grey, axis labels used the device's decimal comma | apps | Fixed |
+| U4 | Each prompt had its own slider and a lone image; on the web a 290 px image sat beside an empty page | web, apps | Fixed: one scrubber for every key, the images side by side, two across on a phone |
+| U5 | The web's running card had no samples and no progress bar; "recently ended" said "0s, 1m 35s ago" | web | Fixed |
+| U6 | The runs list's search floated above its title and the table scrolled sideways, on a phone too | web | Fixed: one toolbar, fewer columns, a list below 640px |
+| U7 | The connect screen's button looked like a field; the Server tab repeated its title and explained notifications in a paragraph | apps | Fixed |
+| U8 | Android set type with Material's wide tracking and tall lines | Android | Fixed in the theme |
+| U9 | The demo on the website showed "the server was upgraded" for no reason and broken sample pictures (introduced on 2026-11-09) | web | Fixed |
+| U10 | The apps use the system font, the web Atkinson Hyperlegible | apps | Open: bundling the font adds a megabyte to each app |
+| U11 | Not seen on screen after the redesign: "no output for", a crashed run's card, the apps' empty and error states in dark, a video or a text table in the new sample grid, the chart's touch readout | apps | Open: needs a hand on a device |
+
 ## Deployment and docs
 
 | # | Finding | Impact | Effort | Status |
