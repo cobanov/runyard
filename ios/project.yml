@@ -37,6 +37,13 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: runyard connects to your training server on the local network.
+        # runyard://connect?url=... (the web UI's QR code) and runyard://run/<id>.
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.cobanov.runyard
+            CFBundleURLSchemes: [runyard]
+        # The background refresh that looks for ended runs and new alerts (Notify.swift).
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [dev.cobanov.runyard.refresh]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.cobanov.runyard

@@ -1,20 +1,29 @@
 import Charts
 import SwiftUI
 
-/// Home: the coding agents, what is training now, each at a glance, then every project.
+/// Home: the coding agents, what is training now, each at a glance, what ended lately, then every project.
 struct HomeView: View {
     @Environment(Store.self) private var store
     @State private var agents: [Agent] = []
     @State private var running: [Run] = []
     @State private var spark: [String: [Double]] = [:] // run id -> recent values of its main metric
+    @State private var recent: [Run] = [] // the newest runs that are not running
     @State private var projects: [Project] = []
     @State private var loaded = false
+    @State private var okAt = Date.now // the last load that worked
     @State private var error: String?
     @State private var deleting: Project?
     @State private var failure: String?
 
     var body: some View {
         List {
+            if loaded, error != nil {
+                TimelineView(.periodic(from: .now, by: 1)) { t in
+                    Text("Not updated for \(duration(t.date.timeIntervalSince(okAt))): can't reach the server")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                .listRowBackground(Color.clear)
+            }
             if !agents.isEmpty {
                 Section("Agents") {
                     ForEach(agents) { a in
@@ -30,14 +39,21 @@ struct HomeView: View {
             if !running.isEmpty {
                 Section("Running") {
                     ForEach(running) { run in
-                        NavigationLink(value: Route.run(run.id)) { LiveRunCard(run: run, spark: spark[run.id] ?? []) }
+                        NavigationLink(value: Route.run(run.id)) { LiveRunCard(run: run, spark: spark[run.id] ?? [], stale: error != nil) }
+                    }
+                }
+            }
+            if !recent.isEmpty {
+                Section("Recent") {
+                    ForEach(recent) { run in
+                        NavigationLink(value: Route.run(run.id)) { RunRow(run: run, showProject: true) }
                     }
                 }
             }
             Section("All projects") {
                 ForEach(projects) { p in
                     NavigationLink(value: Route.project(p.name)) { ProjectRow(project: p) }
-                        .swipeActions { Button("Delete", systemImage: "trash") { deleting = p }.tint(.red) }
+                        .swipeActions { if store.canDelete { Button("Delete", systemImage: "trash") { deleting = p }.tint(.red) } }
                 }
             }
         }
@@ -66,23 +82,29 @@ struct HomeView: View {
 
     private func load() async {
         do {
+            // Two lists: a long run must not drop off the screen because twenty newer ones started after it.
             async let r: [Run] = store.get("/api/v1/runs?status=running&limit=50&metrics=1")
+            async let n: [Run] = store.get("/api/v1/runs?limit=20&metrics=1")
             async let p: [Project] = store.get("/api/v1/projects")
             async let a: [Agent]? = try? store.get("/api/v1/agents?hours=24") // a server before 0.5.0 answers 404: no section
-            let (runs, ps) = try await (r, p)
-            var sp: [String: [Double]] = [:]
-            for run in runs {
-                guard let k = run.mainMetric?.key,
-                      let s: [String: Series] = try? await store.get("/api/v1/runs/\(run.id)/metrics?points=40&keys=\(q(k))")
-                else { continue }
-                sp[run.id] = s[k]?.last.map(\.value).filter(\.isFinite)
-            }
+            let (runs, newest, ps) = try await (r, n, p)
             if let cards = await a { agents = cards.sorted(by: Agent.urgentFirst) }
-            (running, spark, projects) = (runs, sp, ps)
-            loaded = true
-            error = nil
+            (running, recent, projects) = (runs, Array(newest.filter { !$0.running }.prefix(8)), ps)
+            (loaded, okAt, error) = (true, .now, nil)
         } catch {
             self.error = error.localizedDescription
+            return
+        }
+        // The cards are on screen; their sparklines fill in as each answers.
+        await withTaskGroup(of: (String, [Double]?).self) { group in
+            for run in running {
+                guard let k = run.mainMetric?.key else { continue }
+                group.addTask {
+                    let s: [String: Series]? = try? await store.get("/api/v1/runs/\(run.id)/metrics?points=40&keys=\(q(k))")
+                    return (run.id, s?[k]?.last.map(\.value).filter(\.isFinite))
+                }
+            }
+            for await (id, values) in group { spark[id] = values }
         }
     }
 }
@@ -91,20 +113,22 @@ struct HomeView: View {
 struct LiveRunCard: View {
     let run: Run
     let spark: [Double]
+    var stale = false // the last poll failed: the heartbeat is old because the phone could not ask
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 TimelineView(.periodic(from: .now, by: 1)) { t in
                     let age = t.date.timeIntervalSince(run.lastHeartbeatAt ?? run.startedAt)
+                    let silent = !stale && age > Self.silentAfter
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Image(systemName: "heart.fill").font(.caption)
-                            .foregroundStyle(age > Self.silentAfter ? .orange : statusColor(run.status))
+                            .foregroundStyle(silent ? .orange : statusColor(run.status))
                             .symbolEffect(.bounce, value: run.lastHeartbeatAt)
                             .accessibilityLabel("Last heartbeat \(duration(age)) ago")
                         Text(run.name).font(.headline).lineLimit(1)
                         Spacer(minLength: 4)
-                        if age > Self.silentAfter { Text(duration(age)).font(.caption.monospacedDigit()).foregroundStyle(.orange) }
+                        if silent { Text(duration(age)).font(.caption.monospacedDigit()).foregroundStyle(.orange) }
                         Text(duration(run.duration(now: t.date))).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                     }
                 }
@@ -273,7 +297,7 @@ struct RunsView: View {
     var body: some View {
         List(shown) { run in
             NavigationLink(value: Route.run(run.id)) { RunRow(run: run) }
-                .swipeActions { Button("Delete", systemImage: "trash") { deleting = run }.tint(.red) }
+                .swipeActions { if store.canDelete { Button("Delete", systemImage: "trash") { deleting = run }.tint(.red) } }
         }
         .confirmationDialog("Delete \(deleting?.name ?? "")?", isPresented: Binding(present: $deleting), titleVisibility: .visible, presenting: deleting) { run in
             Button("Delete run", role: .destructive) {
@@ -381,6 +405,7 @@ struct AlertsView: View {
             self.error = error.localizedDescription
         }
         await load()
+        await store.countAlerts()
     }
 
     private func load() async {
@@ -440,6 +465,6 @@ func levelColor(_ level: String) -> Color {
     level == "error" ? .red : level == "warn" ? .orange : .blue
 }
 
-func duration(_ seconds: TimeInterval) -> String {
+nonisolated func duration(_ seconds: TimeInterval) -> String {
     Duration.seconds(max(0, seconds)).formatted(.units(allowed: [.days, .hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 2))
 }

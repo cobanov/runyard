@@ -16,7 +16,7 @@ struct RunView: View {
     @State private var series: [String: Series] = [:]
     @State private var alerts: [Alert] = []
     @State private var artifacts: [Artifact] = []
-    @State private var section = Section.charts
+    @AppStorage("runSection") private var lastSection = Section.charts // the tab people open, on every run
     @State private var error: String?
 
     private var trainKeys: [String] { series.keys.filter { !$0.hasPrefix("sys/") }.sorted() }
@@ -30,6 +30,8 @@ struct RunView: View {
             }
         }
     }
+    /// The remembered tab, when this run has it.
+    private var section: Section { sections.contains(lastSection) ? lastSection : .charts }
 
     var body: some View {
         Group {
@@ -45,7 +47,7 @@ struct RunView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(.orange.opacity(0.08), in: .rect(cornerRadius: 12))
                         }
-                        Picker("Section", selection: $section) {
+                        Picker("Section", selection: Binding(get: { section }, set: { lastSection = $0 })) {
                             ForEach(sections) { Text($0.rawValue).tag($0) }
                         }
                         .pickerStyle(.segmented)
@@ -321,7 +323,13 @@ struct SamplesView: View {
     let running: Bool
     @State private var media: [Media] = []
     @State private var loaded = false
-    @State private var picked: [String: Int] = [:] // key -> index into its steps
+    @State private var picked: [String: Int] = [:] // key -> index into its steps; none follows the newest
+    @State private var viewing: Viewing?
+
+    private struct Viewing: Identifiable {
+        let id: String // the image tapped
+        let images: [Media]
+    }
 
     var body: some View {
         let groups = Dictionary(grouping: media, by: \.key)
@@ -329,8 +337,7 @@ struct SamplesView: View {
             if loaded && media.isEmpty { empty("No samples yet", "run.image(), run.video() and run.text() show up here.") }
             ForEach(groups.keys.sorted(), id: \.self) { key in
                 let items = groups[key]!
-                let steps = Array(Set(items.map(\.step))).sorted()
-                let index = min(picked[key] ?? steps.count - 1, steps.count - 1)
+                let (steps, index) = place(key, items)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text(key).font(.headline)
@@ -338,18 +345,42 @@ struct SamplesView: View {
                         Text("step \(String(steps[index]))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     }
                     if steps.count > 1 {
-                        Slider(value: Binding(get: { Double(index) }, set: { picked[key] = Int($0.rounded()) }),
+                        // Left at the end, it goes on following the newest step.
+                        Slider(value: Binding(get: { Double(index) }, set: { picked[key] = Int($0.rounded()) == steps.count - 1 ? nil : Int($0.rounded()) }),
                                in: 0...Double(steps.count - 1), step: 1)
                     }
-                    ForEach(items.filter { $0.step == steps[index] }) { m in
-                        MediaItem(media: m)
+                    // By position, not by id: the view stays, so its image stays until the next step's has loaded.
+                    let shown = items.filter { $0.step == steps[index] }
+                    ForEach(Array(shown.enumerated()), id: \.offset) { _, m in
+                        if m.isImage {
+                            Button { viewing = Viewing(id: m.id, images: onScreen(groups)) } label: { MediaItem(media: m) }
+                                .buttonStyle(.plain)
+                                .accessibilityHint("Opens full screen")
+                        } else {
+                            MediaItem(media: m)
+                        }
                     }
                 }
             }
         }
+        .fullScreenCover(item: $viewing) { v in SampleViewer(images: v.images, at: v.id) }
         .poll(every: { running ? 10 : 120 }) {
             if let m: [Media] = try? await store.get("/api/v1/runs/\(id)/media") { media = m }
             loaded = true
+        }
+    }
+
+    /// A key's steps, and the one its slider is on.
+    private func place(_ key: String, _ items: [Media]) -> (steps: [Int], index: Int) {
+        let steps = Array(Set(items.map(\.step))).sorted()
+        return (steps, min(picked[key] ?? steps.count - 1, steps.count - 1))
+    }
+
+    /// Every image showing now, in the order of the page: what the full-screen viewer swipes through.
+    private func onScreen(_ groups: [String: [Media]]) -> [Media] {
+        groups.keys.sorted().flatMap { key in
+            let (steps, index) = place(key, groups[key]!)
+            return groups[key]!.filter { $0.step == steps[index] && $0.isImage }
         }
     }
 }
@@ -397,6 +428,69 @@ struct RemoteImage: View {
             }
         }
         .task(id: url) { image = (try? await store.api.data(url)).flatMap(UIImage.init(data:)) }
+    }
+}
+
+/// The images on the Samples tab full screen: swipe between them, pinch or double-tap to zoom, share.
+struct SampleViewer: View {
+    @Environment(\.dismiss) private var dismiss
+    let images: [Media]
+    @State var at: String
+
+    var body: some View {
+        NavigationStack {
+            TabView(selection: $at) {
+                ForEach(images) { m in ZoomImage(media: m).tag(m.id) }
+            }
+            .tabViewStyle(.page)
+            .navigationTitle(images.first { $0.id == at }.map { "\($0.key) · step \(String($0.step))" } ?? "")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+}
+
+struct ZoomImage: View {
+    @Environment(Store.self) private var store
+    let media: Media
+    @State private var image: UIImage?
+    @State private var scale = 1.0
+    @State private var pinch = 1.0
+    @State private var offset = CGSize.zero
+    @State private var drag = CGSize.zero
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .interpolation(image.size.width < 128 ? .none : .medium)
+                    .aspectRatio(contentMode: .fit)
+                    .scaleEffect(scale * pinch)
+                    .offset(x: offset.width + drag.width, y: offset.height + drag.height)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(.rect)
+                    .gesture(MagnifyGesture().onChanged { pinch = $0.magnification }.onEnded { _ in
+                        scale = min(max(scale * pinch, 1), 8)
+                        pinch = 1
+                        if scale == 1 { offset = .zero }
+                    })
+                    // Only while zoomed: at rest a drag is the swipe to the next image.
+                    .gesture(scale > 1 ? DragGesture().onChanged { drag = $0.translation }.onEnded { _ in
+                        offset = CGSize(width: offset.width + drag.width, height: offset.height + drag.height)
+                        drag = .zero
+                    } : nil)
+                    .onTapGesture(count: 2) { withAnimation { (scale, offset) = (scale > 1 ? 1 : 3, .zero) } }
+                    .accessibilityLabel(media.caption ?? "Sample image")
+                if let c = media.caption, !c.isEmpty { Text(c).font(.caption).foregroundStyle(.secondary) }
+                ShareLink(item: Image(uiImage: image), preview: SharePreview(media.caption ?? media.key, image: Image(uiImage: image)))
+                    .padding(.bottom, 36) // clear of the page dots
+            } else {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .clipped()
+        .task { image = (try? await store.api.data(media.url)).flatMap(UIImage.init(data:)) }
     }
 }
 

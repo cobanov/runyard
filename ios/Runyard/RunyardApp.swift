@@ -1,12 +1,32 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct RunyardApp: App {
-    @State private var store = Store()
+    @State private var store: Store
+    private let taps: NotifyTaps
+    @Environment(\.scenePhase) private var phase
+
+    init() {
+        let store = Store()
+        _store = State(initialValue: store)
+        taps = NotifyTaps(store: store)
+        UNUserNotificationCenter.current().delegate = taps // before launch ends, or a tap that starts the app is lost
+    }
 
     var body: some Scene {
         WindowGroup {
             RootView().environment(store)
+        }
+        // What was on screen is not news: every time the app comes or goes, the next comparison starts from now.
+        .onChange(of: phase) {
+            guard phase != .inactive else { return }
+            if phase == .background { Notify.schedule() }
+            Task { await Notify.check(store.api, tell: false) }
+        }
+        .backgroundTask(.appRefresh(Notify.task)) {
+            await Notify.schedule()
+            await Notify.check(API(base: Keychain.read("server") ?? "", session: Keychain.read("session")), tell: true)
         }
     }
 }
@@ -14,25 +34,76 @@ struct RunyardApp: App {
 /// Connect, then sign in if the server wants it, then the app.
 struct RootView: View {
     @Environment(Store.self) private var store
+    @State private var trying = false
+    @State private var switching: String? // a link's server, while another one is connected
+    @State private var failure: String?
 
     var body: some View {
-        if store.server.isEmpty {
-            ConnectView()
-        } else if store.me == nil, let error = store.loadError {
-            ContentUnavailableView {
-                Label("Can't reach the server", systemImage: "wifi.exclamationmark")
-            } description: {
-                Text("\(store.server)\n\(error)")
-            } actions: {
-                Button("Try again") { Task { await store.loadMe() } }.buttonStyle(.borderedProminent)
-                Button("Change server") { store.forget() }
+        Group {
+            if store.server.isEmpty {
+                ConnectView()
+            } else if store.me == nil, let error = store.loadError {
+                ContentUnavailableView {
+                    Label("Can't reach the server", systemImage: "wifi.exclamationmark")
+                } description: {
+                    Text("\(store.server)\n\(error)\nTrying again on its own.")
+                } actions: {
+                    Button { Task { await retry() } } label: {
+                        if trying { ProgressView() } else { Text("Try again") }
+                    }
+                    .buttonStyle(.borderedProminent).disabled(trying)
+                    Button("Change server") { store.forget() }
+                }
+                .task {
+                    // A server that restarts is back in seconds; one that is off should not be asked all night.
+                    var wait = 2.0
+                    while (try? await Task.sleep(for: .seconds(wait))) != nil {
+                        await retry()
+                        wait = min(wait * 2, 30)
+                    }
+                }
+            } else if store.me == nil {
+                ProgressView().task { await store.loadMe() }
+            } else if store.needsLogin {
+                LoginView()
+            } else {
+                MainView()
             }
-        } else if store.me == nil {
-            ProgressView().task { await store.loadMe() }
-        } else if store.needsLogin {
-            LoginView()
-        } else {
-            MainView()
+        }
+        .onOpenURL(perform: open)
+        .alert("Switch server?", isPresented: Binding(present: $switching), presenting: switching) { a in
+            Button("Switch") { connect(a) }
+            Button("Cancel", role: .cancel) {}
+        } message: { a in
+            Text("This link is for \(a). The app is connected to \(store.isDemo ? "the demo" : store.server).")
+        }
+        .alert("Can't connect", isPresented: Binding(present: $failure), presenting: failure) { _ in } message: { Text($0) }
+    }
+
+    private func retry() async {
+        trying = true
+        await store.loadMe()
+        trying = false
+    }
+
+    /// runyard://connect?url=<server address> (the web UI's QR code) and runyard://run/<run id>.
+    private func open(_ url: URL) {
+        switch url.host() {
+        case "connect":
+            guard let a = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "url" })?.value,
+                  !a.isEmpty else { return }
+            let same = store.server == a || store.server.hasSuffix("://" + a) || store.server + "/" == a
+            if store.server.isEmpty { connect(a) } else if !same { switching = a }
+        case "run":
+            store.openRun = url.lastPathComponent
+        default:
+            break
+        }
+    }
+
+    private func connect(_ address: String) {
+        Task {
+            do { try await store.connect(address) } catch { failure = error.localizedDescription }
         }
     }
 }
@@ -72,6 +143,8 @@ extension Binding where Value == Bool {
 
 struct MainView: View {
     @Environment(Store.self) private var store
+    @State private var tab = 0
+    @State private var path: [Route] = []
 
     var body: some View {
         if store.isDemo {
@@ -89,16 +162,24 @@ struct MainView: View {
     }
 
     private var tabs: some View {
-        TabView {
-            Tab("Runs", systemImage: "chart.xyaxis.line") {
-                NavigationStack { HomeView().routes() }
+        TabView(selection: $tab) {
+            Tab("Runs", systemImage: "chart.xyaxis.line", value: 0) {
+                NavigationStack(path: $path) { HomeView().routes() }
             }
-            Tab("Alerts", systemImage: "bell") {
+            Tab("Alerts", systemImage: "bell", value: 1) {
                 NavigationStack { AlertsView().routes() }
             }
-            Tab("Server", systemImage: "server.rack") {
+            .badge(store.activeAlerts)
+            Tab("Server", systemImage: "server.rack", value: 2) {
                 NavigationStack { ServerView() }
             }
+        }
+        .poll(every: { 15 }) { await store.countAlerts() }
+        .onChange(of: store.openRun, initial: true) {
+            guard let id = store.openRun else { return }
+            tab = 0
+            path = [.run(id)]
+            store.openRun = nil
         }
     }
 }
@@ -106,6 +187,8 @@ struct MainView: View {
 struct ServerView: View {
     @Environment(Store.self) private var store
     @State private var machines: [Machine] = []
+    @AppStorage(Notify.onKey) private var notify = false
+    @State private var refused = false
 
     var body: some View {
         List {
@@ -120,6 +203,7 @@ struct ServerView: View {
             }
             Section("Server") {
                 LabeledContent("Address", value: store.isDemo ? "Demo, made-up runs" : store.server)
+                if store.plainHTTP { LabeledContent("Connection", value: "http, not encrypted") }
                 if let me = store.me {
                     LabeledContent("Signed in as", value: me.auth ? me.user : "Open server, no sign-in")
                 }
@@ -130,10 +214,26 @@ struct ServerView: View {
                 }
                 Button(store.isDemo ? "Leave demo" : "Change server", role: .destructive) { store.forget() }
             }
+            if !store.isDemo {
+                Section {
+                    Toggle("Notify when a run ends or alerts", isOn: $notify)
+                } footer: {
+                    Text(refused ? "Notifications are off for runyard in the Settings app. Allow them there, then turn this on."
+                         : "The app asks the server in the background, and iOS decides when that happens: these can be minutes or hours late, and stop if you close the app from the app switcher. For instant ones use the server's channels (ntfy, Slack, Telegram or web push), set up on the web UI's Settings page.")
+                }
+            }
             Section {
                 LabeledContent("App version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
-            } footer: {
-                Text("Notifications come from the server's channels: ntfy, Slack, Telegram or web push.")
+            }
+        }
+        .onChange(of: notify) {
+            guard notify else { return }
+            Task {
+                refused = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) != true
+                if refused { notify = false; return }
+                // Start from now: what already ended is not news.
+                UserDefaults.standard.removeObject(forKey: Notify.seenKey)
+                await Notify.check(store.api, tell: false)
             }
         }
         .navigationTitle("Server")

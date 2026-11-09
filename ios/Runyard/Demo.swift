@@ -479,7 +479,8 @@ nonisolated enum Demo {
             default: break
             }
         case ("GET", "alerts", _):
-            return ok(Array(alerts(live, now).filter { a in q["run"].map { a["run"] as! String == $0 } ?? true }.prefix(limit)))
+            return ok(Array(alerts(live, now).filter { a in q["run"].map { a["run"] as! String == $0 } ?? true }
+                .filter { q["active"] == nil || $0["dismissed_at"] is NSNull }.prefix(limit)))
         case ("GET", "hosts", _): return ok(machines.map { host($0, live, now) })
         case ("GET", "agents", _): return ok(agents(live, now))
         case ("POST", "alerts", _):

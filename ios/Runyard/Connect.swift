@@ -31,7 +31,7 @@ struct ConnectView: View {
             } header: {
                 Text("Server address")
             } footer: {
-                Text(error ?? "An IP address or host name, with the port if it is not 80 or 443. Without http:// the app tries https first.")
+                Text(error ?? "An IP address or host name, with the port if it is not 80, 443 or 8080. Without http:// the app tries https first.")
                     .foregroundStyle(error == nil ? Color.secondary : .red)
             }
             Section {
@@ -82,6 +82,7 @@ struct LoginView: View {
                 VStack(spacing: 6) {
                     Text("Sign in").font(.largeTitle.bold())
                     Text(URL(string: store.server)?.host() ?? store.server).foregroundStyle(.secondary)
+                    if store.plainHTTP { Text("http, not encrypted").font(.footnote).foregroundStyle(.orange) }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 24)

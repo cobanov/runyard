@@ -98,7 +98,8 @@ nonisolated struct SysLoad: Sendable {
     }
 
     init?(_ metrics: [String: MetricSummary]?) {
-        let v = (metrics ?? [:]).filter { $0.key.hasPrefix("sys/") }.mapValues(\.last.value)
+        // Finite only: a script can log NaN under sys/, and Int(NaN) traps where the bars round it.
+        let v = (metrics ?? [:]).filter { $0.key.hasPrefix("sys/") }.mapValues(\.last.value).filter(\.value.isFinite)
         guard !v.isEmpty else { return nil }
         cpu = v["sys/cpu"]
         ramGB = v["sys/ram_gb"]
@@ -144,6 +145,8 @@ nonisolated struct Media: Decodable, Identifiable, Sendable {
     let url: String
     let meta: JSONValue?
     var caption: String? { meta?["caption"]?.string }
+    /// Drawn as a still image (a GIF too), so it can open full screen.
+    var isImage: Bool { kind != "text" && (kind != "video" || url.hasSuffix(".gif")) }
 }
 
 nonisolated struct Artifact: Decodable, Identifiable, Sendable {

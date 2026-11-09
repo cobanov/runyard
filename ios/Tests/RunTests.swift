@@ -72,3 +72,40 @@ private func summary(step: Int, last: Double) -> String { #"{"count":1,"step":\#
     #expect(agents.map(\.title) == ["codex", "codex", "sweep", "dit", "codex", "codex"])
     #expect(agents[0].word == "Waiting for you" && agents[5].word == "someday")
 }
+
+@Test func sysLoadSkipsNaN() throws {
+    // Int(NaN) traps where the bars round a value, so a NaN under sys/ must not reach them.
+    let nan = #"{"count":1,"step":1,"last":"NaN","min":0,"max":1}"#
+    let r = try run(config: "{}", metrics: #"{"sys/cpu":\#(nan),"sys/gpu0.util":"# + #"{"count":1,"step":1,"last":"Infinity","min":0,"max":1}"# + #","sys/gpu0.temp_c":\#(summary(step: 1, last: 61))}"#)
+    let load = try #require(SysLoad(r.metrics))
+    #expect(load.cpu == nil && load.gpus.count == 1 && load.gpus[0].util == nil && load.gpus[0].details == "61 °C")
+    #expect(SysLoad(["sys/cpu": r.metrics!["sys/cpu"]!]) == nil)
+}
+
+private func runs(_ statuses: [String: String]) throws -> [Run] {
+    let json = statuses.sorted { $0.key < $1.key }.map { #"{"id":"\#($0.key)","project":"p","name":"n-\#($0.key)","status":"\#($0.value)","started_at":"2026-10-31T10:00:00Z","ended_at":"2026-10-31T10:05:00Z"}"# }
+    return try API.decoder.decode([Run].self, from: Data("[\(json.joined(separator: ","))]".utf8))
+}
+
+private func alerts(_ ids: [Int]) throws -> [Alert] {
+    let json = ids.map { #"{"id":\#($0),"run":"a","run_name":"n-a","project":"p","ts":"2026-10-31T10:00:00Z","level":"error","title":"NaN loss","body":"at step 40\nmore","dismissed_at":null}"# }
+    return try API.decoder.decode([Alert].self, from: Data("[\(json.joined(separator: ","))]".utf8))
+}
+
+@Test func newsSinceTheLastLook() throws {
+    // The first look after turning notifications on tells nothing, whatever is on the server.
+    let first = news(since: nil, runs: try runs(["a": "running", "b": "running", "c": "finished", "d": "running"]), alerts: try alerts([3, 2]))
+    #expect(first.notes.isEmpty)
+    #expect(first.seen == Seen(runs: ["a": "running", "b": "running", "c": "finished", "d": "running"], alert: 3))
+
+    // a failed and b finished since; c had ended before, d still runs, e is new and already over; alert 4 is new.
+    let next = news(since: first.seen, runs: try runs(["a": "failed", "b": "finished", "c": "finished", "d": "running", "e": "crashed"]), alerts: try alerts([4, 3, 2]))
+    #expect(next.notes.map(\.run) == ["a", "b", "a"])
+    #expect(next.notes.map(\.title) == ["n-a failed", "n-b finished", "NaN loss"])
+    #expect(next.notes[0].body == "p, after 5m" && next.notes[2].body == "p/n-a: at step 40")
+    #expect(next.seen.alert == 4 && next.seen.runs["a"] == "failed")
+
+    // Nothing changed: nothing to tell, and an emptied alert list does not bring old alerts back later.
+    let quiet = news(since: next.seen, runs: try runs(["a": "failed", "d": "running"]), alerts: [])
+    #expect(quiet.notes.isEmpty && quiet.seen.alert == 4)
+}
