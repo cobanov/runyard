@@ -6,6 +6,11 @@ Optional extras: `images` (numpy, Pillow), `system` (GPU, CPU and RAM usage), `v
 become an H.264 mp4 instead of a GIF) and `tensorboard` (for `runyard watch DIR`, which sends TensorBoard event
 files: one run per directory, `--once` to import and exit). `runyard --help` lists the commands.
 
+With `RUNYARD_SERVER` and `RUNYARD_API_KEY` set and no `wandb` package installed, `import wandb` is runyard's
+bridge, so tools that log to Weights & Biases (ai-toolkit, kohya sd-scripts, `report_to="wandb"`) write to
+runyard unchanged; `RUNYARD_WANDB=1` makes the bridge win over an installed wandb, `RUNYARD_WANDB=0` turns it off,
+and `import runyard.wandb as wandb` is the same module by name.
+
 ## Framework adapters
 
 `runyard.integrations.<module>` imports its framework, which you install yourself. Keyword arguments other than
