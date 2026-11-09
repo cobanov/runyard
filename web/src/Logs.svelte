@@ -10,7 +10,19 @@
   let top = $state(false) // the first line is loaded
   const shown = $derived(find.trim() ? lines.filter((l) => l.line.toLowerCase().includes(find.trim().toLowerCase())) : lines)
   // tqdm and logging write to stderr, so the stream says nothing; the failed colour is for lines that name a failure.
-  const bad = (l) => l.stream === 2 && /error|exception|traceback|nan\b/i.test(l.line)
+  // A traceback is red as a whole, from its first line to the exception that ends it, not only where a word matches.
+  const failing = $derived.by(() => {
+    const out = new Set()
+    let trace = false
+    for (const l of lines) {
+      if (l.stream !== 2) continue
+      if (/^Traceback/.test(l.line)) trace = true
+      if (trace || /error|exception|nan\b/i.test(l.line)) out.add(l.seq)
+      if (trace && !/^(Traceback|\s)/.test(l.line)) trace = false // the unindented line that names the exception
+    }
+    return out
+  })
+  const bad = (l) => failing.has(l.seq)
   async function earlier() {
     const before = lines[0].seq
     const prev = await get(`/runs/${id}/logs?tail&before=${before}&limit=2000`)
