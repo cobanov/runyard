@@ -4,8 +4,8 @@ A native Android app for a runyard server, the counterpart of the iPhone app (`i
 sign in if the server has `RUNYARD_AUTH` on, and read your runs. Kotlin and Jetpack Compose, themed with
 `DESIGN.md`'s tokens in light and dark.
 
-Get it: [runyard-0.5.0.apk](https://github.com/cobanov/runyard/releases/download/v0.7.0/runyard-0.5.0.apk) from the
-v0.7.0 release (allow installs from your browser when Android asks).
+Get it: [runyard-0.6.0.apk](https://github.com/cobanov/runyard/releases/download/v0.7.1/runyard-0.6.0.apk) from the
+v0.7.1 release (allow installs from your browser when Android asks).
 
 - **Runs** (home): what is training, without a tap. Under the title one line sums up ("2 running · 1 failed
   today", or "Nothing is training"); while the server cannot be reached it says how old the screen is instead

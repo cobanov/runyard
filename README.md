@@ -16,7 +16,7 @@
   <a href="https://runyard.cobanov.dev">Website</a> ·
   <a href="https://pypi.org/project/runyard/">PyPI</a> ·
   <a href="https://testflight.apple.com/join/A9jhtURf">iPhone beta</a> ·
-  <a href="https://github.com/cobanov/runyard/releases/download/v0.7.0/runyard-0.5.0.apk">Android APK</a> ·
+  <a href="https://github.com/cobanov/runyard/releases/download/v0.7.1/runyard-0.6.0.apk">Android APK</a> ·
   <a href="https://github.com/cobanov/runyard/issues">Issues</a>
 </p>
 
@@ -117,7 +117,7 @@ claude mcp add --transport http runyard http://localhost:8080/mcp --header "Auth
 
 **On the phone.** The web UI installs to the home screen and sends push notifications. The native apps connect
 to your server by its address, and both have "Try the demo" for a look without one: iPhone through the
-[TestFlight beta](https://testflight.apple.com/join/A9jhtURf) ([ios/](ios/README.md)), Android as an [APK](https://github.com/cobanov/runyard/releases/download/v0.7.0/runyard-0.5.0.apk) ([android/](android/README.md)).
+[TestFlight beta](https://testflight.apple.com/join/A9jhtURf) ([ios/](ios/README.md)), Android as an [APK](https://github.com/cobanov/runyard/releases/download/v0.7.1/runyard-0.6.0.apk) ([android/](android/README.md)).
 
 ## Want to tinker?
 
