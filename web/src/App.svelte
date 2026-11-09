@@ -1,5 +1,5 @@
 <script>
-  import { live, onEvent, store, loadProjects } from './lib.svelte.js'
+  import { live, onEvent, store, loadProjects, title } from './lib.svelte.js'
   import Overview from './Overview.svelte'
   import Projects from './Projects.svelte'
   import Runs from './Runs.svelte'
@@ -27,10 +27,23 @@
 
   // me: {auth, user}; with RUNYARD_AUTH on and no user yet, the login form shows instead of the app
   let me = $state(null)
-  fetch('/api/v1/me')
-    .then((r) => r.json())
-    .then((m) => (me = m))
+  let down = $state(false) // the server did not answer at all: say so and keep trying, instead of a blank page
+  const loadMe = () =>
+    fetch('/api/v1/me')
+      .then((r) => r.json())
+      .then((m) => ((me = m), (down = false)))
+      .catch(() => ((down = true), setTimeout(loadMe, 5000)))
+  loadMe()
   const ready = $derived(me && (!me.auth || me.user))
+  $effect(() => {
+    if (!live.expired) return
+    live.expired = false
+    if (me?.auth) me = { ...me, user: null }
+  })
+  const titles = { projects: 'Projects', machines: 'Machines', alerts: 'Alerts', settings: 'Settings', compare: 'Compare', kiosk: 'Agents' }
+  $effect(() => {
+    if (route.kind !== 'r') title(route.kind === 'p' ? route.arg : titles[route.kind]) // a run names its own tab once loaded
+  })
   $effect(() => {
     if (!ready) return
     loadProjects()
@@ -56,7 +69,9 @@
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && (open = false)} />
 
-{#if me && !ready}
+{#if !me && down}
+  <main class="login"><p class="empty">Can’t reach the server. Trying again every few seconds.</p></main>
+{:else if me && !ready}
   <main class="login"><Login onlogin={(user) => (me = { ...me, user })} /></main>
 {:else if ready && route.kind === 'kiosk'}
   {#key hash}<Kiosk />{/key}
@@ -124,6 +139,7 @@
     </nav>
 
     <main>
+      {#if live.down}<p class="down small" role="status">Can’t reach the server ({live.down}). What is shown may be old; it refreshes when the server answers.</p>{/if}
       {#key hash}
         {#if route.kind === 'p'}
           <Runs project={route.arg} />
@@ -148,6 +164,13 @@
 {/if}
 
 <style>
+  .down {
+    margin: 0 0 16px;
+    padding: 8px 12px;
+    border: 1px dashed var(--rule);
+    border-radius: var(--radius);
+    color: var(--muted);
+  }
   .shell {
     display: grid;
     grid-template-columns: 232px minmax(0, 1fr);

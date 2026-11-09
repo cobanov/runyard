@@ -1,4 +1,5 @@
 <script>
+  import { untrack } from 'svelte'
   import uPlot from 'uplot'
   import 'uplot/dist/uPlot.min.css'
   import { cssVar, cssColor, withAlpha, theme, fmt, duration } from './lib.svelte.js'
@@ -11,6 +12,7 @@
   let el = $state()
   let hover = $state(null)
   let plot
+  let zoomed = false // the reader dragged a range: new points must not throw it away
 
   const last = $derived(lines.length === 1 ? lines[0].y.findLast((v) => v != null) : undefined)
   const xFmt = (x) =>
@@ -61,6 +63,7 @@
         ],
         cursor: { points: { size: 6 } },
         hooks: {
+          setSelect: [(u) => u.select.width > 0 && (zoomed = true)],
           setCursor: [
             (u) => {
               const i = u.cursor.idx
@@ -84,15 +87,30 @@
     return out
   }
 
+  // The plot is built again only when its shape changes: which lines, smoothing on or off, the axis, the theme.
+  const shape = $derived(JSON.stringify([lines.map((l) => [l.label, l.color, !!l.min]), !!smooth, log, theme.dark, height]))
   $effect(() => {
-    lines, theme.dark, smooth, log // rebuild when the data, the view or the theme changes; uPlot redraws fast enough for live updates
-    build()
+    shape
+    untrack(build)
+    zoomed = false
+    const over = plot.over
+    const reset = () => (zoomed = false) // a double click is uPlot's "show everything again"
+    over.addEventListener('dblclick', reset)
     const ro = new ResizeObserver(() => plot.setSize({ width: el.clientWidth, height }))
     ro.observe(el)
     return () => {
       ro.disconnect()
+      over.removeEventListener('dblclick', reset)
       plot.destroy()
+      plot = null
     }
+  })
+  // New points, or another smoothing weight, go into the plot that is there.
+  $effect(() => {
+    const d = data()
+    if (!plot) return
+    plot.setData(d, !zoomed)
+    if (zoomed) plot.redraw()
   })
 </script>
 
@@ -101,7 +119,7 @@
     <span class="title">{title}</span>
     {#if hover}
       <span class="muted small"
-        >{xLabel} {xFmt(hover.x)}{#if lines.length === 1}: <b>{hover.ys[0] == null ? '–' : fmt(hover.ys[0])}</b>{#if hover.raw != null}, raw {fmt(hover.raw)}{/if}{/if}</span
+        >{xLabel} {xFmt(hover.x)}{#if lines.length === 1}: <b>{hover.ys[0] == null ? '–' : fmt(hover.ys[0])}</b>{#if hover.raw != null}, raw {fmt(hover.raw)}{/if}{:else}{#each lines as l, i}<span class="at"><i style="background: var({l.color})"></i><b>{hover.ys[i] == null ? '–' : fmt(hover.ys[i])}</b></span>{/each}{/if}</span
       >
     {:else if last !== undefined}
       <b>{fmt(last)}</b>
@@ -133,5 +151,16 @@
   }
   .plot {
     width: 100%;
+  }
+  .at {
+    margin-left: 10px;
+    white-space: nowrap;
+  }
+  .at i {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    margin-right: 4px;
   }
 </style>

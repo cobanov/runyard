@@ -16,7 +16,15 @@ export function setKey(key) {
 export async function send(method, path, body) {
   const headers = cred.key ? { Authorization: 'Bearer ' + cred.key } : {}
   if (body) headers['Content-Type'] = 'application/json'
-  const r = await fetch('/api/v1' + path, { method, headers, body: body && JSON.stringify(body) })
+  let r
+  try {
+    r = await fetch('/api/v1' + path, { method, headers, body: body && JSON.stringify(body) })
+  } catch (e) {
+    live.down = 'no answer' // every page says so in one place (App), and keeps what it last showed
+    throw e
+  }
+  live.down = r.status >= 500 ? `the server answered ${r.status}` : ''
+  if (r.status === 401 && method === 'GET') live.expired = true // the session ran out: App shows the login form
   const out = await r.json().catch(() => ({}))
   if (!r.ok) throw Object.assign(new Error(out.error || r.statusText), { status: r.status })
   return out
@@ -26,29 +34,71 @@ export async function send(method, path, body) {
 export const why = (e) =>
   e.status === 401 || e.status === 403 ? 'Only an admin can do this: add an API key on the Settings page, or log in as an admin when the server has users.' : e.message
 
-export const live = $state({ connected: false, now: Date.now() })
+export const live = $state({ connected: false, now: Date.now(), down: '', expired: false })
 setInterval(() => (live.now = Date.now()), 10000)
 
 const listeners = new Set()
 let source
+let missed = false // events arrived while the tab was hidden
+
+function connect() {
+  source = new EventSource('/api/v1/events')
+  source.onopen = () => {
+    live.connected = true
+    emit({ type: 'reconnect' })
+  }
+  source.onerror = () => {
+    live.connected = false
+    // The browser retries a dropped connection on its own, but gives up for good on an HTTP error: a proxy's 502
+    // while the server restarts, a session that ran out. Then the stream is made again.
+    if (source.readyState === EventSource.CLOSED) setTimeout(connect, 5000)
+  }
+  source.onmessage = (m) => emit(JSON.parse(m.data))
+}
+// A tab nobody is looking at asks the server nothing; it catches up when it is looked at again.
+function emit(e) {
+  if (document.hidden) return void (missed = true)
+  for (const l of listeners) l(e)
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !missed) return
+  missed = false
+  emit({ type: 'reconnect' })
+})
 
 // onEvent calls fn for every server event ({type, run}) and with {type: 'reconnect'} after the stream comes back.
 export function onEvent(fn) {
-  if (!source) {
-    source = new EventSource('/api/v1/events')
-    source.onopen = () => {
-      live.connected = true
-      for (const l of listeners) l({ type: 'reconnect' })
-    }
-    source.onerror = () => (live.connected = false) // EventSource retries on its own
-    source.onmessage = (m) => {
-      const e = JSON.parse(m.data)
-      for (const l of listeners) l(e)
-    }
-  }
+  if (!source) connect()
   listeners.add(fn)
   return () => listeners.delete(fn)
 }
+
+// title names the browser tab, so ten open runs can be told apart.
+export const title = (t) => (document.title = t ? `${t} · runyard` : 'runyard')
+
+// stuck is for how long a running run has logged nothing, no metric and no output line, once that is over ten
+// minutes; 0 otherwise. Its heartbeat may be fine: the process is alive and the loop is not moving.
+export const stuck = (run, now) => {
+  const quiet = run.status === 'running' && run.progress_at ? now - new Date(run.progress_at) : 0
+  return quiet > 600000 ? quiet : 0
+}
+
+// Chart view, shared by the run page and the comparison: smoothing and the log axis are remembered per browser.
+// Storage may be blocked, so every access is guarded.
+export const chartView = $state({ smooth: 0, log: false })
+try {
+  const s = JSON.parse(localStorage.getItem('runyard.charts'))
+  chartView.smooth = Math.min(0.99, Math.max(0, +s.smooth || 0))
+  chartView.log = s.log === true
+} catch {}
+$effect.root(() => {
+  $effect(() => {
+    const v = JSON.stringify(chartView)
+    try {
+      localStorage.setItem('runyard.charts', v)
+    } catch {}
+  })
+})
 
 // throttle runs fn at most once per ms, always ending with a call after the last request.
 export function throttle(fn, ms = 2000) {

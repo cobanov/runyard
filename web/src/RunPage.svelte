@@ -1,5 +1,5 @@
 <script>
-  import { get, send, why, onEvent, throttle, runTime, ago, live, plotValue, fmt, flatten, progressText } from './lib.svelte.js'
+  import { get, send, why, onEvent, throttle, runTime, ago, duration, live, plotValue, fmt, flatten, progressText, title, stuck, chartView as view } from './lib.svelte.js'
   import Chart from './Chart.svelte'
   import Samples from './Samples.svelte'
   import Logs from './Logs.svelte'
@@ -7,17 +7,30 @@
   let { id } = $props()
   let run = $state(null)
   let error = $state('')
-  let series = $state({})
+  let series = $state.raw({}) // replaced whole on each load; charts take new points without being rebuilt
   let tab = $state('charts')
   let alerts = $state([])
   let artifacts = $state([])
 
-  const loadRun = throttle(() => get('/runs/' + id).then((r) => (run = r)).catch((e) => (error = e.message)))
-  const loadMetrics = throttle(() => get(`/runs/${id}/metrics?points=600`).then((s) => (series = s)), 4000)
+  // A failed refresh keeps the page: the error only shows while there is no run to show.
+  const loadRun = throttle(() => get('/runs/' + id).then((r) => ((run = r), (error = ''), title(`${r.name} · ${r.status}`))).catch((e) => (error = e.message)))
+  // The run's summary names its metrics, so only the open tab's series are asked for.
+  const metricKeys = $derived(Object.keys(run?.metrics || {}).sort())
+  const trainKeys = $derived(metricKeys.filter((k) => !k.startsWith('sys/')))
+  const sysKeys = $derived(metricKeys.filter((k) => k.startsWith('sys/')))
+  const wanted = $derived((tab === 'charts' ? trainKeys : tab === 'system' ? sysKeys : []).join(','))
+  const loadMetrics = throttle(() => {
+    if (!wanted) return
+    // A key with a comma in it, or more keys than a URL should carry: ask for everything.
+    const some = wanted.length > 1500 || wanted.split(',').length !== (tab === 'charts' ? trainKeys : sysKeys).length ? '' : '&keys=' + encodeURIComponent(wanted)
+    get(`/runs/${id}/metrics?points=600${some}`).then((s) => (series = { ...series, ...s })).catch(() => {})
+  }, 4000)
+  $effect(() => {
+    if (wanted) loadMetrics() // a tab opened, or the run's first metrics arrived; an empty call would use up the throttle
+  })
   const loadAlerts = throttle(() => get(`/alerts?run=${id}&limit=10`).then((a) => (alerts = a)))
   const loadArtifacts = throttle(() => get(`/runs/${id}/artifacts`).then((a) => (artifacts = a)))
   loadRun()
-  loadMetrics()
   loadAlerts()
   loadArtifacts()
   $effect(() =>
@@ -31,9 +44,6 @@
     }),
   )
 
-  const keys = $derived(Object.keys(series).sort())
-  const trainKeys = $derived(keys.filter((k) => !k.startsWith('sys/')))
-  const sysKeys = $derived(keys.filter((k) => k.startsWith('sys/')))
   const tabs = $derived([
     ['charts', 'Charts'],
     ['samples', 'Samples'],
@@ -47,20 +57,8 @@
     return [{ label: k, color: '--c1', x: s.step, y: s.last.map(plotValue), min: s.min.map(plotValue), max: s.max.map(plotValue) }]
   }
 
-  // Chart view: smoothing and the log axis are remembered per browser; storage may be blocked, so every access is guarded.
-  let view = $state({ smooth: 0, log: false })
-  try {
-    const s = JSON.parse(localStorage.getItem('runyard.charts'))
-    view = { smooth: Math.min(0.99, Math.max(0, +s.smooth || 0)), log: s.log === true }
-  } catch {}
-  $effect(() => {
-    const v = JSON.stringify(view)
-    try {
-      localStorage.setItem('runyard.charts', v)
-    } catch {}
-  })
   let filter = $state('')
-  const chartKeys = $derived(trainKeys.filter((k) => k.toLowerCase().includes(filter.trim().toLowerCase())))
+  const chartKeys = $derived(trainKeys.filter((k) => series[k] && k.toLowerCase().includes(filter.trim().toLowerCase())))
   const bytes = (n) => (n < 1e3 ? `${n} B` : n < 1e6 ? `${(n / 1e3).toFixed(1)} kB` : n < 1e9 ? `${(n / 1e6).toFixed(1)} MB` : `${(n / 1e9).toFixed(2)} GB`)
   let failed = $state('')
   async function remove() {
@@ -97,7 +95,7 @@
   })
 </script>
 
-{#if error}
+{#if error && !run}
   <p class="empty">Could not load this run: {error}</p>
 {:else if run}
   <p class="crumb"><a href="#/projects">Projects</a> / <a href="#/p/{encodeURIComponent(run.project)}">{run.project}</a> /</p>
@@ -105,6 +103,7 @@
     <div class="title">
       <h1>{run.name}</h1>
       <span class="badge">{run.status}</span>
+      {#if stuck(run, live.now)}<span class="badge status-crashed" title="No metric and no output line since then; the heartbeat still arrives">no output for {duration(stuck(run, live.now))}</span>{/if}
       <button class="danger delete" onclick={remove}>Delete run</button>
     </div>
     {#if failed}<p class="small fail"><span class="danger">Failed.</span> {failed}</p>{/if}
@@ -159,7 +158,7 @@
         {#each chartKeys as k (k)}
           <Chart title={k} lines={lineOf(k)} smooth={view.smooth} log={view.log} />
         {:else}
-          <p class="empty">No metric matches “{filter.trim()}”.</p>
+          {#if filter.trim()}<p class="empty">No metric matches “{filter.trim()}”.</p>{/if}
         {/each}
       </div>
     {:else}
@@ -167,7 +166,7 @@
     {/if}
   {:else if tab === 'system'}
     <div class="grid">
-      {#each sysKeys as k (k)}
+      {#each sysKeys.filter((k) => series[k]) as k (k)}
         <Chart title={k.slice(4)} lines={lineOf(k)} xLabel="elapsed" elapsed />
       {/each}
     </div>
