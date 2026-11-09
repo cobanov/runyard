@@ -98,7 +98,7 @@
                 <span class="value">{fmt(r.metrics[k].last)}</span>
                 <span class="muted small">{k}</span>
               </div>
-              <Sparkline values={spark[r.id] || []} color="--c2" />
+              <Sparkline values={spark[r.id] || []} color="--c1" />
             {:else}
               <p class="muted small nometric">No metrics logged yet.</p>
             {/if}
