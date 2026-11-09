@@ -271,11 +271,13 @@ type Media struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
-// listMedia returns a run's media ordered by key and step; key and kind filter when set, step < 0 means any.
-func listMedia(ctx context.Context, db *pgxpool.Pool, id, key, kind string, step int64) ([]Media, error) {
-	rows, _ := db.Query(ctx, `SELECT id::text, key, step, kind, path, meta, created_at FROM media
+// listMedia returns a run's media ordered by key and step; key and kind filter when set, step < 0 means any, and
+// latest keeps only each key's last step: what a card that shows "the newest sample" needs, not the whole history.
+func listMedia(ctx context.Context, db *pgxpool.Pool, id, key, kind string, step int64, latest bool) ([]Media, error) {
+	rows, _ := db.Query(ctx, `SELECT id::text, key, step, kind, path, meta, created_at FROM media m
 		WHERE run_id = $1::uuid AND ($2 = '' OR key = $2) AND ($3 = '' OR kind = $3) AND ($4 < 0 OR step = $4)
-		ORDER BY key, step, created_at`, id, key, kind, step)
+		AND (NOT $5 OR step = (SELECT max(step) FROM media WHERE run_id = m.run_id AND key = m.key))
+		ORDER BY key, step, created_at`, id, key, kind, step, latest)
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (m Media, err error) {
 		err = row.Scan(&m.ID, &m.Key, &m.Step, &m.Kind, &m.Path, &m.Meta, &m.CreatedAt)
 		m.URL = "/media/" + m.Path

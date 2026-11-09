@@ -280,7 +280,7 @@ func (s *srv) metricsSummary(ctx context.Context, id string, keys []string, poin
 }
 
 func (s *srv) samples(ctx context.Context, id, key string, step *int64, limit int) (*mcp.CallToolResult, any, error) {
-	all, err := listMedia(ctx, s.db, id, key, "", -1)
+	all, err := listMedia(ctx, s.db, id, key, "", -1, false)
 	if err != nil {
 		return nil, nil, err
 	}

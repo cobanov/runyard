@@ -209,6 +209,11 @@ func TestWriteFlow(t *testing.T) {
 	if len(media) != 1 || media[0].Step != 3 || !strings.Contains(string(media[0].Meta), "grid") {
 		t.Fatalf("media list: %+v", media)
 	}
+	call(t, "POST", api+"/runs/"+runID+"/media", key, mediaForm(map[string]string{"key": "samples", "step": "1", "kind": "image"}, "old.png", png), nil)
+	call(t, "GET", api+"/runs/"+runID+"/media?kind=image&latest", "", nil, &media) // a card wants the newest only
+	if len(media) != 1 || media[0].Step != 3 {
+		t.Fatalf("latest media: %+v", media)
+	}
 	var alerts []Alert
 	call(t, "GET", api+"/alerts?project=gba", "", nil, &alerts)
 	// The run's own alert, and the one the default check raised when loss went NaN at step 3.

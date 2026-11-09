@@ -77,7 +77,7 @@ func (s *srv) routes() http.Handler {
 	}))
 	mux.HandleFunc("GET /api/v1/runs/{id}/media", s.read(func(r *http.Request) (any, error) {
 		q := r.URL.Query()
-		return listMedia(r.Context(), s.db, r.PathValue("id"), q.Get("key"), q.Get("kind"), int64(intParam(r, "step", -1)))
+		return listMedia(r.Context(), s.db, r.PathValue("id"), q.Get("key"), q.Get("kind"), int64(intParam(r, "step", -1)), q.Has("latest"))
 	}))
 	mux.HandleFunc("GET /api/v1/runs/{id}/artifacts", s.read(func(r *http.Request) (any, error) {
 		return listArtifacts(r.Context(), s.db, r.PathValue("id"))
