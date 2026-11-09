@@ -8,10 +8,10 @@
   --muted: light-dark(#6b7280, #a1a1aa);
   --rule: light-dark(#e5e7eb, #27272a);
   --soft: light-dark(#f3f4f6, #1c1c1f);
-  --running: light-dark(#0f9488, #2dd4bf);
+  --running: light-dark(#0f766e, #2dd4bf);
   --finished: light-dark(#52525b, #a1a1aa);
   --failed: light-dark(#dc2626, #f87171);
-  --crashed: light-dark(#d97706, #fbbf24);
+  --crashed: light-dark(#b45309, #fbbf24);
   --c1: light-dark(#2563eb, #60a5fa);
   --c2: light-dark(#0f9488, #2dd4bf);
   --c3: light-dark(#dc2626, #f87171);

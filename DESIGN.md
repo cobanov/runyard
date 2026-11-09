@@ -16,10 +16,10 @@ Colours are declared once with `light-dark()`; `<html data-theme="light|dark">` 
 | `--rule` | `#e5e7eb` | `#27272a` | the one hairline: panel edges, table rows, chart grid |
 | `--ink` | `#18181b` | `#fafafa` | text and the primary button |
 | `--muted` | `#6b7280` | `#a1a1aa` | secondary text; 4.5:1 on the ground |
-| `--running` | `#0f9488` | `#2dd4bf` | state: alive |
+| `--running` | `#0f766e` | `#2dd4bf` | state: alive; 4.5:1 as a word on a panel |
 | `--finished` | `#52525b` | `#a1a1aa` | state: done, deliberately quiet |
 | `--failed` | `#dc2626` | `#f87171` | state: error |
-| `--crashed` | `#d97706` | `#fbbf24` | state: silent or stuck |
+| `--crashed` | `#b45309` | `#fbbf24` | state: silent or stuck; 4.5:1 as a word on a panel |
 | `--c1`…`--c6` | blue, teal, red, violet, amber, green | lighter tints | chart series only, in this order |
 | `--radius` | `8px` | | panels, cards, charts |
 | `--radius-sm` | `6px` | | buttons, inputs, tags |
