@@ -164,8 +164,8 @@ func addMetrics(ctx context.Context, db *pgxpool.Pool, runs []Run) error {
 		runs[i].Metrics = map[string]metricSummary{}
 		byID[runs[i].ID] = &runs[i]
 	}
-	rows, _ := db.Query(ctx, `SELECT m.run_id::text, k.name, count(*), max(m.step), (array_agg(m.value ORDER BY m.step DESC))[1], min(m.value), max(m.value)
-		FROM metrics m JOIN metric_keys k ON k.id = m.key_id WHERE m.run_id = ANY($1::uuid[]) GROUP BY 1, 2`, ids)
+	rows, _ := db.Query(ctx, `SELECT m.run_id::text, k.name, m.count, m.step, m.last, m.min, m.max
+		FROM metric_summary m JOIN metric_keys k ON k.id = m.key_id WHERE m.run_id = ANY($1::uuid[])`, ids)
 	var id, name string
 	var s metricSummary
 	var last, lo, hi float64

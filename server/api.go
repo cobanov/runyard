@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -414,9 +415,21 @@ func (s *srv) writeMetrics(ctx context.Context, id string, rows []metricRow) (in
 			keyCol, stepCol, tsCol, valCol = append(keyCol, p.key), append(stepCol, p.step), append(tsCol, ts), append(valCol, float64(v))
 		}
 	}
-	_, err = s.db.Exec(ctx, `INSERT INTO metrics (run_id, key_id, step, ts, value)
-		SELECT $1::uuid, k, st, t, v FROM unnest($2::bigint[], $3::bigint[], $4::timestamptz[], $5::float8[]) AS u(k, st, t, v)
-		ON CONFLICT (run_id, key_id, step) DO UPDATE SET value = excluded.value, ts = excluded.ts`,
+	// The summary is updated in the same statement, from the rows just written; xmax = 0 marks a row that is new, so
+	// a retried batch does not count twice.
+	// shortcut: a step logged again with another value leaves the old one in min and max; recompute from metrics
+	// (as migration 011 does) if runs that rewrite history need exact extremes.
+	_, err = s.db.Exec(ctx, `WITH ins AS (
+			INSERT INTO metrics (run_id, key_id, step, ts, value)
+			SELECT $1::uuid, k, st, t, v FROM unnest($2::bigint[], $3::bigint[], $4::timestamptz[], $5::float8[]) AS u(k, st, t, v)
+			ON CONFLICT (run_id, key_id, step) DO UPDATE SET value = excluded.value, ts = excluded.ts
+			RETURNING key_id, step, value, (xmax = 0) AS fresh)
+		INSERT INTO metric_summary AS s (run_id, key_id, count, step, last, min, max)
+			SELECT $1::uuid, key_id, count(*) FILTER (WHERE fresh), max(step), (array_agg(value ORDER BY step DESC))[1], min(value), max(value)
+			FROM ins GROUP BY key_id ORDER BY key_id
+		ON CONFLICT (run_id, key_id) DO UPDATE SET count = s.count + excluded.count,
+			last = CASE WHEN excluded.step >= s.step THEN excluded.last ELSE s.last END,
+			step = greatest(s.step, excluded.step), min = least(s.min, excluded.min), max = greatest(s.max, excluded.max)`,
 		id, keyCol, stepCol, tsCol, valCol)
 	if err != nil {
 		return 0, err

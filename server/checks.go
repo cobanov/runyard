@@ -67,7 +67,7 @@ func (s *srv) checkMetrics(ctx context.Context, runID string, project int64, row
 				continue
 			}
 			for k, v := range row.Values {
-				if match(c.Key, k) && c.trips(float64(v)) && (!found || row.Step < step || k < key) {
+				if c.trips(float64(v)) && match(c.Key, k) && (!found || row.Step < step || k < key) { // the cheap test first
 					found, step, key, val = true, row.Step, k, float64(v)
 				}
 			}
