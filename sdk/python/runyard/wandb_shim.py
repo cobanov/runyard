@@ -1,11 +1,16 @@
 """Enough of the wandb API for tools that only speak W&B (ai-toolkit, diffusers examples, HF report_to="wandb")
 to write to runyard instead, without changing their code. Turned on by RUNYARD_WANDB=1; see wandb_hook.
 
-Supported: init, log (step/commit), finish, config(.update), summary, run, define_metric (its step_metric is honoured),
-Image, Video, Table, alert. Anything else warns once and does nothing.
+Supported: init (also as a context manager), log (step/commit), finish, config(.update), summary, run (name and tags
+can be set), define_metric (its step_metric is honoured), Image, Video, Table, Artifact with log_artifact and save
+(recorded where they are, not uploaded), alert. mode="disabled", WANDB_MODE=disabled and WANDB_DISABLED make init a
+no-op, as in wandb. Anything else warns once and does nothing.
+
+Also importable by name, when the code is yours to change: `import runyard.wandb as wandb`.
 """
 import os
 import sys
+from pathlib import Path
 
 from . import core
 
@@ -73,6 +78,24 @@ class Table:
         return [dict(zip(cols, r)) for r in self.data]
 
 
+class Artifact:
+    """wandb.Artifact: remembers the files added to it; log_artifact records each as an artifact of the run."""
+
+    def __init__(self, name, type="file", description=None, metadata=None, **kwargs):
+        self.name, self.type, self.metadata = name, type, metadata or {}
+        self.paths = []
+
+    def add_file(self, local_path, name=None, **kwargs):
+        self.paths.append(local_path)
+
+    add_dir = add_file
+
+    def __getattr__(self, name):  # add_reference, wait, aliases ...: nothing to do
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return _Stub(name, quiet=True)
+
+
 class AlertLevel:
     INFO, WARN, ERROR = "INFO", "WARN", "ERROR"
 
@@ -80,7 +103,9 @@ class AlertLevel:
 class Run:
     def __init__(self, ry_run):
         self._ry = ry_run
-        self.id, self.name, self.project, self.url = ry_run.id, ry_run.name, ry_run.project, ry_run.url
+        self.id, self._name, self.project, self.url = ry_run.id, ry_run.name, ry_run.project, ry_run.url
+        self._tags = ()
+        self.entity = ""
         self.config = Config(ry_run, ry_run.config)
         self.summary = ry_run.summary
         self.dir = os.getcwd()
@@ -92,6 +117,38 @@ class Run:
     @property
     def step(self):
         return self._auto
+
+    # wandb.run.name = "..." and wandb.run.tags = [...] rename and retag the run, as they do in wandb
+    name = property(lambda self: self._name, lambda self, v: (setattr(self, "_name", v), self._ry._patch({"name": str(v)}))[0])
+    tags = property(lambda self: self._tags, lambda self, v: (setattr(self, "_tags", tuple(v)), self._ry._patch({"tags": list(v)}))[0])
+
+    def get_url(self):
+        return self.url
+
+    def project_name(self):
+        return self.project
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.finish(1 if exc_type else 0)
+        return False
+
+    def log_artifact(self, artifact_or_path, name=None, type=None, **kwargs):
+        """Records the files where they are (this host and path); nothing is uploaded, checkpoints are large."""
+        a = artifact_or_path
+        paths = a.paths if isinstance(a, Artifact) else [a]
+        for p in paths:
+            one = isinstance(a, Artifact) and len(paths) == 1
+            self._ry.artifact(p, name=(a.name if one else name) or Path(p).name, kind=type or getattr(a, "type", None) or "file",
+                              step=self._auto - 1 if self._auto else None, meta=getattr(a, "metadata", None))
+        return a
+
+    def save(self, glob_str=None, base_path=None, policy=None):
+        for p in sorted(Path().glob(str(glob_str))) if glob_str and not os.path.isabs(str(glob_str)) else [glob_str]:
+            if p and Path(p).exists():
+                self._ry.artifact(p, step=self._auto - 1 if self._auto else None)
 
     def log(self, data, step=None, commit=None, sync=None):
         if step is not None and self._pending and self._pstep is not None and step != self._pstep:
@@ -156,8 +213,16 @@ class Run:
         return _Stub("run." + name)
 
 
-def init(project=None, name=None, config=None, tags=None, notes=None, id=None, reinit=None, **kwargs):
-    global run
+def _disabled(mode):
+    env = os.environ
+    return (mode or env.get("WANDB_MODE", "")).lower() == "disabled" or env.get("WANDB_DISABLED", "").lower() in ("1", "true", "yes")
+
+
+def init(project=None, name=None, config=None, tags=None, notes=None, id=None, reinit=None, mode=None, **kwargs):
+    global run, _off
+    _off = _disabled(mode)
+    if _off:  # what wandb does: every call still works, nothing is recorded
+        return _Off()
     if run is not None and not reinit:
         return run
     if run is not None:
@@ -169,6 +234,7 @@ def init(project=None, name=None, config=None, tags=None, notes=None, id=None, r
     tags = list(tags or []) + ([kwargs["group"]] if kwargs.get("group") else [])
     ry_run = core.Run(project, name, dict(config or {}), tags=tags, notes=notes or "")
     run = Run(ry_run)
+    run._tags = tuple(tags)
     _set_globals()
     return run
 
@@ -181,9 +247,19 @@ def _set_globals():
 
 def log(data, step=None, commit=None, sync=None):
     if run is None:
-        core.warn("wandb.log() before wandb.init(), ignored", once=True)
+        if not _off:
+            core.warn("wandb.log() before wandb.init(), ignored", once=True)
         return
     run.log(data, step=step, commit=commit)
+
+
+def log_artifact(artifact_or_path, name=None, type=None, **kwargs):
+    return run.log_artifact(artifact_or_path, name=name, type=type) if run else artifact_or_path
+
+
+def save(glob_str=None, base_path=None, policy=None):
+    if run:
+        run.save(glob_str)
 
 
 def define_metric(name, step_metric=None, **kwargs):
@@ -216,6 +292,9 @@ def termlog(msg="", *a, **kw):
 termwarn = termerror = termlog
 
 
+_off = False  # the last init was disabled: calls without a run are expected, not a mistake
+
+
 class _Stub:
     """Stands in for an unsupported part of wandb: warns once when used, then behaves as a no-op."""
 
@@ -228,7 +307,15 @@ class _Stub:
         return self
 
     def __getattr__(self, name):
+        if name[:1].isupper() and name.endswith(("Error", "Exception")):
+            return type(name, (Exception,), {})  # wandb.errors.CommError in an except clause
         return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
 
     def __setattr__(self, name, value):
         pass
@@ -238,6 +325,21 @@ class _Stub:
 
     def __bool__(self):
         return False
+
+
+class _Off(_Stub):
+    """The run of a disabled init: a dict-like config and summary, everything else a silent no-op."""
+
+    def __init__(self):
+        object.__setattr__(self, "_name", "run")
+        object.__setattr__(self, "config", Config(_Off._Sink()))
+        object.__setattr__(self, "summary", {})
+
+    class _Sink:
+        config = {}
+
+    def __bool__(self):
+        return True
 
 
 def stub_attr(module_name, name):

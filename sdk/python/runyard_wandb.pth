@@ -1,1 +1,1 @@
-import os; os.environ.get("RUNYARD_WANDB", "") not in ("", "0") and __import__("runyard.wandb_hook").wandb_hook.install()
+import os; os.environ.get("RUNYARD_WANDB", "") != "0" and (os.environ.get("RUNYARD_WANDB") or os.environ.get("RUNYARD_API_KEY")) and __import__("runyard.wandb_hook").wandb_hook.install()

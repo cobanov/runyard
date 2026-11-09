@@ -39,10 +39,32 @@ for gs in (10, 20):
     wandb.log({"train/loss": 1.0 / gs, "train/global_step": gs})
 wandb.run.summary["train_runtime"] = 1.5
 wandb.log({"completions": wandb.Table(columns=["prompt", "out"], data=[["a", "b"]])})
-wandb.save("model.bin")  # unsupported: a warning, not an error
+wandb.save("no-such-model.bin")  # nothing there: nothing recorded, no error
+wandb.run.log_code(".")  # unsupported: a warning, not an error
+open("lora.safetensors", "w").write("weights")
+art = wandb.Artifact("lora", type="model")
+art.add_file("lora.safetensors")
+wandb.log_artifact(art)
+wandb.run.name = "hf-renamed"
+try:
+    pass
+except wandb.errors.CommError:  # a class, so the except clause itself does not raise
+    pass
 frames = np.zeros((4, 3, 8, 8), np.uint8)  # wandb's layout: time, channel, height, width
 frames[:, 0] = np.arange(4)[:, None, None] * 60
 wandb.log({"rollout": wandb.Video(frames, fps=8, caption="red ramp")})
+wandb.finish()
+
+with wandb.init(project="bridge", name="ctx") as run:  # ends the run; an exception inside would fail it
+    run.log({"x": 1})
+assert wandb.run is None
+
+off = wandb.init(project="bridge", name="off", mode="disabled")  # as in wandb: every call works, nothing is recorded
+off.log({"x": 1}); wandb.log({"x": 1}); off.config.update({"a": 1}); off.summary["b"] = 2; off.finish()
+assert off and wandb.run is None
+
+import runyard.wandb
+assert runyard.wandb is wandb  # the same module by its own name, for code that can change its import
 """
 
 
@@ -50,12 +72,15 @@ def test_wandb_bridge(server, tmp_path):
     script = tmp_path / "train.py"
     script.write_text(WANDB_SCRIPT)
     env = dict(os.environ, RUNYARD_WANDB="1", RUNYARD_CACHE=str(tmp_path / "cache"))
-    p = subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True, timeout=60)
+    p = subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True, timeout=60, cwd=tmp_path)
     assert p.returncode == 0, p.stderr
-    assert "wandb.save is not supported" in p.stderr
+    assert "wandb.run.log_code is not supported" in p.stderr and "before wandb.init" not in p.stderr
 
     runs = {r["name"]: r for r in get(server + "/api/v1/runs?project=bridge")}
-    assert {n: r["status"] for n, r in runs.items()} == {"aitk": "finished", "hf": "finished"}
+    assert {n: r["status"] for n, r in runs.items()} == {"aitk": "finished", "hf-renamed": "finished", "ctx": "finished"}
+    runs["hf"] = runs["hf-renamed"]
+    [art] = get(server + f"/api/v1/runs/{runs['hf']['id']}/artifacts")
+    assert (art["name"], art["kind"], art["size"]) == ("lora", "model", 7) and art["uri"].endswith("lora.safetensors")
     api = server + "/api/v1/runs/"
     aitk = get(api + runs["aitk"]["id"])
     assert aitk["config"] == {"lr": 1e-4}
@@ -80,10 +105,20 @@ def test_wandb_bridge(server, tmp_path):
         assert video["url"].endswith(".gif") and gif.n_frames == 4 and gif.size == (8, 8)
 
 
-def test_wandb_bridge_off_by_default(tmp_path):
-    env = {k: v for k, v in os.environ.items() if k != "RUNYARD_WANDB"}
-    p = subprocess.run([sys.executable, "-c", "import wandb"], env=env, capture_output=True, text=True)
-    assert "runyard" not in p.stderr  # either the real wandb or ModuleNotFoundError, never the bridge
+def test_wandb_bridge_when_it_is_on(tmp_path):
+    """Off without runyard's settings; with an API key it stands in only for a wandb that is not installed."""
+    if importlib.util.find_spec("wandb"):
+        return  # a real wandb here: the fallback rightly never shows
+    base = {k: v for k, v in os.environ.items() if k not in ("RUNYARD_WANDB", "RUNYARD_API_KEY")}
+
+    def imported(**env):
+        p = subprocess.run([sys.executable, "-c", "import wandb; print(wandb.__name__)"], env=dict(base, **env), capture_output=True, text=True)
+        return p.stdout.strip() or "ModuleNotFoundError"
+
+    assert imported() == "ModuleNotFoundError"
+    assert imported(RUNYARD_API_KEY="ry_x") == "runyard.wandb_shim"
+    assert imported(RUNYARD_API_KEY="ry_x", RUNYARD_WANDB="0") == "ModuleNotFoundError"
+    assert imported(RUNYARD_WANDB="1") == "runyard.wandb_shim"
 
 
 def _fake_framework(monkeypatch, module, **attrs):

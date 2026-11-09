@@ -1,8 +1,14 @@
-"""Makes `import wandb` load runyard.wandb_shim. The runyard_wandb.pth file installed with the package calls install()
-at interpreter start when RUNYARD_WANDB=1, so tools that only support W&B write to runyard without code changes."""
+"""Makes `import wandb` load runyard.wandb_shim, so tools that only support W&B write to runyard without code changes.
+The runyard_wandb.pth file installed with the package calls install() at interpreter start:
+
+    RUNYARD_WANDB=1                     always: the bridge wins over an installed wandb
+    RUNYARD_API_KEY set, no RUNYARD_WANDB   only when wandb is not installed (the import would fail otherwise)
+    RUNYARD_WANDB=0                     never
+"""
 import importlib.abc
 import importlib.machinery
 import importlib.metadata
+import os
 import sys
 import types
 
@@ -48,8 +54,14 @@ class _Finder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
         return []
 
 
-def install():
-    if not any(isinstance(f, _Finder) for f in sys.meta_path):
-        sys.meta_path.insert(0, _Finder())
-        for name in [m for m in sys.modules if m == "wandb" or m.startswith("wandb.")]:
-            del sys.modules[name]  # a real wandb imported before us would win otherwise
+def install(force=None):
+    if force is None:
+        force = os.environ.get("RUNYARD_WANDB", "") not in ("", "0")
+    if any(isinstance(f, _Finder) for f in sys.meta_path):
+        return
+    if not force:
+        sys.meta_path.append(_Finder())  # last: asked only when no real wandb is found
+        return
+    sys.meta_path.insert(0, _Finder())
+    for name in [m for m in sys.modules if m == "wandb" or m.startswith("wandb.")]:
+        del sys.modules[name]  # a real wandb imported before us would win otherwise
