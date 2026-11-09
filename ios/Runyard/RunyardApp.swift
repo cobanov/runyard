@@ -26,7 +26,8 @@ struct RunyardApp: App {
         }
         .backgroundTask(.appRefresh(Notify.task)) {
             await Notify.schedule()
-            await Notify.check(API(base: Keychain.read("server") ?? "", session: Keychain.read("session")), tell: true)
+            let server = Keychain.read("server") ?? ""
+            await Notify.check(API(base: server, session: Keychain.read("session " + server)), tell: true)
         }
     }
 }
@@ -52,7 +53,7 @@ struct RootView: View {
                         if trying { ProgressView() } else { Text("Try again") }
                     }
                     .buttonStyle(.borderedProminent).disabled(trying)
-                    Button("Change server") { store.forget() }
+                    Button("Change server") { store.leave() }
                 }
                 .task {
                     // A server that restarts is back in seconds; one that is off should not be asked all night.
@@ -92,8 +93,11 @@ struct RootView: View {
         case "connect":
             guard let a = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "url" })?.value,
                   !a.isEmpty else { return }
-            let same = store.server == a || store.server.hasSuffix("://" + a) || store.server + "/" == a
-            if store.server.isEmpty { connect(a) } else if !same { switching = a }
+            let same = { (s: String) in s == a || s.hasSuffix("://" + a) || s + "/" == a }
+            // A server the app knows needs no question: nothing is lost by going there and back.
+            if let known = store.servers.first(where: same) {
+                if known != store.server { store.use(known) }
+            } else if store.server.isEmpty { connect(a) } else { switching = a }
         case "run":
             store.openRun = url.lastPathComponent
         default:
@@ -152,7 +156,7 @@ struct MainView: View {
                 HStack {
                     Text("Demo: made-up runs").font(.subheadline).foregroundStyle(.secondary)
                     Spacer()
-                    Button("Leave demo") { store.forget() }.font(.subheadline.weight(.medium))
+                    Button("Leave demo") { store.leave() }.font(.subheadline.weight(.medium))
                 }
                 .padding(.horizontal, 16)
             }
@@ -169,7 +173,7 @@ struct MainView: View {
             Tab("Alerts", systemImage: "bell", value: 1) {
                 NavigationStack { AlertsView().routes() }
             }
-            .badge(store.activeAlerts)
+            .badge(store.alertsBadge.map { Text($0) })
             Tab("Server", systemImage: "server.rack", value: 2) {
                 NavigationStack { ServerView() }
             }
@@ -208,11 +212,12 @@ struct ServerView: View {
                     LabeledContent("Signed in as", value: me.auth ? me.user : "Open server, no sign-in")
                 }
             }
+            ServerList()
             Section {
                 if store.me?.auth == true {
                     Button("Sign out") { Task { await store.logout() } }
                 }
-                Button(store.isDemo ? "Leave demo" : "Change server", role: .destructive) { store.forget() }
+                Button(store.isDemo ? "Leave demo" : "Change server") { store.leave() }
             }
             if !store.isDemo {
                 Section {
@@ -243,6 +248,27 @@ struct ServerView: View {
 
     private func loadMachines() async {
         if let m: [Machine] = try? await store.get("/api/v1/hosts") { machines = m }
+    }
+}
+
+/// The servers the app has connected to, but for the one it is on: tap to switch, swipe to forget.
+struct ServerList: View {
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        let others = store.servers.filter { $0 != store.server }
+        if !others.isEmpty {
+            Section {
+                ForEach(others, id: \.self) { s in
+                    Button(s) { store.use(s) }
+                        .swipeActions { Button("Forget", systemImage: "trash") { store.forget(s) }.tint(.red) }
+                }
+            } header: {
+                Text(store.server.isEmpty ? "Your servers" : "Other servers")
+            } footer: {
+                Text("Tap to switch, with no sign-in again. Swipe to forget one.")
+            }
+        }
     }
 }
 

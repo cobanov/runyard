@@ -147,6 +147,9 @@ nonisolated struct Media: Decodable, Identifiable, Sendable {
     var caption: String? { meta?["caption"]?.string }
     /// Drawn as a still image (a GIF too), so it can open full screen.
     var isImage: Bool { kind != "text" && (kind != "video" || url.hasSuffix(".gif")) }
+    /// For the grid: the server answers ?w= with a JPEG no wider than that (an older one ignores it and
+    /// sends the original). Only its own paths: a signed S3 URL breaks when a parameter is added.
+    var thumb: String { url.hasPrefix("/media/") ? url + "?w=640" : url }
 }
 
 nonisolated struct Artifact: Decodable, Identifiable, Sendable {
@@ -376,8 +379,25 @@ nonisolated struct API: Sendable {
         try await send(request(path), via: path.contains("/media/") ? API.media : API.http).0
     }
 
-    func get<T: Decodable>(_ path: String) async throws -> T {
-        try API.decoder.decode(T.self, from: await data(path))
+    /// With `keep`, the answer is also written to the caches directory, for when the server cannot be reached.
+    func get<T: Decodable>(_ path: String, keep: Bool = false) async throws -> T {
+        let data = try await data(path)
+        let value = try API.decoder.decode(T.self, from: data)
+        if keep {
+            try? FileManager.default.createDirectory(at: API.offline, withIntermediateDirectories: true)
+            try? data.write(to: file(path), options: .atomic)
+        }
+        return value
+    }
+
+    static let offline = URL.cachesDirectory.appending(path: "offline")
+    private func file(_ path: String) -> URL { API.offline.appending(path: q(base + path)) }
+
+    /// The last answer kept for this server and path, and when it came.
+    func kept<T: Decodable>(_ path: String) -> (value: T, at: Date)? {
+        guard let data = try? Data(contentsOf: file(path)), let value = try? API.decoder.decode(T.self, from: data),
+              let at = try? file(path).resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { return nil }
+        return (value, at)
     }
 
     /// Headers for players that fetch a URL themselves (AVPlayer).

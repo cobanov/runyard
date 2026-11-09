@@ -18,6 +18,7 @@ struct RunView: View {
     @State private var artifacts: [Artifact] = []
     @AppStorage("runSection") private var lastSection = Section.charts // the tab people open, on every run
     @State private var error: String?
+    @State private var okAt = Date.now // the last load that worked
 
     private var trainKeys: [String] { series.keys.filter { !$0.hasPrefix("sys/") }.sorted() }
     private var sysKeys: [String] { series.keys.filter { $0.hasPrefix("sys/") }.sorted() }
@@ -38,6 +39,7 @@ struct RunView: View {
             if let run {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
+                        if error != nil { NotUpdated(since: okAt) }
                         header(run)
                         if !alerts.isEmpty {
                             VStack(alignment: .leading, spacing: 10) {
@@ -74,7 +76,7 @@ struct RunView: View {
             async let a: [Alert] = store.get("/api/v1/alerts?run=\(id)&limit=10")
             async let f: [Artifact] = store.get("/api/v1/runs/\(id)/artifacts")
             (run, series, alerts, artifacts) = try await (r, s, a, f)
-            error = nil
+            (okAt, error) = (.now, nil)
         } catch {
             self.error = error.localizedDescription
         }
@@ -93,7 +95,8 @@ struct RunView: View {
                 Text("for \(duration(run.duration())), started \(run.startedAt.formatted(.relative(presentation: .named)))")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
-            if run.running, let beat = run.lastHeartbeatAt {
+            // Not while the refresh fails: the heartbeat is old because the phone could not ask.
+            if run.running, error == nil, let beat = run.lastHeartbeatAt {
                 Text("Last heartbeat \(beat.formatted(.relative(presentation: .named)))\(run.host.map { " from \($0)" } ?? "")")
                     .font(.caption).foregroundStyle(.secondary)
             } else if let host = run.host, !host.isEmpty {
@@ -402,7 +405,7 @@ struct MediaItem: View {
             case "text":
                 TextTable(url: media.url)
             default:
-                RemoteImage(url: media.url)
+                RemoteImage(url: media.thumb)
             }
             if let c = media.caption, !c.isEmpty { Text(c).font(.caption).foregroundStyle(.secondary) }
         }

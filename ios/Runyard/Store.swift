@@ -1,16 +1,23 @@
 import Foundation
 import Observation
 
-/// Which server the app talks to and who it is signed in as. The address and the session live in the keychain.
+/// Which server the app talks to and who it is signed in as. The addresses and the sessions live in the keychain.
 @Observable
 final class Store {
     var server: String = Keychain.read("server") ?? "" {
         didSet {
             Keychain.write("server", server.isEmpty ? nil : server)
             UserDefaults.standard.removeObject(forKey: Notify.seenKey) // another server's runs are not news
+            session = Keychain.read("session " + server) // each server keeps its own
         }
     }
-    var session: String? = Keychain.read("session") { didSet { Keychain.write("session", session) } }
+    var session: String? = Keychain.read("session " + (Keychain.read("server") ?? "")) {
+        didSet { Keychain.write("session " + server, session) }
+    }
+    /// Every server the app has connected to, the current one too, oldest first. The demo is not one.
+    var servers: [String] = (Keychain.read("servers") ?? "").split(separator: "\n").map(String.init) {
+        didSet { Keychain.write("servers", servers.isEmpty ? nil : servers.joined(separator: "\n")) }
+    }
     /// nil until /api/v1/me answered for the current server.
     var me: Me?
     var loadError: String?
@@ -20,9 +27,22 @@ final class Store {
     var activeAlerts = 0
 
     init() {
+        // A version with one server kept its session under "session".
+        if let old = Keychain.read("session") {
+            Keychain.write("session", nil)
+            if session == nil, !server.isEmpty {
+                Keychain.write("session " + server, old) // by hand: an observer may not run for a write made in init
+                session = old
+            }
+        }
+        if !server.isEmpty, !isDemo, !servers.contains(server) { servers.append(server) }
         #if DEBUG
         // UI tests start from a clean slate with `-resetState YES`.
-        if UserDefaults.standard.bool(forKey: "resetState") { server = ""; session = nil }
+        if UserDefaults.standard.bool(forKey: "resetState") {
+            servers.forEach(forget)
+            leave()
+            UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier ?? "")
+        }
         #endif
     }
 
@@ -53,9 +73,8 @@ final class Store {
                 why.append("\(base): \(Self.reason(error))")
                 continue
             }
-            session = nil
-            me = nil
-            server = base
+            if !servers.contains(base) { servers.append(base) }
+            use(base)
             await loadMe()
             return
         }
@@ -80,23 +99,29 @@ final class Store {
     func countAlerts() async {
         if let a: [Alert] = try? await get("/api/v1/alerts?active&limit=20") { activeAlerts = a.count }
     }
+    /// The request stops at 20, so 20 means "20 or more".
+    var alertsBadge: String? { activeAlerts == 0 ? nil : activeAlerts < 20 ? "\(activeAlerts)" : "20+" }
 
     /// Made-up runs answered inside the app (Demo.swift). It is kept like a server, so a relaunch opens the demo again.
-    func demo() {
-        session = nil
+    func demo() { use(DemoServer.base) }
+
+    /// Switches to a server in the list. Its session is still in the keychain, so there is no sign-in.
+    func use(_ base: String) {
         me = nil
         loadError = nil
-        server = DemoServer.base
+        server = base
     }
 
     var isDemo: Bool { server == DemoServer.base }
 
     func loadMe() async {
         do {
-            me = try await api.get("/api/v1/me")
+            me = try await api.get("/api/v1/me", keep: true)
             loadError = nil
         } catch {
             loadError = error.localizedDescription
+            // Out of reach at launch: the home screen shows what the server said last, and says how old it is.
+            if me == nil, let kept: Me = api.kept("/api/v1/me")?.value, !kept.auth || !kept.user.isEmpty { me = kept }
         }
     }
 
@@ -123,16 +148,26 @@ final class Store {
         if let req = try? api.request("/api/v1/logout", method: "POST") { _ = try? await api.send(req) }
         session = nil
         me = nil
-        API.media.configuration.urlCache?.removeAllCachedResponses()
+        clearCaches()
         await loadMe()
     }
 
-    func forget() {
-        server = ""
-        session = nil
-        me = nil
-        loadError = nil
+    /// Back to the connect screen. Every server stays in the list, signed in.
+    func leave() {
+        use("")
+        clearCaches()
+    }
+
+    /// Drops a server from the list, and its session.
+    func forget(_ base: String) {
+        Keychain.write("session " + base, nil)
+        servers.removeAll { $0 == base }
+        if base == server { leave() }
+    }
+
+    private func clearCaches() {
         API.media.configuration.urlCache?.removeAllCachedResponses()
+        try? FileManager.default.removeItem(at: API.offline)
     }
 
     /// DELETE for the swipe actions. Only an admin may, so a 401 or 403 is answered with a sentence saying so.
@@ -153,9 +188,9 @@ final class Store {
     }
 
     /// GET for the screens: a 401 means the session ended, so the app goes back to the login form.
-    func get<T: Decodable>(_ path: String) async throws -> T {
+    func get<T: Decodable>(_ path: String, keep: Bool = false) async throws -> T {
         do {
-            return try await api.get(path)
+            return try await api.get(path, keep: keep)
         } catch let e as APIError where e.status == 401 {
             session = nil
             me = Me(auth: true, user: "")

@@ -17,13 +17,7 @@ struct HomeView: View {
 
     var body: some View {
         List {
-            if loaded, error != nil {
-                TimelineView(.periodic(from: .now, by: 1)) { t in
-                    Text("Not updated for \(duration(t.date.timeIntervalSince(okAt))): can't reach the server")
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                }
-                .listRowBackground(Color.clear)
-            }
+            if loaded, error != nil { NotUpdated(since: okAt).listRowBackground(Color.clear) }
             if !agents.isEmpty {
                 Section("Agents") {
                     ForEach(agents) { a in
@@ -80,19 +74,33 @@ struct HomeView: View {
         .poll(every: { running.isEmpty ? 10 : 5 }) { await load() }
     }
 
+    // Two lists: a long run must not drop off the screen because twenty newer ones started after it.
+    private static let runningPath = "/api/v1/runs?status=running&limit=50&metrics=1"
+    private static let newestPath = "/api/v1/runs?limit=20&metrics=1"
+    private static let projectsPath = "/api/v1/projects"
+    private static let agentsPath = "/api/v1/agents?hours=24"
+
     private func load() async {
         do {
-            // Two lists: a long run must not drop off the screen because twenty newer ones started after it.
-            async let r: [Run] = store.get("/api/v1/runs?status=running&limit=50&metrics=1")
-            async let n: [Run] = store.get("/api/v1/runs?limit=20&metrics=1")
-            async let p: [Project] = store.get("/api/v1/projects")
-            async let a: [Agent]? = try? store.get("/api/v1/agents?hours=24") // a server before 0.5.0 answers 404: no section
+            async let r: [Run] = store.get(Self.runningPath, keep: true)
+            async let n: [Run] = store.get(Self.newestPath, keep: true)
+            async let p: [Project] = store.get(Self.projectsPath, keep: true)
+            async let a: [Agent]? = try? store.get(Self.agentsPath, keep: true) // a server before 0.5.0 answers 404: no section
             let (runs, newest, ps) = try await (r, n, p)
             if let cards = await a { agents = cards.sorted(by: Agent.urgentFirst) }
             (running, recent, projects) = (runs, Array(newest.filter { !$0.running }.prefix(8)), ps)
             (loaded, okAt, error) = (true, .now, nil)
         } catch {
             self.error = error.localizedDescription
+            // Nothing on screen yet: what the server said last time, under the line that says how old it is.
+            let api = store.api
+            if !loaded, let r: (value: [Run], at: Date) = api.kept(Self.runningPath), let n: (value: [Run], at: Date) = api.kept(Self.newestPath),
+               let p: (value: [Project], at: Date) = api.kept(Self.projectsPath) {
+                let a: (value: [Agent], at: Date)? = api.kept(Self.agentsPath)
+                agents = (a?.value ?? []).sorted(by: Agent.urgentFirst)
+                (running, recent, projects) = (r.value, Array(n.value.filter { !$0.running }.prefix(8)), p.value)
+                (loaded, okAt) = (true, min(r.at, n.at, p.at))
+            }
             return
         }
         // The cards are on screen; their sparklines fill in as each answers.
@@ -105,6 +113,18 @@ struct HomeView: View {
                 }
             }
             for await (id, values) in group { spark[id] = values }
+        }
+    }
+}
+
+/// The one line a screen shows while its refresh fails: what is on it is this old.
+struct NotUpdated: View {
+    let since: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { t in
+            Text("Not updated for \(duration(t.date.timeIntervalSince(since))): can't reach the server")
+                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }
     }
 }
@@ -345,7 +365,7 @@ struct RunRow: View {
                 Text([showProject ? run.project : nil,
                       run.status,
                       duration(run.duration()),
-                      run.running ? nil : run.startedAt.formatted(.relative(presentation: .named))]
+                      run.running ? nil : "\(duration(Date.now.timeIntervalSince(run.startedAt), units: 1)) ago"]
                     .compactMap { $0 }.joined(separator: " · "))
                     .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 if let tags = run.tags, !tags.isEmpty {
@@ -465,6 +485,6 @@ func levelColor(_ level: String) -> Color {
     level == "error" ? .red : level == "warn" ? .orange : .blue
 }
 
-nonisolated func duration(_ seconds: TimeInterval) -> String {
-    Duration.seconds(max(0, seconds)).formatted(.units(allowed: [.days, .hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 2))
+nonisolated func duration(_ seconds: TimeInterval, units: Int = 2) -> String {
+    Duration.seconds(max(0, seconds)).formatted(.units(allowed: [.days, .hours, .minutes, .seconds], width: .narrow, maximumUnitCount: units))
 }

@@ -94,18 +94,26 @@ private func alerts(_ ids: [Int]) throws -> [Alert] {
 
 @Test func newsSinceTheLastLook() throws {
     // The first look after turning notifications on tells nothing, whatever is on the server.
-    let first = news(since: nil, runs: try runs(["a": "running", "b": "running", "c": "finished", "d": "running"]), alerts: try alerts([3, 2]))
+    // The runs below all ended at 10:05.
+    let at = { (minute: Int) in Date(timeIntervalSince1970: 1_793_440_800 + Double(minute) * 60) } // 2026-10-31 10:00 UTC
+    let first = news(since: nil, runs: try runs(["a": "running", "b": "running", "c": "finished", "d": "running"]), alerts: try alerts([3, 2]), now: at(0))
     #expect(first.notes.isEmpty)
-    #expect(first.seen == Seen(runs: ["a": "running", "b": "running", "c": "finished", "d": "running"], alert: 3))
+    #expect(first.seen == Seen(runs: ["a": "running", "b": "running", "c": "finished", "d": "running"], alert: 3, at: at(0)))
 
-    // a failed and b finished since; c had ended before, d still runs, e is new and already over; alert 4 is new.
-    let next = news(since: first.seen, runs: try runs(["a": "failed", "b": "finished", "c": "finished", "d": "running", "e": "crashed"]), alerts: try alerts([4, 3, 2]))
-    #expect(next.notes.map(\.run) == ["a", "b", "a"])
-    #expect(next.notes.map(\.title) == ["n-a failed", "n-b finished", "NaN loss"])
-    #expect(next.notes[0].body == "p, after 5m" && next.notes[2].body == "p/n-a: at step 40")
-    #expect(next.seen.alert == 4 && next.seen.runs["a"] == "failed")
+    // a failed and b finished since; c had ended before, d still runs; e started and crashed between the two
+    // looks; alert 4 is new.
+    let next = news(since: first.seen, runs: try runs(["a": "failed", "b": "finished", "c": "finished", "d": "running", "e": "crashed"]), alerts: try alerts([4, 3, 2]), now: at(10))
+    #expect(next.notes.map(\.run) == ["a", "b", "e", "a"])
+    #expect(next.notes.map(\.title) == ["n-a failed", "n-b finished", "n-e crashed", "NaN loss"])
+    #expect(next.notes[0].body == "p, after 5m" && next.notes[3].body == "p/n-a: at step 40")
+    #expect(next.seen.alert == 4 && next.seen.runs["a"] == "failed" && next.seen.at == at(10))
 
-    // Nothing changed: nothing to tell, and an emptied alert list does not bring old alerts back later.
-    let quiet = news(since: next.seen, runs: try runs(["a": "failed", "d": "running"]), alerts: [])
+    // Nothing changed: nothing to tell, and an emptied alert list does not bring old alerts back later. f is new
+    // here but ended before the last look (synced late from an offline cache): not news.
+    let quiet = news(since: next.seen, runs: try runs(["a": "failed", "d": "running", "f": "finished"]), alerts: [], now: at(20))
     #expect(quiet.notes.isEmpty && quiet.seen.alert == 4)
+
+    // A look kept by a version that did not store its time: a run it did not know stays quiet.
+    let old = try JSONDecoder().decode(Seen.self, from: Data(#"{"runs":{"a":"running"},"alert":0}"#.utf8))
+    #expect(news(since: old, runs: try runs(["a": "finished", "e": "finished"]), alerts: []).notes.map(\.run) == ["a"])
 }

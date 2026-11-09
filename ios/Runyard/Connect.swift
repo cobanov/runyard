@@ -19,6 +19,7 @@ struct ConnectView: View {
                 .padding(.vertical, 24)
                 .listRowBackground(Color.clear)
             }
+            ServerList()
             Section {
                 TextField("192.168.1.10:8080", text: $address)
                     .keyboardType(.URL)
@@ -111,7 +112,7 @@ struct LoginView: View {
                     }
                 }
                 .disabled(busy || name.isEmpty || password.isEmpty)
-                Button("Change server") { store.forget() }
+                Button("Change server") { store.leave() }
             }
         }
     }
