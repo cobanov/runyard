@@ -85,6 +85,7 @@ class Sender:
 
     def __init__(self, server, key, run_id, items=()):
         self.server, self.key, self.run_id = server, key, run_id
+        self.live = False  # made by a run in this process, not by `runyard sync` reading another one's file
         self.items = deque(items)
         self.lock = threading.Lock()
 
@@ -126,6 +127,9 @@ class Sender:
     def _send(self, kind, batch):
         base = f"{self.server}/api/v1/runs"
         if kind == "create":
+            env = batch[0].get("env")
+            if self.live and isinstance(env, dict) and "packages" not in env:
+                env["packages"] = _packages()  # here, on the sender thread: listing them takes a moment
             request("POST", base, self.key, batch[0])
         elif kind == "patch":
             request("PATCH", f"{base}/{self.run_id}", self.key, batch[0])
@@ -193,7 +197,7 @@ class _Synced(dict):
 
 class Run:
     def __init__(self, project=None, name=None, config=None, tags=None, notes="", id=None, server=None,
-                 api_key=None, capture_output=True, system=True):
+                 api_key=None, capture_output=True, system=True, resume=False):
         self.id = id or str(uuid.uuid4())
         self.project = project or os.environ.get("RUNYARD_PROJECT") or "default"
         self.name = name or os.environ.get("RUNYARD_RUN_NAME") or self.id[:8]
@@ -203,9 +207,12 @@ class Run:
         if not key:
             warn("RUNYARD_API_KEY is not set; the server will refuse this run", once=True)
         self._sender = Sender(server, key, self.id)
+        self._sender.live = True
         self._dir = CACHE / "media" / self.id
         self._step = 0
         self._seq = 0
+        if resume and id:
+            self._continue(server, key)
         self._lock = threading.Lock()
         self._capture = capture_output
         self._closing = False
@@ -218,12 +225,27 @@ class Run:
         self._sender.put("create", {"id": self.id, "project": self.project, "name": self.name, "config": _masked(self.config),
                                     "tags": list(tags or []), "notes": notes, "host": socket.gethostname(), "git": _git(),
                                     "started_at": _now(), "agent": _agent(), "env": _env(self._system)})
+        if resume and id:
+            self._sender.put("patch", {"status": "running"})  # it had ended, or crashed; it is running again
         _sync_old(server, key)
         self._t0 = time.time()
         _active.append(self)
         _install_hooks()
         self._thread = threading.Thread(target=self._loop, name="runyard-sender", daemon=True)
         self._thread.start()
+
+    def _continue(self, server, key):
+        """A resumed run goes on where it was: the next step after its last, output lines numbered after its last
+        (the server drops a line whose number it has). Two short questions to the server, the one thing init waits
+        for, and only when resuming; without an answer it starts from 0 like a new run."""
+        try:
+            run = request("GET", f"{server}/api/v1/runs/{self.id}", key, timeout=2)
+            steps = [m["step"] for k, m in run.get("metrics", {}).items() if not k.startswith("sys/")]
+            self._step = max(steps, default=-1) + 1
+            last = request("GET", f"{server}/api/v1/runs/{self.id}/logs?tail&limit=1", key, timeout=2)
+            self._seq = last[0]["seq"] if last else 0
+        except Exception:
+            pass
 
     def _patch(self, body):
         if not self.finished:
@@ -448,6 +470,16 @@ def _env(system):
     except Exception:
         pass
     return env
+
+
+def _packages():
+    """Installed packages as name==version, what `pip freeze` would say."""
+    try:
+        import importlib.metadata as md
+
+        return sorted({f"{d.metadata['Name']}=={d.version}" for d in md.distributions() if d.metadata["Name"]}, key=str.lower)[:3000]
+    except Exception:
+        return []
 
 
 # Coding agent CLIs that put their session id in the environment of every command they run.

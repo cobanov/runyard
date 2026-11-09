@@ -16,7 +16,8 @@ run = None  # the run the module-level shortcuts act on: the last one init() mad
 
 
 def init(project=None, name=None, config=None, **kwargs):
-    """Starts a run. kwargs: tags, notes, id, server, api_key, capture_output, system."""
+    """Starts a run. kwargs: tags, notes, id, resume, server, api_key, capture_output, system.
+    id with resume=True continues that run after a restart: its steps and output go on where they were."""
     global run
     run = Run(project, name, config, **kwargs)
     return run

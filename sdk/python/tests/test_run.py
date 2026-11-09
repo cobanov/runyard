@@ -183,6 +183,47 @@ def test_env_is_recorded_without_secrets(server, monkeypatch):
     assert "env" not in get(server + "/api/v1/runs?project=env")[0]  # lists stay small: env can hold a diff
 
 
+def test_run_wraps_a_command(server, tmp_path, capsys):
+    """`runyard run -- cmd`: a tool that logs nowhere still gets its output, its samples and how it ended."""
+    out = tmp_path / "out" / "samples"
+    out.mkdir(parents=True)
+    tool = tmp_path / "tool.py"
+    tool.write_text(f"""
+import sys, numpy as np
+from runyard import media
+print("step 500 loss 0.1")
+media.write_png(np.zeros((4, 4, 3), np.uint8), r"{out}/1762700000000__000000500_1.png")
+sys.exit(int(sys.argv[1]))
+""")
+    assert cli(["run", "--project", "wrap", "--name", "ok", "--samples", str(out.parent), "--", sys.executable, str(tool), "0"]) == 0
+    assert cli(["run", "--project", "wrap", "--name", "bad", "--", sys.executable, str(tool), "3"]) == 3
+    runs = {r["name"]: r for r in get(server + "/api/v1/runs?project=wrap")}
+    assert {n: r["status"] for n, r in runs.items()} == {"ok": "finished", "bad": "failed"}
+    assert [l["line"] for l in get(server + f"/api/v1/runs/{runs['ok']['id']}/logs")] == ["step 500 loss 0.1"]
+    [m] = get(server + f"/api/v1/runs/{runs['ok']['id']}/media")
+    assert (m["key"], m["step"]) == ("sample_1", 500)
+    assert get(server + f"/api/v1/runs/{runs['bad']['id']}/media") == []  # no --samples, and the file is older than the run
+
+
+def test_resume_goes_on_where_the_run_was(server):
+    """init(id=..., resume=True) after a restart: steps and output lines continue, and the run is running again."""
+    first = ry.Run(project="resume", name="lora", system=False)
+    for i in range(3):
+        first.log({"loss": 1.0})
+    print("before the restart")
+    first.finish("failed")
+    again = ry.Run(project="resume", name="lora", id=first.id, resume=True, system=False)
+    assert get(server + "/api/v1/runs/" + first.id)  # the same run
+    again.log({"loss": 0.5})  # step 3, not 0 again
+    print("after the restart")
+    wait_for(lambda: get(server + "/api/v1/runs/" + first.id)["status"] == "running")
+    again.finish()
+    r = get(server + "/api/v1/runs/" + first.id)
+    assert r["status"] == "finished" and (r["metrics"]["loss"]["count"], r["metrics"]["loss"]["step"]) == (4, 3)
+    assert [l["line"] for l in get(server + f"/api/v1/runs/{first.id}/logs")] == ["before the restart", "after the restart"]
+    assert any(p.startswith("pytest==") for p in r["env"]["packages"])
+
+
 SCRIPT = """
 import sys, runyard as ry
 ry.init(project="exit", name=sys.argv[1], system=False)

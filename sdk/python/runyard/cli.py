@@ -5,6 +5,9 @@
     runyard logs RUN [-n 100] [-f]
     runyard samples RUN [--out DIR]  downloads the latest samples
     runyard artifacts RUN [--get NAME]  checkpoints and files; --get downloads an uploaded one
+    runyard run [--project P] [--name N] [--samples DIR] -- COMMAND ...
+                                     runs COMMAND as a run, for a tool that logs nowhere: its output, exit status,
+                                     GPU and CPU, and new images under DIR as samples
     runyard sync [--server URL]      sends runs saved while the server was unreachable (the next run does it too)
     runyard watch DIR [--project P] [--once] [--interval 10]
                                      sends TensorBoard event files under DIR, one run per directory, until Ctrl-C;
@@ -155,6 +158,71 @@ def cmd_sync(a):
     left = [f for f in files if not sync(f, server=a.server)]
     print(f"sent {len(files) - len(left)} of {len(files)} pending runs")
     return 1 if left else 0
+
+
+IMAGES = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+
+
+def sample_of(path):
+    """(key, step) of a sample file, from the numbers in its name. ai-toolkit writes <time>__<step>_<index>.jpg and
+    kohya <name>_<step>_<index>_<time>.png: a short last number is the image's place in the step, the number before
+    it the step. Otherwise the last number is the step."""
+    import re
+
+    n = [int(x) for x in re.findall(r"\d+", path.stem) if len(x) < 12]  # a 13-digit number is a timestamp
+    if len(n) >= 2 and n[-1] < 100:
+        return f"sample_{n[-1]}", n[-2]
+    return "samples", n[-1] if n else 0
+
+
+def cmd_run(a):
+    """Runs a command as a run: its output, exit status, GPU and CPU, and new images under --samples as samples."""
+    import codecs
+    import subprocess
+    import threading
+
+    from .core import Run
+
+    cmd = a.command[1:] if a.command[:1] == ["--"] else a.command
+    if not cmd:
+        print("runyard: run needs a command, as in `runyard run -- python train.py`", file=sys.stderr)
+        return 2
+    run = Run(a.project, a.name or " ".join(Path(c).name for c in cmd)[:60])
+    print(f"runyard: {run.url}", file=sys.__stderr__)
+    start, seen, done = time.time(), set(), threading.Event()
+
+    def samples(final=False):
+        for f in sorted(Path(a.samples).rglob("*")) if a.samples and Path(a.samples).is_dir() else ():
+            try:
+                m = f.stat().st_mtime
+            except OSError:
+                continue
+            # written since the run began, and not being written right now
+            if f.suffix.lower() in IMAGES and f not in seen and m >= start - 1 and (final or time.time() - m > 2):
+                seen.add(f)
+                key, step = sample_of(f)
+                run.image(key, f, step=step, caption=f.name)
+
+    def watch():
+        while not done.wait(5):
+            samples()
+
+    threading.Thread(target=watch, daemon=True).start()
+    # The tool writes to a pipe, so Python would hold its output back in blocks: tell it not to.
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env={**os.environ, "PYTHONUNBUFFERED": "1"})
+    decode = codecs.getincrementaldecoder("utf-8")("replace")
+    try:
+        while chunk := p.stdout.read1(65536):
+            sys.stdout.write(decode.decode(chunk))  # the run's tee: shown here and sent as the run's output
+            sys.stdout.flush()
+        code = p.wait()
+    except KeyboardInterrupt:  # Ctrl-C reached the tool too; wait for it to end its own way
+        code = p.wait()
+    done.set()
+    samples(final=True)
+    # Stopped by hand (Ctrl-C) is the stop someone asked for, not a failure, as for a run in a script.
+    run.finish("finished" if code in (0, 130, -signal.SIGINT) else "failed")
+    return code
 
 
 def cmd_watch(a):
@@ -340,6 +408,13 @@ def main(argv=None):
     arts.add_argument("--get", metavar="NAME", help="download the uploaded artifact with this name or id")
     arts.add_argument("--out", help="directory for --get (default: here)")
     arts.set_defaults(fn=cmd_artifacts)
+
+    rn = sub.add_parser("run", help=cmd_run.__doc__)
+    rn.add_argument("--project", help="default: RUNYARD_PROJECT")
+    rn.add_argument("--name", help="default: the command")
+    rn.add_argument("--samples", metavar="DIR", help="new image files under DIR become the run's samples")
+    rn.add_argument("command", nargs=argparse.REMAINDER, help="the command, after --")
+    rn.set_defaults(fn=cmd_run)
 
     sy = sub.add_parser("sync", help=cmd_sync.__doc__)
     sy.add_argument("--server", help="send them here instead of the address each run was started with")

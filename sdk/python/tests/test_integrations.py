@@ -65,6 +65,14 @@ assert off and wandb.run is None
 
 import runyard.wandb
 assert runyard.wandb is wandb  # the same module by its own name, for code that can change its import
+
+import os
+os.environ["WANDB_RUN_ID"] = "abc123"  # how a trainer resumes: the same id is the same run, going on at its next step
+r1 = wandb.init(project="bridge", name="resumed")
+r1.log({"x": 1}); r1.log({"x": 2}); r1.finish()
+r2 = wandb.init(project="bridge", name="resumed", resume="allow")
+assert r2.id == "abc123" and r2.step == 2, (r2.id, r2.step)
+r2.log({"x": 3}); r2.finish()
 """
 
 
@@ -77,7 +85,9 @@ def test_wandb_bridge(server, tmp_path):
     assert "wandb.run.log_code is not supported" in p.stderr and "before wandb.init" not in p.stderr
 
     runs = {r["name"]: r for r in get(server + "/api/v1/runs?project=bridge")}
-    assert {n: r["status"] for n, r in runs.items()} == {"aitk": "finished", "hf-renamed": "finished", "ctx": "finished"}
+    assert {n: r["status"] for n, r in runs.items()} == {"aitk": "finished", "hf-renamed": "finished", "ctx": "finished", "resumed": "finished"}
+    x = get(server + "/api/v1/runs/" + runs["resumed"]["id"])["metrics"]["x"]
+    assert (x["count"], x["step"], x["last"]) == (3, 2, 3)
     runs["hf"] = runs["hf-renamed"]
     [art] = get(server + f"/api/v1/runs/{runs['hf']['id']}/artifacts")
     assert (art["name"], art["kind"], art["size"]) == ("lora", "model", 7) and art["uri"].endswith("lora.safetensors")

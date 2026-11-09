@@ -10,6 +10,7 @@ Also importable by name, when the code is yours to change: `import runyard.wandb
 """
 import os
 import sys
+import uuid
 from pathlib import Path
 
 from . import core
@@ -232,8 +233,15 @@ def init(project=None, name=None, config=None, tags=None, notes=None, id=None, r
     project = project or os.environ.get("WANDB_PROJECT")
     name = name or os.environ.get("WANDB_NAME") or os.environ.get("WANDB_RUN_NAME")
     tags = list(tags or []) + ([kwargs["group"]] if kwargs.get("group") else [])
-    ry_run = core.Run(project, name, dict(config or {}), tags=tags, notes=notes or "")
+    # A run id (init(id=...), WANDB_RUN_ID) is how tools resume after a restart: the same id is the same run here,
+    # going on at its next step. wandb ids are short strings, runyard's are UUIDs, so one is derived from the other.
+    wid = id or os.environ.get("WANDB_RUN_ID")
+    rid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"wandb:{project or os.environ.get('RUNYARD_PROJECT') or 'default'}:{wid}")) if wid else None
+    ry_run = core.Run(project, name, dict(config or {}), tags=tags, notes=notes or "", id=rid, resume=bool(rid))
     run = Run(ry_run)
+    if wid:
+        run.id = str(wid)  # what the tool saved and will pass again
+    run._auto = ry_run._step
     run._tags = tuple(tags)
     _set_globals()
     return run
