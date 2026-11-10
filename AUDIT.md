@@ -140,8 +140,8 @@ in light and dark.
 
 | # | Finding | Where | Status |
 |---|---|---|---|
-| U1 | Colour was not state only: teal marked links, buttons and the selected tab, a busy CPU bar turned amber, a finished run was green | apps | Fixed: ink for anything you can press, teal, red and amber only for a state, grey for finished |
-| U2 | The phone's home screen was titled "Projects" and a running card was five bands with a box inside a box and no sample | apps | Fixed: "Runs" with a line that sums up, the active alert first, a card that reads number, curve, newest sample, progress, machine |
+| U1 | Colour was not state only: teal marked links, buttons and the selected tab, a busy CPU bar turned amber, a finished run was green | apps | **Wrong call, undone on iOS.** The owner tried it (build 115) and said the app had lost its identity and read as a flat list. On a phone the teal accent, the green for finished and the load bars that turn orange are the app's look. `DESIGN.md`'s "colour means state" stays the web's rule. Android 0.6.0 still has the flat version: U12 |
+| U2 | The phone's home screen was titled "Projects" and a running card was five bands with a box inside a box and no sample | apps | Redone on iOS: "Overview", four counts (running, done today, failed today, alerts), the active alert, running cards with the newest sample and the CPU/GPU strip, then Machines, agents, recent, projects. Android: U12 |
 | U3 | A run's name was said twice, its charts had frames and dashed lines with the latest value small and grey, axis labels used the device's decimal comma | apps | Fixed |
 | U4 | Each prompt had its own slider and a lone image; on the web a 290 px image sat beside an empty page | web, apps | Fixed: one scrubber for every key, the images side by side, two across on a phone |
 | U5 | The web's running card had no samples and no progress bar; "recently ended" said "0s, 1m 35s ago" | web | Fixed |
@@ -150,6 +150,8 @@ in light and dark.
 | U8 | Android set type with Material's wide tracking and tall lines | Android | Fixed in the theme |
 | U9 | The demo on the website showed "the server was upgraded" for no reason and broken sample pictures (introduced on 2026-11-09) | web | Fixed |
 | U10 | The apps use the system font, the web Atkinson Hyperlegible | apps | Open: bundling the font adds a megabyte to each app |
+| U12 | Android 0.6.0 has the flat design the owner rejected on iOS, and its dismissed alerts stay in the list, dimmed, so "Dismiss all" looks like it did nothing | Android | Open: port the iOS look and the alerts fix once the owner has confirmed it on TestFlight |
+| U13 | Dismissed alerts stayed in the iPhone's list at half opacity; "Dismiss all" worked on the server and looked like it had not | iOS | Fixed: they leave the list, "Show N dismissed" brings them back, a failed dismiss says so |
 | U11 | Not seen on screen after the redesign: "no output for", a crashed run's card, the apps' empty and error states in dark, a video or a text table in the new sample grid, the chart's touch readout | apps | Open: needs a hand on a device |
 
 ## Deployment and docs
