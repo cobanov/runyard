@@ -48,7 +48,7 @@ struct RootView: View {
                     Text("Can't reach the server").font(.title2.bold())
                     Text("\(store.server)\n\(error)\nTrying again on its own.").font(.subheadline).foregroundStyle(.muted)
                     Button { Task { await retry() } } label: {
-                        if trying { ProgressView().tint(.paper) } else { Text("Try again") }
+                        if trying { ProgressView().tint(.white) } else { Text("Try again") }
                     }
                     .buttonStyle(Primary()).disabled(trying).padding(.top, 10)
                     Button("Change server") { store.leave() }.font(.subheadline.weight(.medium)).frame(maxWidth: .infinity, minHeight: 44)
@@ -158,7 +158,7 @@ struct MainView: View {
                 HStack {
                     Text("Demo: made-up runs").font(.subheadline).foregroundStyle(.muted)
                     Spacer()
-                    Button("Leave demo") { store.leave() }.font(.subheadline.weight(.medium))
+                    Button("Leave demo") { store.leaveDemo() }.font(.subheadline.weight(.medium))
                 }
                 .padding(.horizontal, 16)
             }
@@ -170,7 +170,7 @@ struct MainView: View {
     private var tabs: some View {
         @Bindable var store = store
         return TabView(selection: $store.tab) {
-            Tab("Runs", systemImage: "chart.xyaxis.line", value: 0) {
+            Tab("Overview", systemImage: "chart.xyaxis.line", value: 0) {
                 NavigationStack(path: $path) { HomeView().routes() }
             }
             Tab("Alerts", systemImage: "bell", value: 1) {
@@ -203,7 +203,7 @@ struct ServerView: View {
             : [store.plainHTTP ? "http, not encrypted" : nil, store.me.map { $0.auth ? "signed in as \($0.user)" : "open server" }].compactMap { $0 }.joined(separator: " · ")
         List {
             VStack(alignment: .leading, spacing: 3) {
-                Text(store.isDemo ? "Demo" : store.server).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+                Text(store.isDemo ? "Demo" : store.server).font(.headline).lineLimit(1).truncationMode(.middle)
                 if !about.isEmpty { Text(about).font(.footnote).foregroundStyle(.muted) }
             }
             .panelRow(0, of: signedIn ? 2 : 1, above: 8)
@@ -212,7 +212,7 @@ struct ServerView: View {
             }
 
             // In the demo the bar over the tabs already leaves it: only the servers to go back to are listed.
-            let rows = store.servers.count + (store.isDemo ? 0 : 1)
+            let rows = store.servers.count + (store.isDemo ? 0 : 2)
             if rows > 0 { Heading("Servers") }
             ForEach(Array(store.servers.enumerated()), id: \.element) { i, s in
                 Button { if s != store.server { store.use(s) } } label: {
@@ -230,9 +230,20 @@ struct ServerView: View {
             if !store.isDemo {
                 Button { store.leave() } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "plus").font(.footnote.weight(.semibold)).foregroundStyle(.muted)
+                        Image(systemName: "plus").font(.footnote.weight(.semibold))
                         Text("Add a server")
                         Spacer(minLength: 0)
+                    }
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain).font(.subheadline)
+                .panelRow(rows - 2, of: rows)
+                Button { store.demo() } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "play.circle").font(.footnote.weight(.semibold))
+                        Text("Try the demo")
+                        Spacer(minLength: 0)
+                        Text("made-up runs").foregroundStyle(.muted)
                     }
                     .contentShape(.rect)
                 }
@@ -291,24 +302,22 @@ struct ServerView: View {
 
 struct MachineRow: View {
     let machine: Machine
+    var procs = true // the overview leaves the process list to the Server tab
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
-                Text(machine.name).font(.callout.weight(.semibold)).lineLimit(1)
+                Text(machine.name).font(.headline).lineLimit(1)
                 Spacer(minLength: 8)
                 if machine.silent { Text("silent for \(duration(Date.now.timeIntervalSince(machine.seenAt), units: 1))").font(.footnote).foregroundStyle(.crashed) }
             }
             MachineLoad(load: machine.load).opacity(machine.silent ? 0.5 : 1)
-            ForEach(Array(machine.procs.enumerated()), id: \.offset) { _, p in
+            ForEach(Array((procs ? machine.procs : []).enumerated()), id: \.offset) { _, p in
                 Text("GPU \(p.gpu) · \(p.proc.name.isEmpty ? "pid \(p.proc.pid)" : p.proc.name)\(p.proc.user.map { " · \($0)" } ?? "")\(p.proc.memGB > 0 ? String(format: " · %.1f GB", p.proc.memGB) : "")")
                     .font(.footnote).foregroundStyle(.muted).lineLimit(1)
             }
             if !machine.runs.isEmpty {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Dot(color: .running, breathes: true)
-                    Text("training " + machine.runs.map(\.name).joined(separator: ", ")).font(.footnote).foregroundStyle(.running).lineLimit(2)
-                }
+                Text("Training " + machine.runs.map(\.name).joined(separator: ", ")).font(.footnote).foregroundStyle(.running).lineLimit(2)
             }
         }
         .padding(.vertical, 2)

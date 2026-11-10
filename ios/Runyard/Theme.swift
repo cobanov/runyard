@@ -1,40 +1,32 @@
 import SwiftUI
 import UIKit
 
-// DESIGN.md's tokens and the few pieces every screen is built from. Colour means state: teal, red and amber
-// never mark a link, a button or a tab (the accent colour in the asset catalog is ink for that reason).
+// The app's look: iOS's own grouped ground and cards, the running teal as the accent (the asset catalog's
+// AccentColor), and the system's green, red and orange for how a run ended.
 
 extension ShapeStyle where Self == Color {
-    static var paper: Color { Color(0xf9fafb, 0x09090b) }
-    static var panel: Color { Color(0xffffff, 0x121214) }
-    static var soft: Color { Color(0xf3f4f6, 0x1c1c1f) }
-    static var rule: Color { Color(0xe5e7eb, 0x27272a) }
-    static var ink: Color { Color(0x18181b, 0xfafafa) }
-    static var muted: Color { Color(0x6b7280, 0xa1a1aa) }
-    static var running: Color { Color(0x0f766e, 0x2dd4bf) }
-    static var finished: Color { Color(0x52525b, 0xa1a1aa) }
-    static var failed: Color { Color(0xdc2626, 0xf87171) }
-    static var crashed: Color { Color(0xb45309, 0xfbbf24) }
-    static var series: Color { Color(0x2563eb, 0x60a5fa) } // --c1: a chart's line
+    static var paper: Color { Color(uiColor: .systemGroupedBackground) }
+    static var panel: Color { Color(uiColor: .secondarySystemGroupedBackground) }
+    static var soft: Color { Color(uiColor: .tertiarySystemGroupedBackground) } // a box inside a card
+    static var rule: Color { Color(uiColor: .separator) }
+    static var ink: Color { .primary }
+    static var muted: Color { .secondary }
+    static var running: Color { .accentColor }
+    static var finished: Color { .green }
+    static var failed: Color { .red }
+    static var crashed: Color { .orange }
+    static var series: Color { .accentColor } // a chart's line
 }
 
-private extension Color {
-    init(_ light: UInt32, _ dark: UInt32) {
-        self.init(uiColor: UIColor { t in
-            let v = t.userInterfaceStyle == .dark ? dark : light
-            return UIColor(red: CGFloat(v >> 16 & 255) / 255, green: CGFloat(v >> 8 & 255) / 255, blue: CGFloat(v & 255) / 255, alpha: 1)
-        })
-    }
-}
-
-let radius: CGFloat = 8, radiusSmall: CGFloat = 6
+let radius: CGFloat = 20, radiusSmall: CGFloat = 10 // a card; an image or a field
 
 func statusColor(_ status: String) -> Color {
     switch status {
     case "running": .running
+    case "finished": .finished
     case "failed": .failed
     case "crashed": .crashed
-    default: .finished // finished is quiet
+    default: .muted
     }
 }
 
@@ -42,14 +34,18 @@ func agentColor(_ state: String) -> Color {
     switch state {
     case "waiting": .crashed
     case "error": .failed
+    case "done": .finished
     case "training", "working": .running
-    default: .finished
+    default: .muted
     }
 }
 
 func levelColor(_ level: String) -> Color {
-    level == "error" ? .failed : level == "warn" ? .crashed : .finished
+    level == "error" ? .failed : level == "warn" ? .crashed : .blue
 }
+
+/// A busy bar turns orange: above 90% a GPU is full, which is what one wants to see at a glance.
+func loadColor(_ percent: Double) -> Color { percent > 90 ? .orange : .accentColor }
 
 nonisolated func duration(_ seconds: TimeInterval, units: Int = 2) -> String {
     Duration.seconds(max(0, seconds)).formatted(.units(allowed: [.days, .hours, .minutes, .seconds], width: .narrow, maximumUnitCount: units)
@@ -78,13 +74,13 @@ struct Dot: View {
     }
 }
 
-/// A 4 pt bar on a soft track: progress in the run's state colour, a machine's load in muted whatever the value.
+/// A bar on a soft track: a run's progress in its state colour, a machine's load in teal or orange.
 struct Bar: View {
     let value: Double // 0...1
-    var fill: Color = .muted
+    var fill: Color = .accentColor
 
     var body: some View {
-        Capsule().fill(.soft).frame(height: 4)
+        Capsule().fill(Color(uiColor: .systemFill)).frame(height: 5)
             .overlay(alignment: .leading) {
                 GeometryReader { g in Capsule().fill(fill).frame(width: g.size.width * min(max(value, 0), 1)) }
             }
@@ -97,13 +93,10 @@ private struct PanelPiece: View {
     let top, bottom: Bool
 
     var body: some View {
-        let shape = UnevenRoundedRectangle(topLeadingRadius: top ? radius : 0, bottomLeadingRadius: bottom ? radius : 0,
-                                           bottomTrailingRadius: bottom ? radius : 0, topTrailingRadius: top ? radius : 0)
-        shape.fill(.panel)
-            // The edge runs past the row where the panel goes on, and the clip cuts it there.
-            .overlay(shape.strokeBorder(.rule).padding(.top, top ? 0 : -4).padding(.bottom, bottom ? 0 : -4))
-            .overlay(alignment: .bottom) { if !bottom { Color.rule.frame(height: 1).padding(.horizontal, 14) } }
-            .clipped()
+        UnevenRoundedRectangle(topLeadingRadius: top ? radius : 0, bottomLeadingRadius: bottom ? radius : 0,
+                               bottomTrailingRadius: bottom ? radius : 0, topTrailingRadius: top ? radius : 0, style: .continuous)
+            .fill(.panel)
+            .overlay(alignment: .bottom) { if !bottom { Color.rule.frame(height: 0.5).padding(.leading, 16) } }
             .padding(.horizontal, 16)
     }
 }
@@ -111,7 +104,7 @@ private struct PanelPiece: View {
 extension View {
     /// A list row as row `i` of a panel of `n`; alone, a card. The row keeps the list's swipe and navigation.
     func panelRow(_ i: Int = 0, of n: Int = 1, above: CGFloat = 0, below: CGFloat = 0) -> some View {
-        listRowInsets(EdgeInsets(top: 12 + above, leading: 30, bottom: 12 + below, trailing: 30))
+        listRowInsets(EdgeInsets(top: 13 + above, leading: 32, bottom: 13 + below, trailing: 32))
             .listRowSeparator(.hidden)
             .listRowBackground(PanelPiece(top: i == 0, bottom: i == n - 1).padding(.top, above).padding(.bottom, below))
     }
@@ -129,21 +122,20 @@ extension View {
     }
 
     /// A panel outside a list.
-    func card(_ padding: CGFloat = 14) -> some View {
+    func card(_ padding: CGFloat = 16) -> some View {
         self.padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.panel, in: .rect(cornerRadius: radius))
-            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(.rule))
+            .background(.panel, in: .rect(cornerRadius: radius, style: .continuous))
     }
 }
 
-/// A section's heading: sentence case, small and muted, 24 below what came before.
+/// A section's heading, as a grouped list writes it.
 struct Heading: View {
     let text: String
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text).font(.footnote).foregroundStyle(.muted).accessibilityAddTraits(.isHeader).bareRow(above: 24, below: 8)
+        Text(text).font(.headline).foregroundStyle(.muted).padding(.leading, 16).accessibilityAddTraits(.isHeader).bareRow(above: 26, below: 8)
     }
 }
 
@@ -153,30 +145,26 @@ struct Empty: View {
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text).font(.footnote).foregroundStyle(.muted)
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
-            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(.rule, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+        Text(text).font(.subheadline).foregroundStyle(.muted).card()
     }
 }
 
-/// The one filled button of a screen: ink on paper.
+/// The one filled button of a screen, in the accent.
 struct Primary: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.subheadline.weight(.semibold)).foregroundStyle(.paper)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .background(Color.ink.opacity(!enabled ? 0.3 : configuration.isPressed ? 0.8 : 1), in: .rect(cornerRadius: radiusSmall))
+            .font(.body.weight(.semibold)).foregroundStyle(.white)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .background(Color.accentColor.opacity(!enabled ? 0.35 : configuration.isPressed ? 0.8 : 1), in: .rect(cornerRadius: 14, style: .continuous))
     }
 }
 
-/// An input: a panel inside a hairline, 44 tall for a finger.
+/// An input: a card of its own, tall enough for a finger.
 struct Field: ViewModifier {
     func body(content: Content) -> some View {
-        content.padding(.horizontal, 12).frame(minHeight: 44)
-            .background(.panel, in: .rect(cornerRadius: radiusSmall))
-            .overlay(RoundedRectangle(cornerRadius: radiusSmall).strokeBorder(.rule))
+        content.padding(.horizontal, 16).frame(minHeight: 50)
+            .background(.panel, in: .rect(cornerRadius: 14, style: .continuous))
     }
 }

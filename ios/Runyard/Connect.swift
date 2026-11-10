@@ -10,8 +10,8 @@ struct ConnectView: View {
     var body: some View {
         List {
             VStack(spacing: 8) {
-                LogoMark().frame(width: 56, height: 56)
-                Text("runyard").font(.title.bold()).kerning(-0.5)
+                LogoMark().frame(width: 72, height: 72)
+                Text("runyard").font(.largeTitle.bold())
                 Text("Your training runs, from your own server").font(.subheadline).foregroundStyle(.muted)
             }
             .frame(maxWidth: .infinity)
@@ -53,7 +53,7 @@ struct ConnectView: View {
                     Text("IP or host name, as in 192.168.1.10:8080").font(.footnote).foregroundStyle(.muted)
                 }
                 Button(action: connect) {
-                    if busy { ProgressView().tint(.paper) } else { Text("Connect") }
+                    if busy { ProgressView().tint(.white) } else { Text("Connect") }
                 }
                 .buttonStyle(Primary())
                 .disabled(busy || address.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -64,7 +64,8 @@ struct ConnectView: View {
             VStack(spacing: 2) {
                 Text("No server yet? Look around on made-up runs that keep training while you watch.")
                     .font(.footnote).foregroundStyle(.muted).multilineTextAlignment(.center)
-                Button("Try the demo", action: store.demo).buttonStyle(.borderless).font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                Button(action: store.demo) { Text("Try the demo").font(.body.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 36) }
+                    .buttonStyle(.bordered).buttonBorderShape(.roundedRectangle(radius: 14)).padding(.top, 8)
             }
             .frame(maxWidth: .infinity)
             .bareRow(above: 20, below: 24)
@@ -116,7 +117,7 @@ struct LoginView: View {
                     .modifier(Field())
                 if let error { Text(error).font(.footnote).foregroundStyle(.failed) }
                 Button(action: login) {
-                    if busy { ProgressView().tint(.paper) } else { Text("Sign in") }
+                    if busy { ProgressView().tint(.white) } else { Text("Sign in") }
                 }
                 .buttonStyle(Primary())
                 .disabled(busy || name.isEmpty || password.isEmpty)

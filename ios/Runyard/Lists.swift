@@ -1,7 +1,8 @@
 import Charts
 import SwiftUI
 
-/// Home: what needs a look, what is training now and how it is going, what ended lately, then every project.
+/// Home, the overview: the counts that matter, what needs a look, what is training now and how it is going, the
+/// machines, what ended lately, then every project.
 struct HomeView: View {
     @Environment(Store.self) private var store
     @State private var agents: [Agent] = []
@@ -10,33 +11,53 @@ struct HomeView: View {
     @State private var thumb: [String: String] = [:] // run id -> its latest sample image
     @State private var ended: [Run] = [] // the newest runs that are not running; the first 8 are listed
     @State private var projects: [Project] = []
+    @State private var machines: [Machine] = [] // from runyard beacon; none on a server without one
     @State private var loaded = false
     @State private var okAt = Date.now // the last load that worked
     @State private var error: String?
     @State private var deleting: Project?
     @State private var failure: String?
 
-    /// "2 running · 1 failed today"
-    private var summary: String {
-        let today = ended.filter { Calendar.current.isDateInToday($0.endedAt ?? $0.lastHeartbeatAt ?? $0.startedAt) }
-        return ([running.isEmpty ? "Nothing is training" : "\(running.count) running"] + ["failed", "crashed"].compactMap { s in
-            let n = today.count { $0.status == s }
-            return n == 0 ? nil : "\(n) \(s) today"
-        }).joined(separator: " · ")
-    }
-
     var body: some View {
         let recent = Array(ended.prefix(8))
+        let today = ended.filter { Calendar.current.isDateInToday($0.endedAt ?? $0.lastHeartbeatAt ?? $0.startedAt) }
+        let bad = today.count { $0.status == "failed" || $0.status == "crashed" }
         List {
             if loaded {
-                Group { if error != nil { NotUpdated(since: okAt) } else { Text(summary) } }
-                    .font(.subheadline).foregroundStyle(.muted).bareRow()
+                HStack(spacing: 10) {
+                    Tile(count: running.count, label: "Running", color: .running)
+                    Tile(count: today.count { $0.status == "finished" }, label: "Done today", color: .finished)
+                    Tile(count: bad, label: "Failed today", color: .failed)
+                    Button { store.tab = 1 } label: { Tile(count: store.active.count, label: "Alerts", color: .crashed) }.buttonStyle(.plain)
+                }
+                .bareRow(above: 4)
+                if error != nil { NotUpdated(since: okAt).bareRow(above: 10) }
             } else if let error {
                 Empty("Can't load runs: \(error)").bareRow()
             }
             if let a = store.active.first {
                 Button { store.tab = 1 } label: { AlertLine(alert: a, more: store.active.count - 1) }
-                    .buttonStyle(.plain).panelRow(above: 14)
+                    .buttonStyle(.plain).panelRow(above: 12)
+            }
+            if loaded, running.isEmpty {
+                Heading("Running")
+                Empty("Nothing is training. A run shows up here the moment a script calls runyard.init().").bareRow()
+            }
+            if !running.isEmpty {
+                Heading("Running")
+                ForEach(Array(running.enumerated()), id: \.element.id) { i, run in
+                    NavigationLink(value: Route.run(run.id)) {
+                        LiveRunCard(run: run, spark: spark[run.id] ?? [], thumb: thumb[run.id], stale: error != nil)
+                    }
+                    .navigationLinkIndicatorVisibility(.hidden)
+                    .panelRow(above: i == 0 ? 0 : 12)
+                }
+            }
+            if !machines.isEmpty {
+                Heading("Machines")
+                ForEach(Array(machines.enumerated()), id: \.element.id) { i, m in
+                    MachineRow(machine: m, procs: false).panelRow(i, of: machines.count)
+                }
             }
             if !agents.isEmpty {
                 Heading("Agents")
@@ -50,16 +71,6 @@ struct HomeView: View {
                         }
                     }
                     .panelRow(i, of: agents.count)
-                }
-            }
-            if !running.isEmpty {
-                Heading("Running")
-                ForEach(Array(running.enumerated()), id: \.element.id) { i, run in
-                    NavigationLink(value: Route.run(run.id)) {
-                        LiveRunCard(run: run, spark: spark[run.id] ?? [], thumb: thumb[run.id], stale: error != nil)
-                    }
-                    .navigationLinkIndicatorVisibility(.hidden)
-                    .panelRow(below: i == running.count - 1 ? 0 : 14)
                 }
             }
             if !recent.isEmpty {
@@ -92,7 +103,7 @@ struct HomeView: View {
             Text("Its \(p.runs == 1 ? "1 run" : "\(p.runs) runs"), with their metrics, logs, samples and artifacts, are deleted for good.")
         }
         .alert("Can't delete", isPresented: Binding(present: $failure), presenting: failure) { _ in } message: { Text($0) }
-        .navigationTitle("Runs")
+        .navigationTitle("Overview")
         .refreshable { await load() }
         .poll(every: { running.isEmpty ? 10 : 5 }) { await load() }
     }
@@ -109,8 +120,10 @@ struct HomeView: View {
             async let n: [Run] = store.get(Self.newestPath, keep: true)
             async let p: [Project] = store.get(Self.projectsPath, keep: true)
             async let a: [Agent]? = try? store.get(Self.agentsPath, keep: true) // a server before 0.5.0 answers 404: no section
+            async let h: [Machine]? = try? store.get("/api/v1/hosts")
             let (runs, newest, ps) = try await (r, n, p)
             if let cards = await a { agents = cards.sorted(by: Agent.urgentFirst) }
+            if let hosts = await h { machines = hosts }
             (running, ended, projects) = (runs, newest.filter { !$0.running }, ps)
             (loaded, okAt, error) = (true, .now, nil)
         } catch {
@@ -149,6 +162,24 @@ struct HomeView: View {
     }
 }
 
+/// One count of the overview: big and in its colour when there is something to count, quiet at zero.
+struct Tile: View {
+    let count: Int
+    let label: String
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(count)").font(.title.bold()).foregroundStyle(count > 0 ? color : Color(uiColor: .tertiaryLabel)).contentTransition(.numericText())
+            Text(label).font(.caption2.weight(.medium)).foregroundStyle(.muted).lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.panel, in: .rect(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// The one line a screen shows while its refresh fails: what is on it is this old.
 struct NotUpdated: View {
     let since: Date
@@ -168,7 +199,7 @@ struct AlertLine: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Dot(color: levelColor(alert.level))
+            AlertIcon(level: alert.level)
             // The name gives way first: what happened and how long ago stay whole.
             (Text(alert.title).fontWeight(.semibold) + Text(" · \(alert.runName)").foregroundStyle(.muted)).lineLimit(1)
             Text("· \(ago(alert.ts))").foregroundStyle(.muted).fixedSize().padding(.leading, -6)
@@ -194,12 +225,15 @@ struct LiveRunCard: View {
         let quiet = stale ? nil : run.progressAt.map { Date.now.timeIntervalSince($0) }.flatMap { $0 > 600 ? $0 : nil }
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Dot(color: quiet == nil ? .running : .crashed, breathes: quiet == nil)
-                    Text(run.name).font(.callout.weight(.semibold)).lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "heart.fill").font(.caption)
+                        .foregroundStyle(quiet == nil ? Color.running : .crashed)
+                        .symbolEffect(.bounce, value: run.lastHeartbeatAt) // it beats when the run does
+                        .accessibilityHidden(true)
+                    Text(run.name).font(.headline).lineLimit(1)
                     Spacer(minLength: 8)
                     TimelineView(.periodic(from: .now, by: 1)) { t in
-                        Text(duration(run.duration(now: t.date))).font(.footnote).foregroundStyle(.muted)
+                        Text(duration(run.duration(now: t.date))).font(.subheadline.monospacedDigit()).foregroundStyle(.muted)
                     }
                 }
                 (Text(quiet.map { "no output for \(duration($0, units: 1)) · " } ?? "").foregroundStyle(.crashed)
@@ -216,7 +250,7 @@ struct LiveRunCard: View {
                         }
                         .layoutPriority(1)
                     }
-                    if spark.count > 1 { Sparkline(values: spark).frame(maxWidth: .infinity).frame(height: 48) } else { Spacer(minLength: 0) }
+                    if spark.count > 1 { Sparkline(values: spark).frame(maxWidth: .infinity).frame(height: 52) } else { Spacer(minLength: 0) }
                     if let thumb {
                         Button {
                             UserDefaults.standard.set(RunView.Section.samples.rawValue, forKey: "runSection")
@@ -230,9 +264,7 @@ struct LiveRunCard: View {
                 }
             }
             RunProgress(run: run)
-            if let line = SysLoad(run.metrics)?.line, !line.isEmpty {
-                Text(line).font(.footnote).foregroundStyle(.muted).lineLimit(1)
-            }
+            if let load = SysLoad(run.metrics) { MachineLoad(load: load) }
         }
         .padding(.vertical, 2)
     }
@@ -269,13 +301,9 @@ struct AgentCard: View {
         VStack(alignment: .leading, spacing: 6) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(agent.title).font(.callout.weight(.semibold)).lineLimit(1)
+                    Text(agent.title).font(.headline).lineLimit(1)
                     Spacer(minLength: 8)
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Dot(color: agentColor(agent.state), breathes: ["training", "working"].contains(agent.state))
-                        Text(agent.word).font(.footnote.weight(.medium)).foregroundStyle(agentColor(agent.state))
-                    }
-                    .layoutPriority(1)
+                    Text(agent.word).font(.subheadline.bold()).foregroundStyle(agentColor(agent.state)).layoutPriority(1)
                 }
                 Text([agent.tool, agent.project ?? "", agent.host].filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.footnote).foregroundStyle(.muted).lineLimit(1)
@@ -297,27 +325,34 @@ struct AgentCard: View {
     }
 }
 
-/// A machine's load as text, and one neutral bar per GPU.
+/// The machine at a glance: a bar for the CPU and for each GPU, teal until it is full, then orange.
 struct MachineLoad: View {
     let load: SysLoad
+    var boxed = true // off where the strip is a card of its own
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            let cpu = [load.cpu.map { "CPU \(Int($0.rounded()))%" }, load.ramGB.map { "RAM " + String(format: "%.1f GB", $0) }].compactMap { $0 }
-            if !cpu.isEmpty { Text(cpu.joined(separator: " · ")).foregroundStyle(.muted) }
+        VStack(alignment: .leading, spacing: 7) {
+            if let cpu = load.cpu {
+                row("CPU", cpu, load.ramGB.map { String(format: "RAM %.0f GB", $0) } ?? "")
+            }
             ForEach(load.gpus) { g in
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("GPU \(g.id)")
-                        Spacer(minLength: 8)
-                        Text(([g.util.map { "\(Int($0.rounded()))%" }, g.details.isEmpty ? nil : g.details] as [String?]).compactMap { $0 }.joined(separator: " · "))
-                            .foregroundStyle(.muted).lineLimit(1)
-                    }
-                    Bar(value: (g.util ?? 0) / 100, fill: .muted)
-                }
+                row("GPU \(g.id)", g.util, [g.memGB.map { String(format: "%.0f GB", $0) }, g.tempC.map { "\(Int($0.rounded()))°" }]
+                    .compactMap { $0 }.joined(separator: " · "))
             }
         }
-        .font(.footnote)
+        .font(.caption.monospacedDigit())
+        .padding(boxed ? 12 : 0)
+        .background(boxed ? Color.soft : .clear, in: .rect(cornerRadius: 12, style: .continuous))
+    }
+
+    private func row(_ name: String, _ util: Double?, _ details: String) -> some View {
+        HStack(spacing: 8) {
+            Text(name).frame(width: 44, alignment: .leading)
+            Bar(value: (util ?? 0) / 100, fill: loadColor(util ?? 0))
+            Text(util.map { "\(Int($0.rounded()))%" } ?? "–").bold().frame(width: 38, alignment: .trailing)
+            Text(details).foregroundStyle(.muted).lineLimit(1).frame(width: 86, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -325,13 +360,16 @@ struct Sparkline: View {
     let values: [Double]
 
     var body: some View {
+        let low = values.min() ?? 0
         Chart(values.indices, id: \.self) { i in
-            LineMark(x: .value("i", i), y: .value("v", values[i])).lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+            AreaMark(x: .value("i", i), yStart: .value("low", low), yEnd: .value("v", values[i]))
+                .foregroundStyle(LinearGradient(colors: [Color.series.opacity(0.25), Color.series.opacity(0)], startPoint: .top, endPoint: .bottom))
+            LineMark(x: .value("i", i), y: .value("v", values[i])).lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
         }
         .chartXAxis(.hidden)
         .chartYAxis(.hidden)
         .chartYScale(domain: .automatic(includesZero: false))
-        .foregroundStyle(.series) // the chart blue: teal stays a state
+        .foregroundStyle(.series)
         .accessibilityHidden(true)
     }
 }
@@ -341,12 +379,25 @@ struct ProjectRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(project.name).font(.callout.weight(.semibold)).lineLimit(1)
-            (Text(project.running > 0 ? "\(project.running) running · " : "").foregroundStyle(.running)
-                + Text([project.runs == 1 ? "1 run" : "\(fmt(Double(project.runs))) runs", project.lastRunAt.map { "last " + ago($0) }]
-                    .compactMap { $0 }.joined(separator: " · ")).foregroundStyle(.muted))
-                .font(.footnote).lineLimit(1)
+            HStack(spacing: 8) {
+                Text(project.name).font(.headline).lineLimit(1)
+                if project.running > 0 { Pill(text: "\(project.running) running", color: .running) }
+            }
+            Text([project.runs == 1 ? "1 run" : "\(fmt(Double(project.runs))) runs", project.lastRunAt.map { "last " + ago($0) }]
+                .compactMap { $0 }.joined(separator: " · "))
+                .font(.subheadline).foregroundStyle(.muted).lineLimit(1)
         }
+    }
+}
+
+/// A state as a word on a tint of its colour.
+struct Pill: View {
+    let text: String
+    let color: Color
+
+    var body: some View {
+        Text(text).font(.caption.bold()).padding(.horizontal, 8).padding(.vertical, 3)
+            .background(color.opacity(0.15), in: .capsule).foregroundStyle(color).fixedSize()
     }
 }
 
@@ -425,7 +476,7 @@ struct RunRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Dot(color: statusColor(run.status), breathes: run.running)
             VStack(alignment: .leading, spacing: 3) {
-                Text(run.name).font(.callout.weight(.semibold)).lineLimit(1)
+                Text(run.name).font(.headline).lineLimit(1)
                 (Text(word).foregroundStyle(statusColor(run.status)) + Text(rest.compactMap { $0 }.joined(separator: " · ")).foregroundStyle(.muted))
                     .font(.footnote).lineLimit(1)
                 if let tags = run.tags, !tags.isEmpty, !showProject {
@@ -448,29 +499,41 @@ struct AlertsView: View {
     @State private var alerts: [Alert] = []
     @State private var loaded = false
     @State private var error: String?
+    @State private var showOld = false // the ones put away stay out of sight until asked for
 
     var body: some View {
+        let open = alerts.filter { $0.dismissedAt == nil }
+        let old = alerts.filter { $0.dismissedAt != nil }
         List {
-            if !loaded, let error {
-                Empty("Can't load alerts: \(error)").bareRow(above: 8)
-            } else if loaded, alerts.isEmpty {
-                Empty("No alerts. A script raises one with run.alert(), the server when a loss turns NaN or a run stalls.").bareRow(above: 8)
+            if let error {
+                Text(loaded ? "That did not work: \(error)" : "Can't load alerts: \(error)").font(.footnote).foregroundStyle(.failed).bareRow(above: 8)
             }
-            ForEach(Array(alerts.enumerated()), id: \.element.id) { i, a in
-                NavigationLink(value: Route.run(a.run)) { AlertRow(alert: a, showRun: true).opacity(a.dismissedAt == nil ? 1 : 0.5) }
+            if loaded, open.isEmpty {
+                Empty(old.isEmpty ? "No alerts. A script raises one with run.alert(), the server when a loss turns NaN or a run stalls."
+                      : "Nothing needs a look.").bareRow(above: 8)
+            }
+            ForEach(Array(open.enumerated()), id: \.element.id) { i, a in
+                NavigationLink(value: Route.run(a.run)) { AlertRow(alert: a, showRun: true) }
                     .navigationLinkIndicatorVisibility(.hidden)
-                    .swipeActions {
-                        if a.dismissedAt == nil {
-                            Button("Dismiss") { Task { await dismiss([a.id]) } }.tint(.finished)
-                        }
+                    .swipeActions { Button("Dismiss") { Task { await dismiss([a.id]) } }.tint(.gray) }
+                    .panelRow(i, of: open.count, above: i == 0 ? 8 : 0)
+            }
+            if !old.isEmpty {
+                Button(showOld ? "Hide dismissed" : "Show \(old.count) dismissed") { withAnimation { showOld.toggle() } }
+                    .buttonStyle(.borderless).font(.subheadline).frame(maxWidth: .infinity).bareRow(above: 16, below: 8)
+                if showOld {
+                    ForEach(Array(old.enumerated()), id: \.element.id) { i, a in
+                        NavigationLink(value: Route.run(a.run)) { AlertRow(alert: a, showRun: true).opacity(0.55) }
+                            .navigationLinkIndicatorVisibility(.hidden)
+                            .panelRow(i, of: old.count)
                     }
-                    .panelRow(i, of: alerts.count, above: i == 0 ? 8 : 0)
+                }
             }
             Color.clear.frame(height: 16).bareRow()
         }
         .paperList()
         .toolbar {
-            if alerts.contains(where: { $0.dismissedAt == nil }) {
+            if !open.isEmpty {
                 Button("Dismiss all") { Task { await dismiss([]) } }
             }
         }
@@ -479,14 +542,14 @@ struct AlertsView: View {
         .poll(every: { 15 }) { await load() }
     }
 
-    /// Puts alerts away (all of them for no ids): they stay here, dimmed.
+    /// Puts alerts away (all of them for no ids): they leave the list, and stay behind "Show dismissed".
     private func dismiss(_ ids: [Int]) async {
         do {
             try await store.post("/api/v1/alerts/dismiss", json: ["ids": ids])
+            await load()
         } catch {
             self.error = error.localizedDescription
         }
-        await load()
         await store.countAlerts()
     }
 
@@ -507,7 +570,7 @@ struct AlertRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Dot(color: levelColor(alert.level))
+            AlertIcon(level: alert.level)
             VStack(alignment: .leading, spacing: 3) {
                 Text(alert.title).font(.subheadline.weight(.semibold)).accessibilityLabel("\(alert.level): \(alert.title)")
                 Text(((showRun ? [alert.runName, alert.project] : []) + [ago(alert.ts)]).joined(separator: " · "))
@@ -517,5 +580,14 @@ struct AlertRow: View {
                 }
             }
         }
+    }
+}
+
+struct AlertIcon: View {
+    let level: String
+
+    var body: some View {
+        Image(systemName: level == "error" ? "exclamationmark.octagon.fill" : level == "warn" ? "exclamationmark.triangle.fill" : "info.circle.fill")
+            .foregroundStyle(levelColor(level)).accessibilityHidden(true)
     }
 }

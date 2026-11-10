@@ -31,7 +31,7 @@ final class TourTests: XCTestCase {
             app.buttons["Sign in"].tap()
         }
 
-        XCTAssert(app.navigationBars["Runs"].waitForExistence(timeout: 15), "no home screen")
+        XCTAssert(app.navigationBars["Overview"].waitForExistence(timeout: 15), "no home screen")
         if env["RUNYARD_TEST_USER"] != nil {
             // iOS offers to save the password, sometimes seconds later; that sheet would swallow the next taps.
             let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -78,18 +78,23 @@ final class TourTests: XCTestCase {
         XCTAssert(demo.waitForExistence(timeout: 10))
         shot(app, "01-connect")
         demo.tap()
-        XCTAssert(app.navigationBars["Runs"].waitForExistence(timeout: 15), "no home screen")
+        XCTAssert(app.navigationBars["Overview"].waitForExistence(timeout: 15), "no home screen")
         sleep(2)
-        XCTAssert(app.staticTexts["Waiting for you"].exists, "no agent cards")
+        XCTAssert(app.staticTexts["Running"].exists, "no overview tiles")
         shot(app, "02-home")
         app.buttons.containing(.staticText, identifier: "qwen3-8b-full-lr2e-5").firstMatch.tap()
         XCTAssert(app.segmentedControls.firstMatch.waitForExistence(timeout: 15), "no run page")
         sleep(2)
         shot(app, "03-running-run")
         app.navigationBars.buttons.firstMatch.tap()
-        // The project rows sit below the running cards, and the list only builds what is on screen.
-        app.collectionViews.firstMatch.swipeUp(velocity: .fast)
-        app.collectionViews.firstMatch.swipeUp(velocity: .fast)
+        // Machines, agents and the projects sit below the running cards, and the list only builds what is on screen.
+        down(app, to: app.staticTexts["Machines"])
+        shot(app, "02-home-machines")
+        down(app, to: app.staticTexts["Waiting for you"])
+        shot(app, "02-home-agents")
+        down(app, to: app.staticTexts["Projects"])
+        app.collectionViews.firstMatch.swipeUp()
+        shot(app, "02-home-projects")
         app.buttons.containing(.staticText, identifier: "qwen-sft").allElementsBoundByIndex.last!.tap()
         let qwen3Row = app.buttons.containing(.staticText, identifier: "qwen3-8b-lora-r16-nopack").firstMatch
         XCTAssert(qwen3Row.waitForExistence(timeout: 10))
@@ -102,6 +107,8 @@ final class TourTests: XCTestCase {
         shot(app, "05-crashed-logs")
         app.navigationBars.buttons.firstMatch.tap()
         app.navigationBars.buttons.firstMatch.tap()
+        down(app, to: app.staticTexts["Projects"])
+        app.collectionViews.firstMatch.swipeUp()
         let project = app.buttons.containing(.staticText, identifier: "pixel-diffusion").allElementsBoundByIndex.last!
         XCTAssert(project.waitForExistence(timeout: 10))
         project.tap()
@@ -118,6 +125,19 @@ final class TourTests: XCTestCase {
         app.tabBars.buttons["Server"].tap()
         sleep(2)
         shot(app, "08-server")
+        // Last, because it empties the list: dismissed alerts leave it.
+        app.tabBars.buttons["Alerts"].tap()
+        app.buttons["Dismiss all"].tap()
+        XCTAssert(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Show'")).firstMatch.waitForExistence(timeout: 5), "no way back to the dismissed")
+        XCTAssertFalse(app.staticTexts["loss is NaN"].exists, "a dismissed alert stayed in the list")
+        shot(app, "09-alerts-dismissed")
+    }
+
+    /// Scrolls the list until `element` is on screen.
+    @MainActor
+    private func down(_ app: XCUIApplication, to element: XCUIElement) {
+        for _ in 0..<12 where !element.isHittable { app.collectionViews.firstMatch.swipeUp(velocity: .slow) }
+        XCTAssert(element.exists, "not found below: \(element)")
     }
 
     @MainActor

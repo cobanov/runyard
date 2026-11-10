@@ -17,7 +17,7 @@ final class NotifyTests: XCTestCase {
         XCTAssert(field.waitForExistence(timeout: 10))
         field.tap()
         field.typeText(server + "\n")
-        XCTAssert(app.navigationBars["Runs"].waitForExistence(timeout: 15), "no home screen")
+        XCTAssert(app.navigationBars["Overview"].waitForExistence(timeout: 15), "no home screen")
         app.tabBars.buttons["Server"].tap()
         app.switches.firstMatch.switches.firstMatch.tap()
         let allow = springboard.buttons["Allow"]

@@ -98,10 +98,9 @@ struct RunView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(run.name).font(.title2.bold()).kerning(-0.4)
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Dot(color: statusColor(run.status), breathes: run.running)
+                Pill(text: run.status, color: statusColor(run.status))
                 TimelineView(.periodic(from: .now, by: 1)) { t in
-                    (Text(run.status).foregroundStyle(statusColor(run.status)) + Text(" · \(duration(run.duration(now: t.date)))").foregroundStyle(.muted))
-                        .font(.subheadline)
+                    Text((run.running ? "for " : "ran ") + duration(run.duration(now: t.date))).font(.subheadline).foregroundStyle(.muted)
                 }
             }
             // No heartbeat's age while the refresh fails: it is old because the phone could not ask.
@@ -121,7 +120,7 @@ struct RunView: View {
                 charts(trainKeys, xLabel: "step")
             }
         case .system:
-            if let load = SysLoad(run.metrics) { MachineLoad(load: load).card() }
+            if let load = SysLoad(run.metrics) { MachineLoad(load: load, boxed: false).card() }
             charts(sysKeys, xLabel: "second")
         case .samples:
             SamplesView(id: id, running: run.running)
@@ -197,7 +196,7 @@ struct MetricChart: View {
                     }
                     LineMark(x: .value(xLabel, p.step), y: .value(title, p.last))
                         .foregroundStyle(.series)
-                        .lineStyle(StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+                        .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
                 }
                 if let pick {
                     RuleMark(x: .value(xLabel, pick.step)).foregroundStyle(.muted).lineStyle(StrokeStyle(lineWidth: 1))
@@ -292,8 +291,7 @@ struct LogsView: View {
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         .defaultScrollAnchor(.bottom, for: .sizeChanges)
         .defaultScrollAnchor(.top, for: .alignment)
-        .background(.panel, in: .rect(cornerRadius: radius))
-        .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(.rule))
+        .background(.panel, in: .rect(cornerRadius: radius, style: .continuous))
         .overlay { if loaded && lines.isEmpty { Text("No output yet. What the script prints shows up here.").font(.footnote).foregroundStyle(.muted) } }
         .poll(every: { running ? 3 : 60 }) { await load() }
     }
@@ -347,7 +345,6 @@ struct SamplesView: View {
                             // Left at the end, it goes on following the newest step.
                             Slider(value: Binding(get: { Double(index) }, set: { step = Int($0.rounded()) == steps.count - 1 ? nil : steps[Int($0.rounded())] }),
                                    in: 0...Double(steps.count - 1), step: 1)
-                                .tint(.muted)
                                 .accessibilityLabel("Step")
                         }
                         Text("step \(fmt(Double(steps[index]))) · \(index + 1) of \(steps.count)").font(.footnote).foregroundStyle(.muted).fixedSize()
@@ -380,7 +377,6 @@ struct SamplesView: View {
                     if steps.count > 1 {
                         Slider(value: Binding(get: { Double(index) }, set: { picked[key] = Int($0.rounded()) == steps.count - 1 ? nil : Int($0.rounded()) }),
                                in: 0...Double(steps.count - 1), step: 1)
-                            .tint(.muted)
                     }
                     ForEach(Array(items.filter { $0.step == steps[index] }.enumerated()), id: \.offset) { _, m in MediaItem(media: m) }
                 }
@@ -408,7 +404,7 @@ struct MediaItem: View {
                     let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": store.api.headers])
                     VideoPlayer(player: AVPlayer(playerItem: AVPlayerItem(asset: asset)))
                         .aspectRatio(16 / 9, contentMode: .fit)
-                        .clipShape(.rect(cornerRadius: radius))
+                        .clipShape(.rect(cornerRadius: radiusSmall))
                 }
             case "text":
                 TextTable(url: media.url)
@@ -432,7 +428,7 @@ struct RemoteImage: View {
     @State private var image: UIImage?
 
     var body: some View {
-        let r = side == nil ? radius : radiusSmall
+        let r = radiusSmall
         Group {
             if let image {
                 Image(uiImage: image)

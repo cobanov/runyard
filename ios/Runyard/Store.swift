@@ -105,7 +105,13 @@ final class Store {
     var alertsBadge: String? { active.isEmpty ? nil : active.count < 20 ? "\(active.count)" : "20+" }
 
     /// Made-up runs answered inside the app (Demo.swift). It is kept like a server, so a relaunch opens the demo again.
-    func demo() { use(DemoServer.base) }
+    func demo() {
+        if !isDemo { beforeDemo = server }
+        use(DemoServer.base)
+    }
+    /// Back to the server the demo was started from, or to the connect screen.
+    func leaveDemo() { if beforeDemo.isEmpty { leave() } else { use(beforeDemo) } }
+    @ObservationIgnored private var beforeDemo = ""
 
     /// Switches to a server in the list. Its session is still in the keychain, so there is no sign-in.
     func use(_ base: String) {
