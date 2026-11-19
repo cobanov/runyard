@@ -45,6 +45,10 @@ and output continue where they were, and the run is running again.
   While the server is unreachable the queue is also written to `~/.cache/runyard/pending` (`RUNYARD_CACHE`)
   every 30 seconds, so a killed process loses seconds, not the run. The next run on the machine sends what
   earlier ones left, and `runyard sync` does it by hand (`--server URL` to send it somewhere else).
+- **Checkpoints:** `ry.init(checkpoints="out/ckpt")` (or `runyard run --checkpoints DIR`) records each checkpoint
+  that appears in that directory during the run, a sub-directory or a weights file, once it stops changing and at
+  the end: its path, size and step (from a name like `checkpoint-500`, `step=7350` or `my_lora_000002000`, else the
+  last logged step). Nothing is uploaded. The run page says "Last checkpoint: step N, 12m ago".
 - **Artifacts:** by default only the record is kept (this host and the path, size, step). `upload=True` sends a
   copy, a directory as one `.tar.gz`, streamed from disk. `runyard artifacts RUN --get NAME` downloads it.
 - **Settings:** `RUNYARD_SERVER`, `RUNYARD_API_KEY`, `RUNYARD_PROJECT` and `RUNYARD_RUN_NAME` fill in what
@@ -92,7 +96,7 @@ In code you can change, `import runyard.wandb as wandb` is the same module witho
 **Anything else.** A tool that logs nowhere can still be a run:
 
 ```sh
-runyard run --project lora --samples output/my_lora/samples -- python run.py config/my_lora.yaml
+runyard run --project lora --samples output/my_lora/samples --checkpoints output/my_lora -- python run.py config/my_lora.yaml
 ```
 
 Its output, exit status (0 is finished, anything else failed), GPU and CPU are recorded, and image files that

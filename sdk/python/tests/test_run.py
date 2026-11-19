@@ -193,6 +193,10 @@ import sys, numpy as np
 from runyard import media
 print("step 500 loss 0.1")
 media.write_png(np.zeros((4, 4, 3), np.uint8), r"{out}/1762700000000__000000500_1.png")
+if sys.argv[1] == "0":
+    import os
+    os.makedirs(r"{out.parent}/ckpt", exist_ok=True)
+    open(r"{out.parent}/ckpt/model-500.safetensors", "wb").write(b"w" * 64)
 if sys.argv[1] == "kill":
     import os, signal
     os.kill(os.getpid(), signal.SIGKILL)
@@ -201,7 +205,8 @@ if sys.argv[1] != "0":
     print("cleaning up", file=sys.stderr)
 sys.exit(int(sys.argv[1]))
 """)
-    assert cli(["run", "--project", "wrap", "--name", "ok", "--samples", str(out.parent), "--", sys.executable, str(tool), "0"]) == 0
+    assert cli(["run", "--project", "wrap", "--name", "ok", "--samples", str(out.parent), "--checkpoints", str(out.parent / "ckpt"),
+                "--", sys.executable, str(tool), "0"]) == 0
     assert cli(["run", "--project", "wrap", "--name", "bad", "--", sys.executable, str(tool), "3"]) == 3
     assert cli(["run", "--project", "wrap", "--name", "oom", "--", sys.executable, str(tool), "kill"]) == -9
     runs = {r["name"]: r for r in get(server + "/api/v1/runs?project=wrap")}
@@ -209,6 +214,8 @@ sys.exit(int(sys.argv[1]))
     assert (runs["bad"]["error"], runs["bad"]["exit_code"]) == ("ValueError: bad shape", 3)  # the line naming the error
     assert (runs["oom"]["error"], runs["oom"]["exit_code"]) == ("Killed by SIGKILL", 137)
     assert "error" not in runs["ok"] and runs["ok"]["exit_code"] == 0
+    [ck] = get(server + f"/api/v1/runs/{runs['ok']['id']}/artifacts")  # written as the command ended, taken at its end
+    assert (ck["name"], ck["kind"], ck["step"], ck["size"]) == ("model-500.safetensors", "checkpoint", 500, 64)
     assert [l["line"] for l in get(server + f"/api/v1/runs/{runs['ok']['id']}/logs")] == ["step 500 loss 0.1"]
     [m] = get(server + f"/api/v1/runs/{runs['ok']['id']}/media")
     assert (m["key"], m["step"]) == ("sample_1", 500)
@@ -378,3 +385,42 @@ except KeyboardInterrupt:  # how ai-toolkit stops
     p.wait(30)
     srv.shutdown()
     assert any(b'"finished"' in b for b in ends)
+
+
+def test_step_of_a_checkpoint_name():
+    from runyard.checkpoints import step_of
+
+    assert [step_of(n) for n in ("checkpoint-500", "epoch=2-step=7350.ckpt", "my_lora_000002000.safetensors",
+                                 "ckpt_e3_s7350.pt", "model_final.pt", "lora-r16", "global_step120")] == \
+        [500, 7350, 2000, 7350, None, None, 120]
+
+
+def test_checkpoints_are_recorded_where_they_are(server, tmp_path, monkeypatch):
+    """init(checkpoints=DIR): what appears in DIR during the run is recorded with its path, size and step; files
+    from before the run, half-written saves and non-weight files are not."""
+    import runyard.checkpoints as ck
+
+    monkeypatch.setattr(ck, "POLL", 0.2)
+    monkeypatch.setattr(ck, "SETTLE", 0)
+    d = tmp_path / "ckpt"
+    d.mkdir()
+    old = d / "checkpoint-100"
+    old.mkdir()
+    (old / "model.safetensors").write_bytes(b"x" * 10)
+    os.utime(old / "model.safetensors", (time.time() - 3600, time.time() - 3600))
+    os.utime(old, (time.time() - 3600, time.time() - 3600))
+    run = ry.Run(project="ckpt", name="a", system=False, checkpoints=str(d))
+    run.log({"loss": 1.0}, step=7350)
+    (d / "checkpoint-500").mkdir()
+    (d / "checkpoint-500" / "model.safetensors").write_bytes(b"w" * 1000)
+    (d / "checkpoint-500" / "optimizer.pt").write_bytes(b"o" * 24)
+    (d / "tmp-checkpoint-600").mkdir()  # HF writes here, then renames
+    (d / "trainer_log.json").write_text("{}")
+    api = server + f"/api/v1/runs/{run.id}/artifacts"
+    [a] = wait_for(lambda: get(api))  # recorded while the run goes on
+    assert (a["name"], a["kind"], a["step"], a["size"], a["uri"]) == ("checkpoint-500", "checkpoint", 500, 1024, str((d / "checkpoint-500").resolve()))
+    assert a["meta"]["modified"]
+    (d / "final.pt").write_bytes(b"f" * 7)  # saved right before the end: taken at finish, not left out
+    run.finish()
+    by = {a["name"]: a for a in get(api)}
+    assert set(by) == {"checkpoint-500", "final.pt"} and by["final.pt"]["step"] == 7350  # no step in the name: the last logged

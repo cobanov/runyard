@@ -197,7 +197,7 @@ class _Synced(dict):
 
 class Run:
     def __init__(self, project=None, name=None, config=None, tags=None, notes="", id=None, server=None,
-                 api_key=None, capture_output=True, system=True, resume=False, total_steps=None):
+                 api_key=None, capture_output=True, system=True, resume=False, total_steps=None, checkpoints=None):
         self.id = id or str(uuid.uuid4())
         self.project = project or os.environ.get("RUNYARD_PROJECT") or "default"
         self.name = name or os.environ.get("RUNYARD_RUN_NAME") or self.id[:8]
@@ -218,6 +218,7 @@ class Run:
         self._closing = False
         self._wake = threading.Event()
         self.finished = False
+        self._checkpoints = None  # a Watcher of the checkpoint directory, when there is one
         self.config = _Synced(self, "config", config or {})
         self.summary = _Synced(self, "summary", {})
         _check_sandbox()
@@ -234,6 +235,10 @@ class Run:
         _install_hooks()
         self._thread = threading.Thread(target=self._loop, name="runyard-sender", daemon=True)
         self._thread.start()
+        if checkpoints:
+            from .checkpoints import Watcher
+
+            self._checkpoints = Watcher(self, checkpoints, self._t0)
 
     def _continue(self, server, key):
         """A resumed run goes on where it was: the next step after its last, output lines numbered after its last
@@ -329,6 +334,12 @@ class Run:
         after init (the dataset was counted, a stage was added). The steps are those of log()."""
         self._patch({"total_steps": int(total)})
 
+    def _checkpoint(self, path, step, size, modified):
+        """A checkpoint the watcher found: recorded where it is, like artifact(), with the size it already measured."""
+        fields = {"id": str(uuid.uuid4()), "name": path.name, "kind": "checkpoint", "uri": str(path.resolve()), "size": size,
+                  "step": self._step_for(step), "meta": json.dumps({"modified": modified})}
+        self._sender.put("artifact", (fields, None))
+
     @_safe
     def alert(self, title, body="", level="info"):
         """Records an alert and notifies the project's channels. level: info, warn or error."""
@@ -349,6 +360,8 @@ class Run:
             return
         if self in _active:
             _active.remove(self)
+        if self._checkpoints:
+            self._checkpoints.close()  # the last checkpoint, often saved right before the end
         end = {"status": status, "ended_at": _now()}  # the real end, even if it arrives days later
         if error:
             end["error"] = str(error)[:2000]  # an older server ignores both

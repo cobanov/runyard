@@ -5,7 +5,7 @@
     runyard logs RUN [-n 100] [-f]
     runyard samples RUN [--out DIR]  downloads the latest samples
     runyard artifacts RUN [--get NAME]  checkpoints and files; --get downloads an uploaded one
-    runyard run [--project P] [--name N] [--samples DIR] -- COMMAND ...
+    runyard run [--project P] [--name N] [--samples DIR] [--checkpoints DIR] -- COMMAND ...
                                      runs COMMAND as a run, for a tool that logs nowhere: its output, exit status,
                                      GPU and CPU, and new images under DIR as samples
     runyard sync [--server URL]      sends runs saved while the server was unreachable (the next run does it too)
@@ -178,7 +178,8 @@ def sample_of(path):
 
 
 def cmd_run(a):
-    """Runs a command as a run: its output, exit status, GPU and CPU, and new images under --samples as samples."""
+    """Runs a command as a run: its output, exit status, GPU and CPU, new images under --samples as samples, and new
+    checkpoints under --checkpoints as records of where they are."""
     import codecs
     import subprocess
     import threading
@@ -189,7 +190,7 @@ def cmd_run(a):
     if not cmd:
         print("runyard: run needs a command, as in `runyard run -- python train.py`", file=sys.stderr)
         return 2
-    run = Run(a.project, a.name or " ".join(Path(c).name for c in cmd)[:60])
+    run = Run(a.project, a.name or " ".join(Path(c).name for c in cmd)[:60], checkpoints=a.checkpoints)
     print(f"runyard: {run.url}", file=sys.__stderr__)
     start, seen, done = time.time(), set(), threading.Event()
 
@@ -440,6 +441,7 @@ def main(argv=None):
     rn.add_argument("--project", help="default: RUNYARD_PROJECT")
     rn.add_argument("--name", help="default: the command")
     rn.add_argument("--samples", metavar="DIR", help="new image files under DIR become the run's samples")
+    rn.add_argument("--checkpoints", metavar="DIR", help="new checkpoints in DIR are recorded (where, size, step), not uploaded")
     rn.add_argument("command", nargs=argparse.REMAINDER, help="the command, after --")
     rn.set_defaults(fn=cmd_run)
 

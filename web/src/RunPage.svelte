@@ -46,6 +46,11 @@
     }),
   )
 
+  // The newest checkpoint: by step, then by when it was written (meta.modified from the watcher) or recorded.
+  const when = (a) => new Date(a.meta?.modified || a.created_at)
+  const checkpoint = $derived(
+    artifacts.filter((a) => a.kind === 'checkpoint').sort((a, b) => (a.step ?? -1) - (b.step ?? -1) || when(a) - when(b)).at(-1),
+  )
   const tabs = $derived([
     ['charts', 'Charts'],
     ['samples', 'Samples'],
@@ -120,6 +125,7 @@
       <div><dt>Started</dt><dd>{ago(run.started_at, live.now)}</dd></div>
       {#if run.status === 'running'}<div><dt>Heartbeat</dt><dd>{ago(run.last_heartbeat_at, live.now)}</dd></div>{/if}
       {#if run.host}<div><dt>Host</dt><dd><a href="#/machines">{run.host}</a></dd></div>{/if}
+      {#if checkpoint}<div><dt>Last checkpoint</dt><dd><button class="plain" onclick={() => (tab = 'artifacts')} title={checkpoint.uri}>{checkpoint.step != null ? `step ${fmt(checkpoint.step)}, ` : ''}{ago(when(checkpoint), live.now)}</button></dd></div>{/if}
       {#if run.git?.commit}<div><dt>Git</dt><dd>{run.git.branch} {run.git.commit.slice(0, 8)}{run.git.dirty ? ', uncommitted changes' : ''}</dd></div>{/if}
     </dl>
     {#if run.status !== 'finished' && progressOf(run, live.now) != null}
@@ -277,6 +283,16 @@
   .notes {
     margin: 10px 0 0;
     white-space: pre-wrap;
+  }
+  .plain {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-decoration: underline;
+  }
+  .plain:hover {
+    background: none;
   }
   .link {
     display: block;

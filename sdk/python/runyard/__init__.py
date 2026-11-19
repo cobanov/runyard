@@ -16,9 +16,10 @@ run = None  # the run the module-level shortcuts act on: the last one init() mad
 
 
 def init(project=None, name=None, config=None, **kwargs):
-    """Starts a run. kwargs: tags, notes, id, resume, server, api_key, capture_output, system, total_steps.
+    """Starts a run. kwargs: tags, notes, id, resume, server, api_key, capture_output, system, total_steps, checkpoints.
     id with resume=True continues that run after a restart: its steps and output go on where they were.
-    total_steps is the step the run will end at, for its progress bar and time left."""
+    total_steps is the step the run will end at, for its progress bar and time left. checkpoints is the directory the
+    training saves to: each new checkpoint in it is recorded (where, size, step), not uploaded."""
     global run
     run = Run(project, name, config, **kwargs)
     return run
