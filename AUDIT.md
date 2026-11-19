@@ -189,7 +189,8 @@ existing channel, which got its `stopped` rule.
 **Not checked.** The Android unit tests ran in CI only (no JDK on this Mac); no new Android build was released.
 T6's thresholds come from toji's readings, not from a training run through them; at deploy time choso-wsl's
 ComfyUI (`python main.py`) held its GPU at 98 %, the WSL case T6 flags along with any training. The SDK changes
-(T2 to T5's client side) reach a machine only with a new SDK release; none was tagged. T2's reason for an out-of-memory error was checked with a raised exception, not a real CUDA OOM. T3's
+(T2 to T5's client side) are released as v0.8.0 (PyPI, ghcr, GitHub release; the wheel was installed from PyPI and
+checked), but the machines' environments still have their old SDKs until each is upgraded. T2's reason for an out-of-memory error was checked with a raised exception, not a real CUDA OOM. T3's
 Lightning and scikit-learn paths were not run (neither is installed here); the Lightning logger says stopped only if
 Lightning calls `finalize("failed")` while it handles the KeyboardInterrupt, which is assumed, not verified. The released apps were not run against
 a stopped run, only read.
