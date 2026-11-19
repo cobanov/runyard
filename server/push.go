@@ -168,7 +168,7 @@ func sendPush(ctx context.Context, c channelConfig, m message) error {
 	}
 	if res.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(res.Body, 300))
-		return fmt.Errorf("push service: %s: %s", res.Status, b)
+		return statusError{res.StatusCode, fmt.Sprintf("push service: %s: %s", res.Status, b)}
 	}
 	return nil
 }

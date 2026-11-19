@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -32,16 +31,17 @@ type channelConfig struct {
 }
 
 type message struct {
-	Event    string `json:"event"`
-	Title    string `json:"title"`
-	Body     string `json:"body"`
-	URL      string `json:"url,omitempty"`       // the run page, when RUNYARD_URL is set
-	ImageURL string `json:"image_url,omitempty"` // the run's latest image, when RUNYARD_URL is set
-	Run      Run    `json:"run"`
-	image    []byte // that image, attached where the channel allows it
-	imageExt string
-	priority string
-	tags     string
+	Event     string `json:"event"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	URL       string `json:"url,omitempty"`       // the run page, when RUNYARD_URL is set
+	ImageURL  string `json:"image_url,omitempty"` // the run's latest image, when RUNYARD_URL is set
+	Run       Run    `json:"run"`
+	image     []byte // that image, attached where the channel allows it
+	imageExt  string
+	imagePath string // where the image is stored, so a later try can read it again
+	priority  string
+	tags      string
 }
 
 // notify sends a run event (finished, failed, crashed, alert) to the channels whose rules match. Runs in its own goroutine.
@@ -65,24 +65,6 @@ func (s *srv) notify(runID, event string, a *Alert) {
 		return
 	}
 	s.deliver(ctx, chans, s.message(ctx, run, event, a))
-}
-
-// deliver sends m to every channel, dropping the ones whose endpoint is gone for good.
-func (s *srv) deliver(ctx context.Context, chans []channel, m message) {
-	for _, c := range chans {
-		one, cancel := context.WithTimeout(ctx, 15*time.Second) // a channel that hangs must not use up the others' time
-		err := c.send(one, m)
-		cancel()
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			err = ue.Err // without the URL: it holds the Telegram bot token or the Slack webhook secret
-		}
-		if errors.Is(err, errGone) {
-			s.db.Exec(ctx, `DELETE FROM channels WHERE id = $1`, c.ID)
-		} else if err != nil {
-			log.Printf("notify %q via channel %d: %v", m.Title, c.ID, err)
-		}
-	}
 }
 
 type channel struct {
@@ -127,7 +109,7 @@ func (s *srv) message(ctx context.Context, run Run, event string, a *Alert) mess
 	var rel string
 	if s.db.QueryRow(ctx, `SELECT path FROM media WHERE run_id = $1::uuid AND kind = 'image' ORDER BY step DESC, created_at DESC LIMIT 1`, run.ID).Scan(&rel) == nil {
 		m.image, _ = readBlob(ctx, s.store, rel)
-		m.imageExt = filepath.Ext(rel)
+		m.imageExt, m.imagePath = filepath.Ext(rel), rel
 		if s.url != "" {
 			m.ImageURL = s.url + "/media/" + rel
 		}
@@ -247,7 +229,7 @@ func post(ctx context.Context, method, u, token string, body io.Reader, ctype st
 	defer res.Body.Close()
 	if res.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(res.Body, 300))
-		return fmt.Errorf("%s: %s", res.Status, b)
+		return statusError{res.StatusCode, fmt.Sprintf("%s: %s", res.Status, b)}
 	}
 	return nil
 }

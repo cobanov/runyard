@@ -151,3 +151,126 @@ func TestResults(t *testing.T) {
 		t.Fatalf("results = %q, want %q", got, want)
 	}
 }
+
+// TestOutbox: a channel that answers 500 gets the notification again later, as many times as it takes within the
+// schedule, after which it is listed as undelivered until dismissed; one that refuses the request is given up at once.
+func TestOutbox(t *testing.T) {
+	ts, key, s := testServer(t)
+	ctx := context.Background()
+	codes := make(chan int, 20) // the answer to each request, in order; 200 when none is queued
+	got := make(chan hit, 20)
+	ntfy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		code := 200
+		select {
+		case code = <-codes:
+		default:
+		}
+		b, _ := io.ReadAll(r.Body)
+		got <- hit{r.Method, r.Header.Get("Authorization"), r.URL.Query(), b}
+		w.WriteHeader(code)
+	}))
+	t.Cleanup(ntfy.Close)
+	if err := channelCmd(ctx, s.db, []string{"add", "ntfy", ntfy.URL + "/runs"}); err != nil {
+		t.Fatal(err)
+	}
+	api := ts.URL + "/api/v1"
+	finish := func(name string) string {
+		var r map[string]string
+		call(t, "POST", api+"/runs", key, map[string]any{"project": "box", "name": name}, &r)
+		call(t, "PATCH", api+"/runs/"+r["id"], key, map[string]any{"status": "finished"}, nil)
+		return r["id"]
+	}
+	// row waits for the outbox row of run id to reach tries, and returns its state.
+	type row struct {
+		tries int
+		due   *time.Time
+		err   string
+	}
+	waitRow := func(id string, tries int) row {
+		t.Helper()
+		var r row
+		for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+			if s.db.QueryRow(ctx, `SELECT attempts, next_at, last_error FROM outbox WHERE run_id = $1::uuid`, id).Scan(&r.tries, &r.due, &r.err) == nil && r.tries == tries {
+				return r
+			}
+		}
+		t.Fatalf("outbox row of %s: %+v, want %d tries", id, r, tries)
+		return r
+	}
+	due := func() { s.db.Exec(ctx, `UPDATE outbox SET next_at = now() WHERE next_at IS NOT NULL`) }
+	var list []undelivered
+
+	// Down twice, then up: delivered on the third try, saying it is late, and crossed out.
+	codes <- 500
+	codes <- 502
+	id := finish("flaky")
+	next(t, got)
+	if r := waitRow(id, 1); r.due == nil || time.Until(*r.due) < 50*time.Second || !strings.Contains(r.err, "500") {
+		t.Fatalf("after the first failure: %+v", r)
+	}
+	call(t, "GET", api+"/notifications/undelivered", "", nil, &list)
+	if len(list) != 1 || list[0].Title != "box/flaky: Finished" || list[0].NextAt == nil || list[0].Kind != "ntfy" {
+		t.Fatalf("undelivered while retrying: %+v", list)
+	}
+	due()
+	s.retryOutbox(ctx)
+	next(t, got)
+	if r := waitRow(id, 2); time.Until(*r.due) < 4*time.Minute {
+		t.Fatalf("second wait should be five minutes: %+v", r)
+	}
+	due()
+	s.retryOutbox(ctx)
+	if h := next(t, got); h.q.Get("title") != "box/flaky: Finished" || !strings.Contains(h.q.Get("message"), "late") {
+		t.Fatalf("late delivery: %+v", h)
+	}
+	var n int
+	s.db.QueryRow(ctx, `SELECT count(*) FROM outbox`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("a delivered notification stayed in the outbox: %d rows", n)
+	}
+
+	// Down for good: given up after the last try, listed, then dismissed.
+	codes <- 503
+	id = finish("down")
+	next(t, got)
+	waitRow(id, 1)
+	s.db.Exec(ctx, `UPDATE outbox SET attempts = $1`, len(retryAfter))
+	codes <- 503
+	due()
+	s.retryOutbox(ctx)
+	next(t, got)
+	if r := waitRow(id, len(retryAfter)+1); r.due != nil {
+		t.Fatalf("not given up after the last try: %+v", r)
+	}
+	call(t, "GET", api+"/notifications/undelivered", "", nil, &list)
+	if len(list) != 1 || list[0].NextAt != nil || list[0].Run == nil || *list[0].Run != id {
+		t.Fatalf("given up: %+v", list)
+	}
+	due()
+	s.retryOutbox(ctx) // a given-up row is not tried again
+	select {
+	case h := <-got:
+		t.Fatalf("given-up notification was sent again: %+v", h)
+	case <-time.After(200 * time.Millisecond):
+	}
+	call(t, "POST", api+"/notifications/dismiss", "", map[string]any{"ids": []int64{list[0].ID}}, nil)
+	call(t, "GET", api+"/notifications/undelivered", "", nil, &list)
+	if len(list) != 0 {
+		t.Fatalf("dismissed but listed: %+v", list)
+	}
+
+	// Refused (a 4xx other than 408, 425, 429): no point trying again.
+	codes <- 400
+	id = finish("refused")
+	next(t, got)
+	if r := waitRow(id, 1); r.due != nil {
+		t.Fatalf("a refused notification is retried: %+v", r)
+	}
+
+	// A server stopped in the middle of a send left a row behind with its lease: the next sweep after it sends it.
+	s.db.Exec(ctx, `INSERT INTO outbox (channel_id, message, next_at) SELECT id, '{"event":"host","title":"white: Went silent","body":"b","priority":"high"}', now() FROM channels`)
+	s.retryOutbox(ctx)
+	if h := next(t, got); h.q.Get("title") != "white: Went silent" || h.q.Get("priority") != "high" {
+		t.Fatalf("left-behind row: %+v", h)
+	}
+}

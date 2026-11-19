@@ -82,6 +82,7 @@ func main() {
 	auth := os.Getenv("RUNYARD_AUTH")
 	s := &srv{db: db, store: store, url: strings.TrimRight(os.Getenv("RUNYARD_URL"), "/"), hub: newHub(), auth: auth != "" && auth != "0" && auth != "false"}
 	go s.watchCrashes(ctx)
+	go s.watchOutbox(ctx)
 
 	addr := env("ADDR", ":8080")
 	log.Printf("runyard listening on %s", addr)

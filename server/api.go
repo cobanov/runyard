@@ -130,6 +130,7 @@ func (s *srv) routes() http.Handler {
 	s.authRoutes(mux)
 	s.adminRoutes(mux)
 	s.hostRoutes(mux)
+	s.outboxRoutes(mux)
 	s.agentRoutes(mux)
 
 	mux.HandleFunc("GET /media/{key...}", func(w http.ResponseWriter, r *http.Request) {
