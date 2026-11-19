@@ -27,8 +27,8 @@ for step in range(1000):
     run.log({"loss": 1 / (step + 1)}, step=step)
 ```
 
-Open the web UI: the run is there, live. A clean exit marks it finished, an exception failed, and five minutes
-without a heartbeat crashed.
+Open the web UI: the run is there, live. A clean exit marks it finished, an exception failed, Ctrl-C stopped,
+and five minutes without a heartbeat crashed.
 
 ## What it does
 

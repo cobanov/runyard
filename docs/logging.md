@@ -31,12 +31,15 @@ and output continue where they were, and the run is running again.
 - **Progress:** `ry.init(total_steps=7358)`, or `run.progress(total=7358)` once the script knows, gives the progress
   bar and the time left on the web and in the apps. Without it they guess from config names (`max_steps`,
   `train.steps`, `num_train_epochs` and the like). The transformers callback sends the Trainer's own count.
-- **Status:** a clean exit marks the run finished; an exception or non-zero exit, failed; five minutes without a
-  heartbeat (sent every 30 seconds), crashed. A failed run says why in one line, on its page, in lists and in the
+- **Status:** a clean exit marks the run finished; an exception or non-zero exit, failed; Ctrl-C, SIGTERM or a
+  closed terminal (SIGHUP), stopped; five minutes without a heartbeat (sent every 30 seconds), crashed. A script
+  that catches Ctrl-C and exits 0 ended the way it meant to: finished. SIGKILL is not a stop, it is usually the
+  kernel out of memory: failed. A failed or stopped run says why in one line, on its page, in lists and in the
   notification: the exception and its message's first line (`torch.OutOfMemoryError: CUDA out of memory. ...`),
-  the `sys.exit("...")` message, or "Stopped by SIGTERM", with the exit code. `run.finish("failed", error=...,
+  the `sys.exit("...")` message, or "Stopped by Ctrl-C", with the exit code. Against a server older than the
+  stopped state the SDK sends failed instead. `run.finish("failed", error=...,
   exit_code=...)` sets them by hand; `runyard run` takes the last output line that names an error, or the signal
-  that killed the command.
+  that ended the command.
 - **Recorded on its own:** stdout and stderr (`capture_output=False` turns it off), GPU, CPU and RAM usage as
   `sys/` metrics (`system` extra, `system=False` turns it off), the host, the git commit and uncommitted diff,
   the command line, the Python version, the OS, the hardware and the installed packages. No environment variables. A config key or a

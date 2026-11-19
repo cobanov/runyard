@@ -100,7 +100,7 @@ func (s *srv) mlflowRoutes(mux *http.ServeMux) {
 			return nil, err
 		}
 		var p runPatch
-		if st, ok := map[string]string{"RUNNING": "running", "SCHEDULED": "running", "FINISHED": "finished", "FAILED": "failed", "KILLED": "failed"}[in.Status]; ok {
+		if st, ok := map[string]string{"RUNNING": "running", "SCHEDULED": "running", "FINISHED": "finished", "FAILED": "failed", "KILLED": "stopped"}[in.Status]; ok {
 			p.Status = &st
 		}
 		if in.RunName != "" {
@@ -435,7 +435,7 @@ func (s *srv) mlLog(ctx context.Context, runID string, metrics []mlMetric, param
 }
 
 func mlStatus(status string) string {
-	return map[string]string{"running": "RUNNING", "finished": "FINISHED", "failed": "FAILED", "crashed": "FAILED"}[status]
+	return map[string]string{"running": "RUNNING", "finished": "FINISHED", "failed": "FAILED", "stopped": "KILLED", "crashed": "FAILED"}[status]
 }
 
 // mlRun is a run in MLflow's shape: info, and data with the latest metrics, the config as params, and the tags.

@@ -197,20 +197,24 @@ if sys.argv[1] == "0":
     import os
     os.makedirs(r"{out.parent}/ckpt", exist_ok=True)
     open(r"{out.parent}/ckpt/model-500.safetensors", "wb").write(b"w" * 64)
-if sys.argv[1] == "kill":
+if sys.argv[1] in ("kill", "term"):
     import os, signal
-    os.kill(os.getpid(), signal.SIGKILL)
-if sys.argv[1] != "0":
+    os.kill(os.getpid(), signal.SIGKILL if sys.argv[1] == "kill" else signal.SIGTERM)
+if sys.argv[1] not in ("0", "130"):
     print("ValueError: bad shape", file=sys.stderr)
     print("cleaning up", file=sys.stderr)
 sys.exit(int(sys.argv[1]))
 """)
+    assert cli(["run", "--project", "wrap", "--name", "ctrl-c", "--", sys.executable, str(tool), "130"]) == 130
+    assert cli(["run", "--project", "wrap", "--name", "term", "--", sys.executable, str(tool), "term"]) == -15
     assert cli(["run", "--project", "wrap", "--name", "ok", "--samples", str(out.parent), "--checkpoints", str(out.parent / "ckpt"),
                 "--", sys.executable, str(tool), "0"]) == 0
     assert cli(["run", "--project", "wrap", "--name", "bad", "--", sys.executable, str(tool), "3"]) == 3
     assert cli(["run", "--project", "wrap", "--name", "oom", "--", sys.executable, str(tool), "kill"]) == -9
     runs = {r["name"]: r for r in get(server + "/api/v1/runs?project=wrap")}
-    assert {n: r["status"] for n, r in runs.items()} == {"ok": "finished", "bad": "failed", "oom": "failed"}
+    assert {n: r["status"] for n, r in runs.items()} == {"ok": "finished", "bad": "failed", "oom": "failed", "ctrl-c": "stopped", "term": "stopped"}
+    assert (runs["ctrl-c"]["error"], runs["ctrl-c"]["exit_code"]) == ("Stopped by Ctrl-C", 130)
+    assert (runs["term"]["error"], runs["term"]["exit_code"]) == ("Stopped by SIGTERM", 143)
     assert (runs["bad"]["error"], runs["bad"]["exit_code"]) == ("ValueError: bad shape", 3)  # the line naming the error
     assert (runs["oom"]["error"], runs["oom"]["exit_code"]) == ("Killed by SIGKILL", 137)
     assert "error" not in runs["ok"] and runs["ok"]["exit_code"] == 0
@@ -266,6 +270,19 @@ if sys.argv[1] == "oom":
     class OutOfMemoryError(RuntimeError): pass
     OutOfMemoryError.__module__ = "torch"
     raise OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB\\nIncluding non-PyTorch memory")
+if sys.argv[1] == "interrupt": raise KeyboardInterrupt
+if sys.argv[1] == "caught":  # a script that saves and exits cleanly on Ctrl-C ended the way it meant to
+    try:
+        raise KeyboardInterrupt
+    except KeyboardInterrupt:
+        sys.exit(0)
+if sys.argv[1] == "hangup":  # Ctrl-C in tmux closing the pane while the script still handles the interrupt
+    import os, signal, time
+    try:
+        raise KeyboardInterrupt
+    except KeyboardInterrupt:
+        os.kill(os.getpid(), signal.SIGHUP)
+        time.sleep(5)
 if sys.argv[1] == "term":
     import os, signal, time
     os.kill(os.getpid(), signal.SIGTERM)
@@ -277,7 +294,8 @@ def test_exit_status(server, tmp_path):
     script = tmp_path / "train.py"
     script.write_text(SCRIPT)
     env = dict(os.environ, RUNYARD_CACHE=str(tmp_path / "cache"))
-    want = {"raise": "failed", "exit3": "failed", "clean": "finished", "message": "failed", "oom": "failed", "term": "failed"}
+    want = {"raise": "failed", "exit3": "failed", "clean": "finished", "message": "failed", "oom": "failed", "term": "stopped",
+            "interrupt": "stopped", "caught": "finished", "hangup": "stopped"}
     for name in want:
         subprocess.run([sys.executable, str(script), name], env=env, capture_output=True, timeout=60)
     runs = {r["name"]: r for r in get(server + "/api/v1/runs?project=exit")}
@@ -285,9 +303,27 @@ def test_exit_status(server, tmp_path):
     why = {n: (r.get("error"), r.get("exit_code")) for n, r in runs.items()}
     assert why == {"raise": ("RuntimeError: boom", 1), "exit3": (None, 3), "clean": (None, 0), "message": ("no data in /data/train", 1),
                    "oom": ("torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB", 1),
-                   "term": ("Stopped by SIGTERM", 143)}
+                   "term": ("Stopped by SIGTERM", 143), "interrupt": ("Stopped by Ctrl-C", 130), "caught": (None, 0),
+                   "hangup": ("Stopped by Ctrl-C", 130)}
     lines = [line["line"] for line in get(server + f"/api/v1/runs/{runs['raise']['id']}/logs")]
     assert "before end" in lines and any("RuntimeError: boom" in line for line in lines)
+
+
+def test_stopped_on_an_older_server(monkeypatch):
+    """A server from before the stopped state refuses it (400): the end is sent again as failed, as it was there."""
+    from runyard.client import HTTPError
+    sent = []
+
+    def request(method, url, key, data=None, **kw):
+        sent.append(data["status"])
+        if data["status"] == "stopped":
+            raise HTTPError(400, '{"error": "new row for relation \\"runs\\" violates check constraint"}')
+
+    monkeypatch.setattr(runyard.core, "request", request)
+    s = runyard.core.Sender("http://old", "", "id", [("patch", {"status": "stopped", "error": "Stopped by Ctrl-C"})])
+    assert s.drain() and sent == ["stopped", "failed"]
+    assert [runyard.core.status_of(c) for c in (0, 1, 3, 130, 143, 129, 137, "x")] == \
+        ["finished", "failed", "failed", "stopped", "stopped", "stopped", "failed", "failed"]
 
 
 def test_cli(server, tmp_path, capsys):
@@ -384,7 +420,7 @@ except KeyboardInterrupt:  # how ai-toolkit stops
     p.send_signal(signal.SIGINT)
     p.wait(30)
     srv.shutdown()
-    assert any(b'"finished"' in b for b in ends)
+    assert any(b'"stopped"' in b for b in ends)
 
 
 def test_step_of_a_checkpoint_name():

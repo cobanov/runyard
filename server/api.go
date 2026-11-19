@@ -355,14 +355,14 @@ func (s *srv) updateRun(r *http.Request) (any, error) {
 	return map[string]string{"status": after}, nil
 }
 
-// patch applies p, tells the live views, and notifies when the run just finished or failed.
+// patch applies p, tells the live views, and notifies when the run just finished, failed or was stopped.
 func (s *srv) patch(ctx context.Context, id string, p runPatch) (string, error) {
 	before, after, err := patchRun(ctx, s.db, id, p)
 	if err != nil {
 		return "", err
 	}
 	s.hub.publish(event{Type: "run", Run: id})
-	if before != after && (after == "finished" || after == "failed") {
+	if before != after && (after == "finished" || after == "failed" || after == "stopped") {
 		go s.notify(id, after, nil)
 	}
 	return after, nil

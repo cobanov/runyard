@@ -24,7 +24,7 @@ func (s *srv) mcpHandler() http.Handler {
 	})
 	type listRunsIn struct {
 		Project string `json:"project,omitempty" jsonschema:"only runs of this project"`
-		Status  string `json:"status,omitempty" jsonschema:"running, finished, failed or crashed"`
+		Status  string `json:"status,omitempty" jsonschema:"running, finished, failed, stopped or crashed"`
 		Tag     string `json:"tag,omitempty" jsonschema:"only runs with this tag"`
 		Limit   int    `json:"limit,omitempty" jsonschema:"at most this many, newest first (default 30)"`
 	}

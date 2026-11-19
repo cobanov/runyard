@@ -84,6 +84,15 @@ func TestNotifications(t *testing.T) {
 		t.Fatalf("failed: %+v", h)
 	}
 
+	// Stopped by hand: said, without waking anyone, with how far it got.
+	stopped := newRun("gba", "pixel48")
+	call(t, "POST", api+"/runs/"+stopped+"/metrics", key, []map[string]any{{"step": 3, "values": map[string]any{"loss": 0.3}}}, nil)
+	call(t, "PATCH", api+"/runs/"+stopped, key, map[string]any{"status": "stopped", "error": "Stopped by Ctrl-C", "exit_code": 130}, nil)
+	if h := next(t, got); h.q.Get("title") != "gba/pixel48: Stopped" || h.q.Get("priority") == "high" || h.q.Get("tags") != "stop_sign" ||
+		!strings.Contains(h.q.Get("message"), ".\nStopped by Ctrl-C") || !strings.Contains(h.q.Get("message"), "loss: 0.3") {
+		t.Fatalf("stopped: %+v", h)
+	}
+
 	call(t, "POST", api+"/runs/"+id+"/alerts", key, map[string]string{"level": "error", "title": "Loss is NaN", "body": "at step 9"}, nil)
 	if h = next(t, got); h.q.Get("title") != "gba/pixel64: Loss is NaN" || h.q.Get("message") != "at step 9" || h.q.Get("tags") != "rotating_light" || h.q.Get("priority") != "urgent" {
 		t.Fatalf("alert: %+v", h)

@@ -65,6 +65,11 @@ func TestMLflow(t *testing.T) {
 	expect(code, body, 200, `"value":0.5,"timestamp":1700000001000,"step":1`)
 	code, body = do("GET", ts.URL+"/api/v1/runs/"+id, "", "")
 	expect(code, body, 200, `"git":{"commit":"abc123"}`, `"status":"finished"`)
+	// KILLED is someone stopping it: stopped here, KILLED again to MLflow.
+	code, body = do("POST", api+"runs/update", key, `{"run_id":"`+id+`","status":"KILLED"}`)
+	expect(code, body, 200, `"status":"KILLED"`)
+	code, body = do("GET", ts.URL+"/api/v1/runs/"+id, "", "")
+	expect(code, body, 200, `"status":"stopped"`)
 
 	// Artifacts by path; a second upload to the same path replaces the first.
 	arts := ts.URL + "/api/2.0/mlflow-artifacts/artifacts"

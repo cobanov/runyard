@@ -220,7 +220,7 @@ func (s *srv) pushRoutes(mux *http.ServeMux) {
 				return nil, err
 			}
 			if _, err := tx.Exec(r.Context(), `INSERT INTO rules (channel_id, event) SELECT $1, unnest($2::text[])`,
-				id, []string{"finished", "failed", "crashed", "alert"}); err != nil {
+				id, []string{"finished", "failed", "stopped", "crashed", "alert"}); err != nil {
 				return nil, err
 			}
 		} else if err != nil {

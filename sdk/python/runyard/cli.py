@@ -36,7 +36,7 @@ from pathlib import Path
 
 from . import __version__
 from .client import HTTPError, request
-from .core import sync
+from .core import status_of, stopped_by, sync
 
 
 def server():
@@ -229,17 +229,20 @@ def cmd_run(a):
         tail.append(part.rsplit("\r", 1)[-1].strip())
     done.set()
     samples(final=True)
-    # Stopped by hand (Ctrl-C) is the stop someone asked for, not a failure, as for a run in a script.
-    ok = code in (0, 130, -signal.SIGINT)
+    # Stopped by hand (Ctrl-C, SIGTERM, a closed terminal) is stopped, as for a run in a script; SIGKILL failed.
     exit_code, why = (128 - code if code < 0 else code), None  # killed by signal N: the shell's 128 + N
-    if not ok and code < 0:
+    status = status_of(exit_code)
+    ok = status != "failed"
+    if status == "stopped":
+        why = stopped_by(exit_code - 128)
+    elif not ok and code < 0:
         try:
             why = "Killed by " + signal.Signals(-code).name  # SIGKILL: often the kernel's out-of-memory killer
         except ValueError:
             why = f"Killed by signal {-code}"
     elif not ok:
         why = error_line(tail)
-    run.finish("finished" if ok else "failed", error=why, exit_code=exit_code)
+    run.finish(status, error=why, exit_code=exit_code)
     return code
 
 
@@ -412,7 +415,7 @@ def main(argv=None):
     runs = sub.add_parser("runs", help="list or show runs").add_subparsers(dest="sub", required=True)
     ls = runs.add_parser("ls", parents=[js], help="list runs, newest first")
     ls.add_argument("--project")
-    ls.add_argument("--status", choices=["running", "finished", "failed", "crashed"])
+    ls.add_argument("--status", choices=["running", "finished", "failed", "stopped", "crashed"])
     ls.add_argument("--limit", type=int, default=30)
     ls.set_defaults(fn=cmd_runs_ls)
     show = runs.add_parser("show", parents=[js], help="config, summary and metrics of a run")

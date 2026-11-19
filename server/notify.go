@@ -44,7 +44,7 @@ type message struct {
 	tags      string
 }
 
-// notify sends a run event (finished, failed, crashed, alert) to the channels whose rules match. Runs in its own goroutine.
+// notify sends a run event (finished, failed, stopped, crashed, alert) to the channels whose rules match. Runs in its own goroutine.
 func (s *srv) notify(runID, event string, a *Alert) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -87,6 +87,9 @@ func (s *srv) message(ctx context.Context, run Run, event string, a *Alert) mess
 	case "failed":
 		m.Title, m.tags, m.priority = name+": Failed", "warning", "high"
 		m.Body = "Failed after " + took + "." + endReason(run) + s.lastLines(ctx, run.ID)
+	case "stopped": // someone stopped it: worth knowing, not worth waking anyone
+		m.Title, m.tags = name+": Stopped", "stop_sign"
+		m.Body = "Stopped after " + took + "." + endReason(run) + results(run)
 	case "crashed":
 		m.Title, m.tags, m.priority = name+": Went silent", "warning", "high"
 		m.Body = fmt.Sprintf("No heartbeat for %s after %s of running: the process likely died (killed, out of memory, machine down).", fmtDuration(time.Since(run.LastHeartbeatAt)), took) + s.lastLines(ctx, run.ID)

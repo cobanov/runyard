@@ -36,7 +36,7 @@
       .sort((a, b) => /loss/i.test(b) - /loss/i.test(a) || n[b] - n[a] || a.localeCompare(b))
       .slice(0, 3)
   })
-  const filters = ['', 'running', 'finished', 'failed', 'crashed']
+  const filters = ['', 'running', 'finished', 'failed', 'stopped', 'crashed']
 
   // Search by name or tag, then sort by a clicked column; null keeps the server's order (newest first).
   let sort = $state(was.sort || null) // {key, dir: 1 | -1}
