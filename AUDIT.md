@@ -157,7 +157,10 @@ in light and dark.
 ## Tracking reliability (2026-11-19)
 
 From a week of watching the live server on toji (12 to 19 November): what a run on it did not say, or said
-wrong. Branch `tracking-reliability`, one commit each; nothing deployed yet. New fields are optional both ways:
+wrong. One commit each, merged in PR #2 (`6466bce`). Deployed to toji on 2026-11-19 with a training running: only
+the app container restarted, migrations 013 to 017 applied, the running run's heartbeat and the beacons arrived
+after it; the image before is kept as `runyard:rollback-11c06d1` and the database was dumped to
+`~/runyard-backups/` first. iOS build 127 went to TestFlight (internal testers; the public link was not opened). New fields are optional both ways:
 SDKs 0.5 to 0.7 and the released apps keep working against the new server, and the new SDK against an old one.
 
 | # | Finding | Status |
@@ -183,9 +186,10 @@ training" (the flag went, the name was stored, the next reading did not flag it 
 Ctrl-C on its page, in the list's new filter and on Overview. Migration 017 was applied to a database with an
 existing channel, which got its `stopped` rule.
 
-**Not checked.** The Android unit test for `total_steps` was written and not run (no JDK on this Mac). Nothing
-was deployed to toji or tried against its live data; T6's thresholds come from its readings, not from a training
-run through them. T2's reason for an out-of-memory error was checked with a raised exception, not a real CUDA OOM. T3's
+**Not checked.** The Android unit tests ran in CI only (no JDK on this Mac); no new Android build was released.
+T6's thresholds come from toji's readings, not from a training run through them; at deploy time choso-wsl's
+ComfyUI (`python main.py`) held its GPU at 98 %, the WSL case T6 flags along with any training. The SDK changes
+(T2 to T5's client side) reach a machine only with a new SDK release; none was tagged. T2's reason for an out-of-memory error was checked with a raised exception, not a real CUDA OOM. T3's
 Lightning and scikit-learn paths were not run (neither is installed here); the Lightning logger says stopped only if
 Lightning calls `finalize("failed")` while it handles the KeyboardInterrupt, which is assumed, not verified. The released apps were not run against
 a stopped run, only read.
