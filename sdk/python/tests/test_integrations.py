@@ -148,7 +148,7 @@ def test_hf_callback(server, monkeypatch):
 
     cb = hf.RunyardCallback(project="hf", system=False)
     args = SimpleNamespace(to_dict=lambda: {"learning_rate": 2e-5}, run_name="sft-small", output_dir="out")
-    state = SimpleNamespace(is_world_process_zero=True, global_step=0)
+    state = SimpleNamespace(is_world_process_zero=True, global_step=0, max_steps=20)
     model = SimpleNamespace(config=SimpleNamespace(to_dict=lambda: {"hidden_size": 64}))
     cb.on_train_begin(args, state, None, model=model)
     for gs in (5, 10):
@@ -162,6 +162,7 @@ def test_hf_callback(server, monkeypatch):
     assert r["name"] == "sft-small" and r["config"] == {"learning_rate": 2e-5, "model": {"hidden_size": 64}}
     assert r["metrics"]["train/loss"]["step"] == 10 and r["metrics"]["eval/loss"]["last"] == 0.3
     assert r["summary"] == {"train_runtime": 3.0, "train_loss": 0.15}
+    assert r["total_steps"] == 20  # the Trainer's own count, for the progress bar
 
 
 def test_accelerate_tracker(server, monkeypatch, tmp_path):

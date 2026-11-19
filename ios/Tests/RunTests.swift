@@ -32,6 +32,13 @@ private func summary(step: Int, last: Double) -> String { #"{"count":1,"step":\#
     #expect(try run(config: #"{"sampler":{"steps":28}}"#, metrics: m).progress == nil) // past it: not the run's total
 }
 
+@Test func progressFromTheScriptsTotal() throws {
+    // nature-decision: max_steps 0 in the config, the script says 7358; and a server field an older app never saw.
+    let json = #"{"id":"r","project":"p","name":"n","status":"running","started_at":"2026-10-31T10:00:00Z","config":{"max_steps":0},"total_steps":7358,"error":"x","exit_code":1,"metrics":{"train/loss":\#(summary(step: 7350, last: 1.6))}}"#
+    let p = try #require(try API.decoder.decode(Run.self, from: Data(json.utf8)).progress)
+    #expect(p.done == 7350 && p.total == 7358 && p.unit == "step")
+}
+
 @Test func noProgressWithoutATotal() throws {
     #expect(try run(config: #"{"lr":0.001}"#, metrics: #"{"loss":\#(summary(step: 5, last: 1))}"#).progress == nil)
 }

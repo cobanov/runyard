@@ -197,7 +197,7 @@ class _Synced(dict):
 
 class Run:
     def __init__(self, project=None, name=None, config=None, tags=None, notes="", id=None, server=None,
-                 api_key=None, capture_output=True, system=True, resume=False):
+                 api_key=None, capture_output=True, system=True, resume=False, total_steps=None):
         self.id = id or str(uuid.uuid4())
         self.project = project or os.environ.get("RUNYARD_PROJECT") or "default"
         self.name = name or os.environ.get("RUNYARD_RUN_NAME") or self.id[:8]
@@ -224,7 +224,8 @@ class Run:
         self._system = _System() if system else None
         self._sender.put("create", {"id": self.id, "project": self.project, "name": self.name, "config": _masked(self.config),
                                     "tags": list(tags or []), "notes": notes, "host": socket.gethostname(), "git": _git(),
-                                    "started_at": _now(), "agent": _agent(), "env": _env(self._system)})
+                                    "started_at": _now(), "agent": _agent(), "env": _env(self._system),
+                                    **({"total_steps": int(total_steps)} if total_steps else {})})
         if resume and id:
             self._sender.put("patch", {"status": "running"})  # it had ended, or crashed; it is running again
         _sync_old(server, key)
@@ -321,6 +322,12 @@ class Run:
         fields = {"id": str(uuid.uuid4()), "name": name or p.name, "kind": kind, "uri": str(p), "size": size,
                   "step": self._step_for(step), "meta": json.dumps(meta or {})}
         self._sender.put("artifact", (fields, str(p) if upload else None))
+
+    @_safe
+    def progress(self, total):
+        """Says how many steps the run will take, for its progress bar and time left; for a total that is only known
+        after init (the dataset was counted, a stage was added). The steps are those of log()."""
+        self._patch({"total_steps": int(total)})
 
     @_safe
     def alert(self, title, body="", level="info"):

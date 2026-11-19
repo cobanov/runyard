@@ -28,6 +28,9 @@ To go on with a run after a restart, keep its `run.id` and start with `ry.init(i
 and output continue where they were, and the run is running again.
 
 - **Steps:** without `step`, each `log` is the next step after the last one.
+- **Progress:** `ry.init(total_steps=7358)`, or `run.progress(total=7358)` once the script knows, gives the progress
+  bar and the time left on the web and in the apps. Without it they guess from config names (`max_steps`,
+  `train.steps`, `num_train_epochs` and the like). The transformers callback sends the Trainer's own count.
 - **Status:** a clean exit marks the run finished; an exception or non-zero exit, failed; five minutes without a
   heartbeat (sent every 30 seconds), crashed. A failed run says why in one line, on its page, in lists and in the
   notification: the exception and its message's first line (`torch.OutOfMemoryError: CUDA out of memory. ...`),

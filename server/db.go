@@ -94,11 +94,12 @@ type Run struct {
 	StartedAt       time.Time                `json:"started_at"`
 	EndedAt         *time.Time               `json:"ended_at"`
 	LastHeartbeatAt time.Time                `json:"last_heartbeat_at"`
-	ProgressAt      time.Time                `json:"progress_at"`         // the last metric (not sys/) or output line: alive but stuck shows here
-	Agent           *string                  `json:"agent"`               // the agent session that started it, "<tool>:<session>"
-	Error           string                   `json:"error,omitempty"`     // why it ended badly, one line: "ValueError: bad shape"
-	ExitCode        *int                     `json:"exit_code,omitempty"` // the process's exit status, when the client sent it
-	Env             json.RawMessage          `json:"env,omitempty"`       // command line, Python, hardware, diff; GET /runs/{id} only
+	ProgressAt      time.Time                `json:"progress_at"`           // the last metric (not sys/) or output line: alive but stuck shows here
+	Agent           *string                  `json:"agent"`                 // the agent session that started it, "<tool>:<session>"
+	Error           string                   `json:"error,omitempty"`       // why it ended badly, one line: "ValueError: bad shape"
+	ExitCode        *int                     `json:"exit_code,omitempty"`   // the process's exit status, when the client sent it
+	TotalSteps      *int64                   `json:"total_steps,omitempty"` // the step it will end at, when its script said
+	Env             json.RawMessage          `json:"env,omitempty"`         // command line, Python, hardware, diff; GET /runs/{id} only
 	Metrics         map[string]metricSummary `json:"metrics,omitempty"`
 }
 
@@ -111,12 +112,12 @@ type metricSummary struct {
 }
 
 const runSelect = `SELECT r.id::text, p.name, r.name, r.status, r.config, r.summary, r.tags, r.notes, r.host, r.git,
-	r.started_at, r.ended_at, r.last_heartbeat_at, r.progress_at, r.agent, r.error, r.exit_code FROM runs r JOIN projects p ON p.id = r.project_id `
+	r.started_at, r.ended_at, r.last_heartbeat_at, r.progress_at, r.agent, r.error, r.exit_code, r.total_steps FROM runs r JOIN projects p ON p.id = r.project_id `
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.Project, &r.Name, &r.Status, &r.Config, &r.Summary, &r.Tags, &r.Notes, &r.Host, &r.Git,
-		&r.StartedAt, &r.EndedAt, &r.LastHeartbeatAt, &r.ProgressAt, &r.Agent, &r.Error, &r.ExitCode)
+		&r.StartedAt, &r.EndedAt, &r.LastHeartbeatAt, &r.ProgressAt, &r.Agent, &r.Error, &r.ExitCode, &r.TotalSteps)
 	return r, err
 }
 
@@ -322,6 +323,7 @@ type runPatch struct {
 	EndedAt *time.Time      `json:"ended_at"` // when it really ended, for a run whose end arrives late (runyard sync)
 	Error   *string         `json:"error"`    // why it ended badly; cut to one line of 500 characters
 	Exit    *int            `json:"exit_code"`
+	Total   *int64          `json:"total_steps"` // 0 or less: not known after all
 }
 
 // patchRun applies p and reports the status before and after, so callers can notify on a transition.
@@ -340,10 +342,11 @@ func patchRun(ctx context.Context, db *pgxpool.Pool, id string, p runPatch) (bef
 			notes = coalesce($7, r.notes),
 			ended_at = CASE WHEN coalesce($3, r.status) = 'running' THEN NULL ELSE coalesce(r.ended_at, $8, now()) END,
 			error = CASE WHEN $3 = 'running' THEN '' ELSE coalesce($9, r.error) END,
-			exit_code = CASE WHEN $3 = 'running' THEN NULL ELSE coalesce($10, r.exit_code) END
+			exit_code = CASE WHEN $3 = 'running' THEN NULL ELSE coalesce($10, r.exit_code) END,
+			total_steps = CASE WHEN $11::bigint IS NULL THEN r.total_steps WHEN $11 > 0 THEN $11 END
 		FROM (SELECT status FROM runs WHERE id = $1::uuid FOR UPDATE) old
 		WHERE r.id = $1::uuid RETURNING old.status, r.status`,
-		id, p.Name, p.Status, nullJSON(p.Config), nullJSON(p.Summary), p.Tags, p.Notes, p.EndedAt, oneLine(p.Error), p.Exit).Scan(&before, &after)
+		id, p.Name, p.Status, nullJSON(p.Config), nullJSON(p.Summary), p.Tags, p.Notes, p.EndedAt, oneLine(p.Error), p.Exit, p.Total).Scan(&before, &after)
 	return
 }
 

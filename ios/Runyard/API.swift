@@ -33,10 +33,11 @@ nonisolated struct Run: Decodable, Identifiable, Hashable, Sendable {
     let lastHeartbeatAt: Date?
     let progressAt: Date? // the last time it logged anything; none from a server before 0.7.0
     let metrics: [String: MetricSummary]? // only from GET /runs/{id}
+    var totalSteps: Double? = nil // the step it will end at, when its script said; an older server does not send it
     enum CodingKeys: String, CodingKey {
         case id, project, name, status, config, summary, tags, notes, host, git, metrics
         case startedAt = "started_at", endedAt = "ended_at", lastHeartbeatAt = "last_heartbeat_at"
-        case progressAt = "progress_at"
+        case progressAt = "progress_at", totalSteps = "total_steps"
     }
 
     var running: Bool { status == "running" }
@@ -57,8 +58,9 @@ nonisolated struct Run: Decodable, Identifiable, Hashable, Sendable {
         (endedAt ?? (running ? now : lastHeartbeatAt ?? startedAt)).timeIntervalSince(startedAt)
     }
 
-    /// How far it is, when the config names a total: steps (HF max_steps and the like) against the latest
-    /// logged step, else epochs against an epoch metric. Nested config keys count by their last part.
+    /// How far it is, when it has a total: the steps its script gave, else one the config names (HF max_steps and
+    /// the like), against the latest logged step; else epochs against an epoch metric. Nested config keys count by
+    /// their last part.
     var progress: (done: Double, total: Double, unit: String)? {
         var cfg: [String: Double] = [:]
         for (k, v) in config?.flat ?? [] {
@@ -69,6 +71,7 @@ nonisolated struct Run: Decodable, Identifiable, Hashable, Sendable {
         let total = { (names: [String]) in names.lazy.compactMap { cfg[$0] }.first { $0 > 0 } }
         let train = (metrics ?? [:]).filter { !$0.key.hasPrefix("sys/") }
         let done = Double(train.values.map(\.step).max() ?? 0)
+        if let t = totalSteps, t > 0 { return (done, t, "step") } // the script's own word beats a guess
         // A plain "steps" may be a sampler's, so one the run has passed is not its total.
         if let t = total(["max_steps", "total_steps", "num_steps", "train_steps", "steps"]), done <= t {
             return (done, t, "step")

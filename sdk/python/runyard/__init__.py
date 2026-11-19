@@ -16,8 +16,9 @@ run = None  # the run the module-level shortcuts act on: the last one init() mad
 
 
 def init(project=None, name=None, config=None, **kwargs):
-    """Starts a run. kwargs: tags, notes, id, resume, server, api_key, capture_output, system.
-    id with resume=True continues that run after a restart: its steps and output go on where they were."""
+    """Starts a run. kwargs: tags, notes, id, resume, server, api_key, capture_output, system, total_steps.
+    id with resume=True continues that run after a restart: its steps and output go on where they were.
+    total_steps is the step the run will end at, for its progress bar and time left."""
     global run
     run = Run(project, name, config, **kwargs)
     return run
@@ -52,6 +53,11 @@ def text(key, rows, step=None):
 def artifact(path, name=None, kind="file", step=None, upload=False, meta=None):
     if _current("artifact"):
         run.artifact(path, name=name, kind=kind, step=step, upload=upload, meta=meta)
+
+
+def progress(total):
+    if _current("progress"):
+        run.progress(total)
 
 
 def alert(title, body="", level="info"):

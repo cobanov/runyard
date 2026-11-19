@@ -234,6 +234,19 @@ def test_resume_goes_on_where_the_run_was(server):
     assert any(p.startswith("pytest==") for p in r["env"]["packages"])
 
 
+def test_total_steps(server):
+    """The total for the progress bar: given at init, changed later; an older server would just not keep it."""
+    run = ry.Run(project="total", name="b", system=False, total_steps=7358)
+    run.log({"loss": 1.0}, step=7350)
+    wait_for(lambda: get(server + "/api/v1/runs/" + run.id)["total_steps"] == 7358)
+    run.progress(total=9000)
+    run.finish()
+    assert get(server + "/api/v1/runs/" + run.id)["total_steps"] == 9000
+    plain = ry.Run(project="total", name="none", system=False)
+    plain.finish()
+    assert "total_steps" not in get(server + "/api/v1/runs/" + plain.id)
+
+
 SCRIPT = """
 import sys, runyard as ry
 ry.init(project="exit", name=sys.argv[1], system=False)

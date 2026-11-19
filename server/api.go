@@ -291,6 +291,7 @@ func (s *srv) createRun(r *http.Request) (any, error) {
 		StartedAt *time.Time      `json:"started_at"`
 		Agent     *runAgent       `json:"agent"`
 		Env       json.RawMessage `json:"env"`
+		Total     *int64          `json:"total_steps"`
 	}
 	if err := decode(r, &in); err != nil {
 		return nil, err
@@ -315,9 +316,12 @@ func (s *srv) createRun(r *http.Request) (any, error) {
 	}
 	agent := s.recordAgent(r.Context(), in.Agent, project, in.Host)
 	// ON CONFLICT DO NOTHING: a client retrying a create it already sent gets the same run back.
-	_, err = s.db.Exec(r.Context(), `INSERT INTO runs (id, project_id, name, config, tags, notes, host, git, started_at, agent, env)
-		VALUES ($1::uuid, $2, $3, coalesce($4::jsonb, '{}'), $5, $6, $7, $8::jsonb, coalesce($9, now()), $10, $11::jsonb) ON CONFLICT (id) DO NOTHING`,
-		in.ID, project, in.Name, nullJSON(in.Config), in.Tags, in.Notes, in.Host, nullJSON(in.Git), in.StartedAt, agent, nullJSON(in.Env))
+	if in.Total != nil && *in.Total <= 0 {
+		in.Total = nil
+	}
+	_, err = s.db.Exec(r.Context(), `INSERT INTO runs (id, project_id, name, config, tags, notes, host, git, started_at, agent, env, total_steps)
+		VALUES ($1::uuid, $2, $3, coalesce($4::jsonb, '{}'), $5, $6, $7, $8::jsonb, coalesce($9, now()), $10, $11::jsonb, $12) ON CONFLICT (id) DO NOTHING`,
+		in.ID, project, in.Name, nullJSON(in.Config), in.Tags, in.Notes, in.Host, nullJSON(in.Git), in.StartedAt, agent, nullJSON(in.Env), in.Total)
 	if err != nil {
 		return nil, err
 	}
