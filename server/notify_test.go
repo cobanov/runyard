@@ -292,7 +292,7 @@ func TestRunError(t *testing.T) {
 		t.Fatalf("listed: %v", runs[0])
 	}
 	call(t, "PATCH", api+"/runs/"+id, key, map[string]any{"summary": map[string]any{"x": 1}}, nil) // no status: kept
-	call(t, "PATCH", api+"/runs/"+id, key, map[string]any{"status": "running"}, nil)          // resumed: cleared
+	call(t, "PATCH", api+"/runs/"+id, key, map[string]any{"status": "running"}, nil)               // resumed: cleared
 	var run map[string]any
 	call(t, "GET", api+"/runs/"+id, "", nil, &run)
 	if _, has := run["error"]; has || run["exit_code"] != nil {

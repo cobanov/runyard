@@ -27,7 +27,8 @@ again. What is still being tried, and what was given up on, is listed at the top
 
 Channels that hear `alert` for every project also hear about machines: "toji: Went silent" when its
 [`runyard beacon`](server.md#machines) has sent nothing for 2 minutes, and "toji: Back online" when it sends again (event
-`host` in a webhook's JSON). They also hear "gba: Waiting for you" when a [coding agent](agents.md) has been stuck at
+`host` in a webhook's JSON), and "toji: Training without runyard" when a process has kept a GPU busy for 10 minutes
+while no run logs on that machine (event `untracked`, see [Machines](server.md#machines)). They also hear "gba: Waiting for you" when a [coding agent](agents.md) has been stuck at
 a permission prompt for 2 minutes, once per prompt (event `agent`). That takes its hooks; a prompt answered within
 the 2 minutes stays quiet. Claude Code only says a prompt was answered when the command exits, so a long command you
 approved can notify too, unless it is a run: a run starting ends the wait.

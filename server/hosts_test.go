@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestHosts(t *testing.T) {
@@ -128,4 +130,119 @@ func TestCurate(t *testing.T) {
 	if len(alerts) != 2 || alerts[0].Dismissed == nil {
 		t.Fatalf("all alerts: %+v", alerts)
 	}
+}
+
+// TestUntracked: a process that keeps a GPU busy for ten minutes on a machine with no running run is flagged and
+// notified once; services by name are not, a run on the machine clears it, and a restart does not notify it again.
+func TestUntracked(t *testing.T) {
+	ts, key, s := testServer(t)
+	api := ts.URL + "/api/v1"
+	ctx := context.Background()
+	ntfy, got := receiver(t)
+	if err := channelCmd(ctx, s.db, []string{"add", "ntfy", ntfy + "/runs"}); err != nil {
+		t.Fatal(err)
+	}
+	// WSL reports no memory per process, so the GPU's stands in: what cobanov-hope sends.
+	wsl := func(util float64, procs ...string) map[string]any {
+		var ps []map[string]any
+		for i, n := range procs {
+			ps = append(ps, map[string]any{"pid": 100 + i, "name": n, "user": "cobanov", "mem_gb": 0})
+		}
+		return map[string]any{"gpus": []map[string]any{{"i": 0, "util": util, "mem_gb": 21.8, "procs": ps}}}
+	}
+	post := func(host string, reading map[string]any) {
+		t.Helper()
+		if c := call(t, "POST", api+"/hosts/"+host, key, reading, nil); c != 200 {
+			t.Fatalf("post: %d", c)
+		}
+	}
+	later := func(host string) { // ten minutes pass
+		watch.mu.Lock()
+		for _, w := range watch.procs[host] {
+			w.Since = w.Since.Add(-11 * time.Minute)
+		}
+		watch.mu.Unlock()
+	}
+	flags := func(host string) []untrackedProc {
+		t.Helper()
+		var hosts []struct {
+			Name      string
+			Untracked []untrackedProc
+		}
+		call(t, "GET", api+"/hosts", "", nil, &hosts)
+		for _, h := range hosts {
+			if h.Name == host {
+				return h.Untracked
+			}
+		}
+		t.Fatalf("no host %s", host)
+		return nil
+	}
+	quiet := func() {
+		t.Helper()
+		select {
+		case h := <-got:
+			t.Fatalf("unexpected notification: %v", h.q)
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+
+	hope := wsl(95, "python main.py", "llama-server", "python run.py")
+	post("hope", hope)
+	if f := flags("hope"); len(f) != 0 {
+		t.Fatalf("flagged at once: %+v", f)
+	}
+	later("hope")
+	post("hope", hope)
+	f := flags("hope")
+	if len(f) != 2 || f[0].Name != "python main.py" || f[1].Name != "python run.py" || f[1].User != "cobanov" { // llama-server is a service
+		t.Fatalf("flagged: %+v", f)
+	}
+	for range 2 {
+		if h := next(t, got); h.q.Get("title") != "hope: Training without runyard" || !strings.Contains(h.q.Get("message"), "busy for 11m") {
+			t.Fatalf("notification: %v", h.q)
+		}
+	}
+	post("hope", hope) // still there: not news
+	quiet()
+
+	// ComfyUI is python main.py on these machines: ignored from the Machines page, it leaves the flags.
+	call(t, "POST", api+"/untracked/ignore", "", map[string]string{"name": "python main.py"}, nil)
+	if f := flags("hope"); len(f) != 1 || f[0].Name != "python run.py" {
+		t.Fatalf("after ignoring: %+v", f)
+	}
+
+	// A restart: the flag is read back, not sent again.
+	watch.mu.Lock()
+	delete(watch.procs, "hope")
+	delete(watch.known, "hope")
+	watch.mu.Unlock()
+	post("hope", hope)
+	quiet()
+	if f := flags("hope"); len(f) != 1 {
+		t.Fatalf("after a restart: %+v", f)
+	}
+
+	// A run starts on the machine: whatever is on its GPUs is that run's.
+	call(t, "POST", api+"/runs", key, map[string]any{"project": "lola", "name": "lola_flux_cap", "host": "hope"}, nil)
+	post("hope", hope)
+	if f := flags("hope"); len(f) != 0 {
+		t.Fatalf("a running run on the host should clear it: %+v", f)
+	}
+
+	// Mostly idle for ten minutes (a model held in memory, used now and then): not a training.
+	post("choso", wsl(0, "python serve.py"))
+	post("choso", wsl(0, "python serve.py"))
+	post("choso", wsl(0, "python serve.py"))
+	later("choso")
+	post("choso", wsl(90, "python serve.py"))
+	// A process with a memory figure under 2 GB is not one either, however busy the GPU.
+	small := map[string]any{"gpus": []map[string]any{{"i": 0, "util": 100, "mem_gb": 76, "procs": []map[string]any{{"pid": 7, "name": "python main.py", "mem_gb": 0.87}}}}}
+	post("white", small)
+	later("white")
+	post("white", small)
+	if len(flags("choso")) != 0 || len(flags("white")) != 0 {
+		t.Fatalf("flagged: choso %+v, white %+v", flags("choso"), flags("white"))
+	}
+	quiet()
 }

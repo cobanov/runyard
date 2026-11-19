@@ -44,6 +44,7 @@ Environment variables of the server (in `.env` next to `docker-compose.yml`):
 | `RUNYARD_LOG_LINES` | output lines kept per run, the newest; default `1000000`, `0` keeps all |
 | `RUNYARD_VERSION` | the image tag compose runs, default `latest` |
 | `RUNYARD_PUSH_CONTACT` | `mailto:` or `https:` address push services may contact, default the project page |
+| `RUNYARD_UNTRACKED_NOTIFY` | `0`: a training without runyard is shown on the Machines page but not notified ([Machines](#machines)) |
 | `POSTGRES_PASSWORD` | the database's password in compose, default `runyard`; set it before the first start (the database is not reachable from outside the Compose network either way) |
 
 ## Media in S3 or Cloudflare R2
@@ -137,6 +138,15 @@ loginctl enable-linger "$USER"       # start without a login
 
 It was called `runyard agent` until coding agents got their own cards ([Coding agents](agents.md)); services set
 up with the old name keep working.
+
+A training started without runyard is noticed from the beacon's readings: a process holding at least 2 GB of a GPU
+(on WSL, where the driver gives no per-process memory, the GPU's own memory stands in) that kept it at 40 % or more
+for most of 10 minutes, while no run is logging on that machine. The Machines page shows it as "Training without
+runyard", and channels that hear `alert` for every project are told once. Services seen on GPUs all day (`ollama`,
+`llama-server`, `vllm`, `tritonserver`, `text-generation-launcher`, `Xorg`, `gnome-shell`) are never flagged; "Not a
+training" on the page adds a name to that list (`POST /api/v1/untracked/ignore` with `{"name": ...}`; a name matches
+every process whose name starts with it). `RUNYARD_UNTRACKED_NOTIFY=0` keeps the page's notice and drops the
+notification. The rule is per machine: a second, untracked training next to a run that is logging is not noticed.
 
 A machine you retire stays on the page as silent; remove it there, or with `DELETE /api/v1/hosts/{name}`.
 
