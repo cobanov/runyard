@@ -164,25 +164,31 @@ SDKs 0.5 to 0.7 and the released apps keep working against the new server, and t
 |---|---|---|
 | T1 | A notification a channel did not take (ntfy at home while the network was out, a 500) was lost | Fixed (`700ccd8`): every notification goes through an outbox table and is tried again after 1 m, 5 m, 30 m, 2 h and 6 h, across restarts, with how late it is; a 4xx other than 408/425/429 is not retried, a gone endpoint still deletes the channel. What is still being tried or was given up on is listed on the Alerts page until dismissed |
 | T2 | A failed run did not say why: 9 failed runs, `summary = {}`, the reason only in the logs (3 out of memory, 2 `ValueError`) | Fixed (`f29be69`): `runs.error` (one line) and `runs.exit_code`, sent by the SDK's excepthook and exit hook and by `runyard run` (the last error-looking line of the output, or the signal that killed it); shown on the run page, in the runs list, in "recently ended" and in the "Failed" notification. Resuming a run clears both |
-| T3 | A run stopped by hand (Ctrl-C, SIGTERM) shows as failed; 4 such runs on toji, who stopped them not verified | **Open: waits for the owner's decision** on a separate `stopped` state (proposal: terminal, grey, notified at normal priority where `failed` is; old apps show unknown states grey and do not crash; an SDK falls back to `failed` against an old server) |
+| T3 | A run stopped by hand (Ctrl-C, SIGTERM) shows as failed; 4 such runs on toji, who stopped them not verified | Fixed (`f7d7cae`), as the owner approved: a terminal `stopped` state for an interrupt, SIGTERM, SIGHUP and MLflow's KILLED, with the reason ("Stopped by Ctrl-C") and exit code. SIGKILL stays failed; a script that catches Ctrl-C and exits 0 stays finished. Migration 017 gives every channel that hears `failed` a `stopped` rule, sent at normal priority. Web: a filter tab, the finished grey. The released apps were read, not changed: an unknown state is grey, not counted as failed and not notified. An SDK against an older server sends `failed`. The 4 runs on toji stay failed |
 | T4 | No progress or time left when the config does not name the total (`max_steps: 0`, the script knows 7358) | Fixed (`21ebdef`): `Run(total_steps=)`, `run.progress(total)`, `ry.progress()`; the Hugging Face callback sends `max_steps`. Stored as `runs.total_steps` and used before the config guess on the web, iOS and Android |
 | T5 | 49 GB of checkpoints on disk, none recorded | Fixed (`63cfb96`): `Run(checkpoints="dir")` and `runyard run --checkpoints DIR` watch the directory from their own thread and record each new checkpoint once it stops changing, as an artifact with path, size, step and time; nothing is uploaded. The run page shows "Last checkpoint: step N, X ago" |
 | T6 | A training started without runyard went unnoticed | Fixed (`2ef1c21`): a process holding 2 GB or more of a GPU (on WSL the GPU's memory stands in, the driver gives none per process) that kept it at 40 % or more for most of 10 minutes, with no run logging on that machine, is flagged on the Machines page and notified once (event `untracked`, `RUNYARD_UNTRACKED_NOTIFY=0` turns that off). Known services are never flagged; "Not a training" adds a name. Limits: per machine, so a second untracked training next to a logged run is missed; on WSL every busy process on that GPU is flagged with it, ComfyUI (`python main.py`) included, and ignoring `python main.py` also ignores any training started as `main.py` |
 
-**How checked.** `make test` after the last commit: Go `ok` (5.4 s), Python 35 passed, 8 skipped. New tests:
+**How checked.** `make test` after the last commit: Go `ok`, Python 36 passed, 8 skipped. New tests:
 `TestOutbox` (a channel answering 500 then 200, a 400 not retried, given up after the last try, dismiss),
 `TestRunError`, `TestTotalSteps`, `TestUntracked` (10 minutes simulated, WSL readings, a tracked run resetting it,
-the ignore list, a restart not repeating the notice); Python `test_exit_status`, `test_run_wraps_a_command`
-(an exception, `sys.exit("...")`, SIGTERM, SIGKILL giving 137), `test_total_steps`,
+the ignore list, a restart not repeating the notice), the stopped notification and MLflow's KILLED; Python `test_exit_status`, `test_run_wraps_a_command`
+(an exception, `sys.exit("...")`, SIGTERM, Ctrl-C, a hangup during Ctrl-C, a caught Ctrl-C, SIGKILL giving 137),
+`test_stopped_on_an_older_server`, `test_total_steps`,
 `test_checkpoints_are_recorded_where_they_are`, `test_step_of_a_checkpoint_name`. iOS unit tests: 10 passed,
 including `progressFromTheScriptsTotal`. Each web change was looked at in the browser against a local server: the
 Alerts page's undelivered list with a channel pointing at a closed port, the failure reason on the run page, list
-and Overview, progress from `total_steps`, the last checkpoint line, and the Machines page's flag and "Not a
-training" (the flag went, the name was stored, the next reading did not flag it again).
+and Overview, progress from `total_steps`, the last checkpoint line, the Machines page's flag and "Not a
+training" (the flag went, the name was stored, the next reading did not flag it again), and a run stopped with
+Ctrl-C on its page, in the list's new filter and on Overview. Migration 017 was applied to a database with an
+existing channel, which got its `stopped` rule.
 
 **Not checked.** The Android unit test for `total_steps` was written and not run (no JDK on this Mac). Nothing
 was deployed to toji or tried against its live data; T6's thresholds come from its readings, not from a training
-run through them. T2's reason for an out-of-memory error was checked with a raised exception, not a real CUDA OOM.
+run through them. T2's reason for an out-of-memory error was checked with a raised exception, not a real CUDA OOM. T3's
+Lightning and scikit-learn paths were not run (neither is installed here); the Lightning logger says stopped only if
+Lightning calls `finalize("failed")` while it handles the KeyboardInterrupt, which is assumed, not verified. The released apps were not run against
+a stopped run, only read.
 
 ## Deployment and docs
 
