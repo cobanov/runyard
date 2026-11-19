@@ -108,6 +108,17 @@ struct HomeView: View {
         .poll(every: { running.isEmpty ? 10 : 5 }) { await load() }
     }
 
+    /// What the server said last time, from the device.
+    private func showKept() {
+        let api = store.api
+        guard let r: (value: [Run], at: Date) = api.kept(Self.runningPath), let n: (value: [Run], at: Date) = api.kept(Self.newestPath),
+              let p: (value: [Project], at: Date) = api.kept(Self.projectsPath) else { return }
+        let a: (value: [Agent], at: Date)? = api.kept(Self.agentsPath)
+        agents = (a?.value ?? []).sorted(by: Agent.urgentFirst)
+        (running, ended, projects) = (r.value, n.value.filter { !$0.running }, p.value)
+        (loaded, okAt) = (true, min(r.at, n.at, p.at))
+    }
+
     // Two lists: a long run must not drop off the screen because twenty newer ones started after it.
     private static let runningPath = "/api/v1/runs?status=running&limit=50&metrics=1"
     private static let newestPath = "/api/v1/runs?limit=20&metrics=1"
@@ -115,6 +126,7 @@ struct HomeView: View {
     private static let agentsPath = "/api/v1/agents?hours=24"
 
     private func load() async {
+        if !loaded { showKept() } // on screen at once; the server's answer replaces it
         do {
             async let r: [Run] = store.get(Self.runningPath, keep: true)
             async let n: [Run] = store.get(Self.newestPath, keep: true)
@@ -127,16 +139,7 @@ struct HomeView: View {
             (running, ended, projects) = (runs, newest.filter { !$0.running }, ps)
             (loaded, okAt, error) = (true, .now, nil)
         } catch {
-            self.error = error.localizedDescription
-            // Nothing on screen yet: what the server said last time, under the line that says how old it is.
-            let api = store.api
-            if !loaded, let r: (value: [Run], at: Date) = api.kept(Self.runningPath), let n: (value: [Run], at: Date) = api.kept(Self.newestPath),
-               let p: (value: [Project], at: Date) = api.kept(Self.projectsPath) {
-                let a: (value: [Agent], at: Date)? = api.kept(Self.agentsPath)
-                agents = (a?.value ?? []).sorted(by: Agent.urgentFirst)
-                (running, ended, projects) = (r.value, n.value.filter { !$0.running }, p.value)
-                (loaded, okAt) = (true, min(r.at, n.at, p.at))
-            }
+            self.error = error.localizedDescription // the kept lists stay, under the line that says how old they are
             return
         }
         // The cards are on screen; their sparklines and latest samples fill in as each answers.

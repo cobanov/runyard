@@ -68,7 +68,7 @@ struct RootView: View {
             } else if store.needsLogin {
                 LoginView()
             } else {
-                MainView()
+                MainView().task(id: store.server) { if store.meKept { await store.loadMe() } }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

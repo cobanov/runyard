@@ -18,8 +18,10 @@ final class Store {
     var servers: [String] = (Keychain.read("servers") ?? "").split(separator: "\n").map(String.init) {
         didSet { Keychain.write("servers", servers.isEmpty ? nil : servers.joined(separator: "\n")) }
     }
-    /// nil until /api/v1/me answered for the current server.
+    /// nil until /api/v1/me answered for the current server, or what it answered last time (see restore).
     var me: Me?
+    /// me is the kept answer, not yet confirmed by the server.
+    var meKept = false
     var loadError: String?
     /// A run a link or a notification asked for; MainView opens it and clears this.
     var openRun: String?
@@ -38,6 +40,7 @@ final class Store {
             }
         }
         if !server.isEmpty, !isDemo, !servers.contains(server) { servers.append(server) }
+        restore()
         #if DEBUG
         // UI tests start from a clean slate with `-resetState YES`.
         if UserDefaults.standard.bool(forKey: "resetState") {
@@ -119,6 +122,18 @@ final class Store {
         me = nil
         loadError = nil
         server = base
+        restore()
+    }
+
+    /// Opens on what the server said last time, read from the device, instead of a blank screen until it answers:
+    /// on a phone the first request can wait seconds for the network (or Tailscale) to come up. RootView asks
+    /// again at once and the screens refresh themselves.
+    private func restore() {
+        meKept = false
+        guard me == nil, !server.isEmpty, !isDemo, let kept: Me = api.kept("/api/v1/me")?.value,
+              !kept.auth || !kept.user.isEmpty else { return }
+        me = kept
+        meKept = true
     }
 
     var isDemo: Bool { server == DemoServer.base }
@@ -126,6 +141,7 @@ final class Store {
     func loadMe() async {
         do {
             me = try await api.get("/api/v1/me", keep: true)
+            meKept = false
             loadError = nil
         } catch {
             loadError = error.localizedDescription
