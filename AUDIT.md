@@ -131,6 +131,7 @@ Found by reading; the fixes were then run on the iPhone 18 Pro simulator and an 
 | A15 | A tap on an iOS notification did not open the run in the one automated try (the same code path opens it from a link) | iOS | Medium | S | Fixed: the tap crashed the app (the delegate returned off the main thread); a UI test taps the banner, warm and cold |
 | A16 | A run that starts and ends between two background looks is never notified | both | Low | S | Fixed: unit tests on both |
 | A17 | Android: the heartbeat mark renders as a red emoji, so its state colour never shows; video is still a line of text | Android | Low | S | Fixed: the heart takes the state colour, videos play inline and GIFs move; heartbeat age is measured on the server's clock |
+| A18 | iOS opened to a black screen until `/api/v1/me` answered (up to 20 s), and the home screen used its saved answers only after a request failed; on a phone the first request can wait for the network or Tailscale | iOS | High | S | Fixed (`867caef`, 2026-11-19, TestFlight build 130): the app starts from the kept `/me` and lists and asks again at once. On the iPhone 18 Pro Max simulator, with a local proxy that held every request: the old build was black at 4 and 14 s, the new one showed the Overview at 2 s and refreshed (Machines appeared) once the proxy answered. Android not checked |
 
 ## Design (2026-11-10)
 
