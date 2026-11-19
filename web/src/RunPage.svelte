@@ -1,5 +1,6 @@
 <script>
-  import { get, send, why, onEvent, throttle, runTime, ago, duration, live, plotValue, fmt, flatten, progressText, progressOf, byInterest, title, stuck, chartView as view, seriesLine, memo } from './lib.svelte.js'
+  import { get, send, why, onEvent, throttle, runTime, ago, duration, live, plotValue, fmt, flatten, progressText, progressOf, byInterest, title, stuck, chartView as view, seriesLine, memo, endReason } from './lib.svelte.js'
+  import Reason from './Reason.svelte'
   import Chart from './Chart.svelte'
   import Samples from './Samples.svelte'
   import Logs from './Logs.svelte'
@@ -111,6 +112,7 @@
       {#if stuck(run, live.now)}<span class="badge status-crashed" title="No metric and no output line since then; the heartbeat still arrives">no output for {duration(stuck(run, live.now))}</span>{/if}
       <button class="danger delete" onclick={remove}>Delete run</button>
     </div>
+    {#if endReason(run)}<p class="why"><Reason {run} wrap /></p>{/if}
     {#if failed}<p class="small fail"><span class="danger">Failed.</span> {failed}</p>{/if}
     <dl class="facts small">
       {#if progressText(run, live.now)}<div><dt>Progress</dt><dd>{progressText(run, live.now)}</dd></div>{/if}
@@ -236,7 +238,8 @@
   .delete {
     margin-left: auto;
   }
-  .fail {
+  .fail,
+  .why {
     margin: 8px 0 0;
   }
   .facts {

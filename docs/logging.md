@@ -29,7 +29,11 @@ and output continue where they were, and the run is running again.
 
 - **Steps:** without `step`, each `log` is the next step after the last one.
 - **Status:** a clean exit marks the run finished; an exception or non-zero exit, failed; five minutes without a
-  heartbeat (sent every 30 seconds), crashed.
+  heartbeat (sent every 30 seconds), crashed. A failed run says why in one line, on its page, in lists and in the
+  notification: the exception and its message's first line (`torch.OutOfMemoryError: CUDA out of memory. ...`),
+  the `sys.exit("...")` message, or "Stopped by SIGTERM", with the exit code. `run.finish("failed", error=...,
+  exit_code=...)` sets them by hand; `runyard run` takes the last output line that names an error, or the signal
+  that killed the command.
 - **Recorded on its own:** stdout and stderr (`capture_output=False` turns it off), GPU, CPU and RAM usage as
   `sys/` metrics (`system` extra, `system=False` turns it off), the host, the git commit and uncommitted diff,
   the command line, the Python version, the OS, the hardware and the installed packages. No environment variables. A config key or a

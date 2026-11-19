@@ -12,6 +12,7 @@ import (
 	"math"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -93,9 +94,11 @@ type Run struct {
 	StartedAt       time.Time                `json:"started_at"`
 	EndedAt         *time.Time               `json:"ended_at"`
 	LastHeartbeatAt time.Time                `json:"last_heartbeat_at"`
-	ProgressAt      time.Time                `json:"progress_at"`   // the last metric (not sys/) or output line: alive but stuck shows here
-	Agent           *string                  `json:"agent"`         // the agent session that started it, "<tool>:<session>"
-	Env             json.RawMessage          `json:"env,omitempty"` // command line, Python, hardware, diff; GET /runs/{id} only
+	ProgressAt      time.Time                `json:"progress_at"`         // the last metric (not sys/) or output line: alive but stuck shows here
+	Agent           *string                  `json:"agent"`               // the agent session that started it, "<tool>:<session>"
+	Error           string                   `json:"error,omitempty"`     // why it ended badly, one line: "ValueError: bad shape"
+	ExitCode        *int                     `json:"exit_code,omitempty"` // the process's exit status, when the client sent it
+	Env             json.RawMessage          `json:"env,omitempty"`       // command line, Python, hardware, diff; GET /runs/{id} only
 	Metrics         map[string]metricSummary `json:"metrics,omitempty"`
 }
 
@@ -108,12 +111,12 @@ type metricSummary struct {
 }
 
 const runSelect = `SELECT r.id::text, p.name, r.name, r.status, r.config, r.summary, r.tags, r.notes, r.host, r.git,
-	r.started_at, r.ended_at, r.last_heartbeat_at, r.progress_at, r.agent FROM runs r JOIN projects p ON p.id = r.project_id `
+	r.started_at, r.ended_at, r.last_heartbeat_at, r.progress_at, r.agent, r.error, r.exit_code FROM runs r JOIN projects p ON p.id = r.project_id `
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.Project, &r.Name, &r.Status, &r.Config, &r.Summary, &r.Tags, &r.Notes, &r.Host, &r.Git,
-		&r.StartedAt, &r.EndedAt, &r.LastHeartbeatAt, &r.ProgressAt, &r.Agent)
+		&r.StartedAt, &r.EndedAt, &r.LastHeartbeatAt, &r.ProgressAt, &r.Agent, &r.Error, &r.ExitCode)
 	return r, err
 }
 
@@ -317,6 +320,8 @@ type runPatch struct {
 	Tags    *[]string       `json:"tags"`
 	Notes   *string         `json:"notes"`
 	EndedAt *time.Time      `json:"ended_at"` // when it really ended, for a run whose end arrives late (runyard sync)
+	Error   *string         `json:"error"`    // why it ended badly; cut to one line of 500 characters
+	Exit    *int            `json:"exit_code"`
 }
 
 // patchRun applies p and reports the status before and after, so callers can notify on a transition.
@@ -333,11 +338,28 @@ func patchRun(ctx context.Context, db *pgxpool.Pool, id string, p runPatch) (bef
 			summary = r.summary || coalesce($5::jsonb, '{}'),
 			tags = coalesce($6, r.tags),
 			notes = coalesce($7, r.notes),
-			ended_at = CASE WHEN coalesce($3, r.status) = 'running' THEN NULL ELSE coalesce(r.ended_at, $8, now()) END
+			ended_at = CASE WHEN coalesce($3, r.status) = 'running' THEN NULL ELSE coalesce(r.ended_at, $8, now()) END,
+			error = CASE WHEN $3 = 'running' THEN '' ELSE coalesce($9, r.error) END,
+			exit_code = CASE WHEN $3 = 'running' THEN NULL ELSE coalesce($10, r.exit_code) END
 		FROM (SELECT status FROM runs WHERE id = $1::uuid FOR UPDATE) old
 		WHERE r.id = $1::uuid RETURNING old.status, r.status`,
-		id, p.Name, p.Status, nullJSON(p.Config), nullJSON(p.Summary), p.Tags, p.Notes, p.EndedAt).Scan(&before, &after)
+		id, p.Name, p.Status, nullJSON(p.Config), nullJSON(p.Summary), p.Tags, p.Notes, p.EndedAt, oneLine(p.Error), p.Exit).Scan(&before, &after)
 	return
+}
+
+// oneLine keeps the first non-empty line of s, at most 500 characters: what fits a list row and a notification.
+func oneLine(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	line := ""
+	for _, l := range strings.Split(*s, "\n") {
+		if line = strings.TrimSpace(l); line != "" {
+			break
+		}
+	}
+	line = cut(strings.ToValidUTF8(line, "�"), 500)
+	return &line
 }
 
 func nullJSON(b json.RawMessage) *string {

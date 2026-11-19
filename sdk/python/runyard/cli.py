@@ -21,8 +21,10 @@
                                      --project: this repository only, the better choice (claude)
 """
 import argparse
+import collections
 import json
 import os
+import re
 import signal
 import socket
 import sys
@@ -211,18 +213,43 @@ def cmd_run(a):
     # The tool writes to a pipe, so Python would hold its output back in blocks: tell it not to.
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env={**os.environ, "PYTHONUNBUFFERED": "1"})
     decode = codecs.getincrementaldecoder("utf-8")("replace")
+    tail, part = collections.deque(maxlen=200), ""  # the last lines, to say why it failed
     try:
         while chunk := p.stdout.read1(65536):
-            sys.stdout.write(decode.decode(chunk))  # the run's tee: shown here and sent as the run's output
+            text = decode.decode(chunk)
+            sys.stdout.write(text)  # the run's tee: shown here and sent as the run's output
             sys.stdout.flush()
+            *lines, part = (part + text).split("\n")
+            tail.extend(s for s in (line.rsplit("\r", 1)[-1].strip() for line in lines) if s)
         code = p.wait()
     except KeyboardInterrupt:  # Ctrl-C reached the tool too; wait for it to end its own way
         code = p.wait()
+    if part.strip():
+        tail.append(part.rsplit("\r", 1)[-1].strip())
     done.set()
     samples(final=True)
     # Stopped by hand (Ctrl-C) is the stop someone asked for, not a failure, as for a run in a script.
-    run.finish("finished" if code in (0, 130, -signal.SIGINT) else "failed")
+    ok = code in (0, 130, -signal.SIGINT)
+    exit_code, why = (128 - code if code < 0 else code), None  # killed by signal N: the shell's 128 + N
+    if not ok and code < 0:
+        try:
+            why = "Killed by " + signal.Signals(-code).name  # SIGKILL: often the kernel's out-of-memory killer
+        except ValueError:
+            why = f"Killed by signal {-code}"
+    elif not ok:
+        why = error_line(tail)
+    run.finish("finished" if ok else "failed", error=why, exit_code=exit_code)
     return code
+
+
+# A line that names an error: a Python exception's last line, "error: ...", "fatal: ...", a shell's "Killed".
+_ERRORISH = re.compile(r"^(?:[\w.]*(?:Error|Exception)\b|(?:error|fatal|panic)\b|Killed$|Segmentation fault)", re.I)
+
+
+def error_line(lines):
+    """The line that best says why a command failed: the last one that names an error, else the last it printed."""
+    lines = list(lines)
+    return next((line for line in reversed(lines) if _ERRORISH.search(line)), lines[-1] if lines else None)
 
 
 def cmd_watch(a):

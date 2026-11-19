@@ -77,9 +77,10 @@ func TestNotifications(t *testing.T) {
 	// Failed, with the last output lines.
 	id = newRun("gba", "pixel64")
 	call(t, "POST", api+"/runs/"+id+"/logs", key, []map[string]any{{"seq": 1, "line": "Traceback"}, {"seq": 2, "line": "RuntimeError: boom"}}, nil)
-	call(t, "PATCH", api+"/runs/"+id, key, map[string]any{"status": "failed"}, nil)
+	call(t, "PATCH", api+"/runs/"+id, key, map[string]any{"status": "failed", "error": "RuntimeError: boom", "exit_code": 1}, nil)
 	h = next(t, got)
-	if h.method != "POST" || h.q.Get("priority") != "high" || !strings.HasSuffix(h.q.Get("message"), "Traceback\nRuntimeError: boom") {
+	if h.method != "POST" || h.q.Get("priority") != "high" || !strings.HasSuffix(h.q.Get("message"), "Traceback\nRuntimeError: boom") ||
+		!strings.Contains(h.q.Get("message"), ".\nRuntimeError: boom\nLast output:") {
 		t.Fatalf("failed: %+v", h)
 	}
 
@@ -272,5 +273,34 @@ func TestOutbox(t *testing.T) {
 	s.retryOutbox(ctx)
 	if h := next(t, got); h.q.Get("title") != "white: Went silent" || h.q.Get("priority") != "high" {
 		t.Fatalf("left-behind row: %+v", h)
+	}
+}
+
+// TestRunError: the reason a run ended is kept as one line with the exit code, listed with the run, and cleared when
+// the run starts again; a client that sends neither (runyard 0.7 and older) leaves both out of the JSON.
+func TestRunError(t *testing.T) {
+	ts, key, _ := testServer(t)
+	api := ts.URL + "/api/v1"
+	var r map[string]string
+	call(t, "POST", api+"/runs", key, map[string]any{"project": "e", "name": "oom"}, &r)
+	id := r["id"]
+	call(t, "PATCH", api+"/runs/"+id, key, map[string]any{"status": "failed", "exit_code": 1,
+		"error": "\ntorch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB\nIncluding non-PyTorch memory"}, nil)
+	var runs []map[string]any
+	call(t, "GET", api+"/runs?project=e", "", nil, &runs)
+	if runs[0]["error"] != "torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB" || runs[0]["exit_code"] != 1.0 {
+		t.Fatalf("listed: %v", runs[0])
+	}
+	call(t, "PATCH", api+"/runs/"+id, key, map[string]any{"summary": map[string]any{"x": 1}}, nil) // no status: kept
+	call(t, "PATCH", api+"/runs/"+id, key, map[string]any{"status": "running"}, nil)          // resumed: cleared
+	var run map[string]any
+	call(t, "GET", api+"/runs/"+id, "", nil, &run)
+	if _, has := run["error"]; has || run["exit_code"] != nil {
+		t.Fatalf("a resumed run keeps its old error: %v", run)
+	}
+	call(t, "PATCH", api+"/runs/"+id, key, map[string]any{"status": "failed"}, nil) // an old client
+	call(t, "GET", api+"/runs/"+id, "", nil, &run)
+	if _, has := run["error"]; has || run["status"] != "failed" {
+		t.Fatalf("old client: %v", run)
 	}
 }

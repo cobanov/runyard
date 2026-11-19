@@ -1,6 +1,7 @@
 <script>
   import { get, send, onEvent, throttle, ago, runTime, duration, live, fmt, plotValue, mainMetric, sysLoad, progressText, progressOf, stuck, store, thumb } from './lib.svelte.js'
   import Sparkline from './Sparkline.svelte'
+  import Reason from './Reason.svelte'
 
   let running = $state(null) // full runs, with their metric summaries
   let spark = $state({}) // run id -> last values of its main metric
@@ -174,6 +175,7 @@
               <span class="grow">
                 <span class="name">{r.name}</span>
                 <span class="muted small">{#if r.status !== 'finished'}<span class="how">{r.status}</span>{' · '}{/if}{r.project} · {ago(r.ended_at || r.started_at, live.now)}</span>
+                <Reason run={r} />
               </span>
               {#if k}<span class="last"><b>{fmt(r.metrics[k].last)}</b><span class="muted small">{k}</span></span>{/if}
             </a>

@@ -334,13 +334,20 @@ class Run:
         self._sender.put("logs", {"seq": seq, "ts": _now(), "stream": stream, "line": line[:10000]})
 
     @_safe
-    def finish(self, status="finished", timeout=60):
-        """Marks the run finished (or failed) and waits up to timeout seconds for the queue to reach the server."""
+    def finish(self, status="finished", timeout=60, error=None, exit_code=None):
+        """Marks the run finished (or failed) and waits up to timeout seconds for the queue to reach the server.
+        error says in a line why it failed ("ValueError: bad shape"), exit_code is the process's exit status; the
+        exit hooks fill both in for an exception or a non-zero exit."""
         if self.finished:
             return
         if self in _active:
             _active.remove(self)
-        self._sender.put("patch", {"status": status, "ended_at": _now()})  # the real end, even if it arrives days later
+        end = {"status": status, "ended_at": _now()}  # the real end, even if it arrives days later
+        if error:
+            end["error"] = str(error)[:2000]  # an older server ignores both
+        if exit_code is not None:
+            end["exit_code"] = int(exit_code)
+        self._sender.put("patch", end)
         self.finished = True
         self._closing = True
         self._wake.set()
@@ -638,8 +645,10 @@ def _install_exit_hooks():
     def excepthook(t, v, tb):
         prev_hook(t, v, tb)  # print the traceback first, so the tee sends it along with the run
         _hold_signals()
+        why = _describe(t, v)
+        code = 130 if issubclass(t, KeyboardInterrupt) else 1  # what the shell will see
         for r in list(_active):
-            r.finish("failed")
+            r.finish("failed", error=why, exit_code=code)
 
     sys.excepthook = excepthook
 
@@ -674,5 +683,19 @@ def _hold_signals():
 def _at_exit():
     code = _exit_code[0]
     _hold_signals()
+    why = None
+    if isinstance(code, str):  # sys.exit("message") prints it and exits 1
+        why, code = code, 1
+    elif not isinstance(code, int):
+        code = 0 if code is None else 1
+    elif code > 128 and code - 128 in _STOPS:
+        why = "Stopped by " + signal.Signals(code - 128).name
     for r in list(_active):
-        r.finish("finished" if code in (None, 0) else "failed")
+        r.finish("finished" if code == 0 else "failed", error=why, exit_code=code)
+
+
+def _describe(t, v):
+    """An exception in one line: its type, with the module unless it is a built-in, and its message's first line."""
+    name = t.__qualname__ if t.__module__ in ("builtins", "__main__") else f"{t.__module__}.{t.__qualname__}"
+    msg = next((line.strip() for line in str(v).splitlines() if line.strip()), "")
+    return f"{name}: {msg}"[:500] if msg else name

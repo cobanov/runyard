@@ -193,6 +193,13 @@ export function progressText(run, now) {
   return `${unit} ${fmt(done)} / ${fmt(all)} · ${Math.round(f * 100)}%${left}`
 }
 
+// endReason says in a line why a run that did not finish ended: what its client sent (an exception's last line, what
+// killed a wrapped command), else a non-zero exit code. '' otherwise, and for runs from clients that send neither.
+export function endReason(run) {
+  if (run.status === 'running' || run.status === 'finished') return ''
+  return run.error || (run.exit_code ? `Exit code ${run.exit_code}` : '')
+}
+
 export function runTime(run, now) {
   return duration((run.ended_at ? new Date(run.ended_at) : now) - new Date(run.started_at))
 }

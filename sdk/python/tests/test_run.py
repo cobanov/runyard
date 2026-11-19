@@ -193,12 +193,22 @@ import sys, numpy as np
 from runyard import media
 print("step 500 loss 0.1")
 media.write_png(np.zeros((4, 4, 3), np.uint8), r"{out}/1762700000000__000000500_1.png")
+if sys.argv[1] == "kill":
+    import os, signal
+    os.kill(os.getpid(), signal.SIGKILL)
+if sys.argv[1] != "0":
+    print("ValueError: bad shape", file=sys.stderr)
+    print("cleaning up", file=sys.stderr)
 sys.exit(int(sys.argv[1]))
 """)
     assert cli(["run", "--project", "wrap", "--name", "ok", "--samples", str(out.parent), "--", sys.executable, str(tool), "0"]) == 0
     assert cli(["run", "--project", "wrap", "--name", "bad", "--", sys.executable, str(tool), "3"]) == 3
+    assert cli(["run", "--project", "wrap", "--name", "oom", "--", sys.executable, str(tool), "kill"]) == -9
     runs = {r["name"]: r for r in get(server + "/api/v1/runs?project=wrap")}
-    assert {n: r["status"] for n, r in runs.items()} == {"ok": "finished", "bad": "failed"}
+    assert {n: r["status"] for n, r in runs.items()} == {"ok": "finished", "bad": "failed", "oom": "failed"}
+    assert (runs["bad"]["error"], runs["bad"]["exit_code"]) == ("ValueError: bad shape", 3)  # the line naming the error
+    assert (runs["oom"]["error"], runs["oom"]["exit_code"]) == ("Killed by SIGKILL", 137)
+    assert "error" not in runs["ok"] and runs["ok"]["exit_code"] == 0
     assert [l["line"] for l in get(server + f"/api/v1/runs/{runs['ok']['id']}/logs")] == ["step 500 loss 0.1"]
     [m] = get(server + f"/api/v1/runs/{runs['ok']['id']}/media")
     assert (m["key"], m["step"]) == ("sample_1", 500)
@@ -231,6 +241,15 @@ ry.log({"x": 1})
 print("before end")
 if sys.argv[1] == "raise": raise RuntimeError("boom")
 if sys.argv[1] == "exit3": sys.exit(3)
+if sys.argv[1] == "message": sys.exit("no data in /data/train")
+if sys.argv[1] == "oom":
+    class OutOfMemoryError(RuntimeError): pass
+    OutOfMemoryError.__module__ = "torch"
+    raise OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB\\nIncluding non-PyTorch memory")
+if sys.argv[1] == "term":
+    import os, signal, time
+    os.kill(os.getpid(), signal.SIGTERM)
+    time.sleep(5)
 """
 
 
@@ -238,11 +257,15 @@ def test_exit_status(server, tmp_path):
     script = tmp_path / "train.py"
     script.write_text(SCRIPT)
     env = dict(os.environ, RUNYARD_CACHE=str(tmp_path / "cache"))
-    want = {"raise": "failed", "exit3": "failed", "clean": "finished"}
+    want = {"raise": "failed", "exit3": "failed", "clean": "finished", "message": "failed", "oom": "failed", "term": "failed"}
     for name in want:
         subprocess.run([sys.executable, str(script), name], env=env, capture_output=True, timeout=60)
     runs = {r["name"]: r for r in get(server + "/api/v1/runs?project=exit")}
     assert {n: r["status"] for n, r in runs.items()} == want
+    why = {n: (r.get("error"), r.get("exit_code")) for n, r in runs.items()}
+    assert why == {"raise": ("RuntimeError: boom", 1), "exit3": (None, 3), "clean": (None, 0), "message": ("no data in /data/train", 1),
+                   "oom": ("torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB", 1),
+                   "term": ("Stopped by SIGTERM", 143)}
     lines = [line["line"] for line in get(server + f"/api/v1/runs/{runs['raise']['id']}/logs")]
     assert "before end" in lines and any("RuntimeError: boom" in line for line in lines)
 

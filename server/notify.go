@@ -86,7 +86,7 @@ func (s *srv) message(ctx context.Context, run Run, event string, a *Alert) mess
 		m.Body = "Ran for " + took + "." + results(run)
 	case "failed":
 		m.Title, m.tags, m.priority = name+": Failed", "warning", "high"
-		m.Body = "Failed after " + took + "." + s.lastLines(ctx, run.ID)
+		m.Body = "Failed after " + took + "." + endReason(run) + s.lastLines(ctx, run.ID)
 	case "crashed":
 		m.Title, m.tags, m.priority = name+": Went silent", "warning", "high"
 		m.Body = fmt.Sprintf("No heartbeat for %s after %s of running: the process likely died (killed, out of memory, machine down).", fmtDuration(time.Since(run.LastHeartbeatAt)), took) + s.lastLines(ctx, run.ID)
@@ -150,6 +150,17 @@ func results(run Run) string {
 		fmt.Fprintf(&b, "\n%s: %s", k, v)
 	}
 	return b.String()
+}
+
+// endReason is the line that says why a run ended badly, when its client sent one.
+func endReason(run Run) string {
+	switch {
+	case run.Error != "":
+		return "\n" + run.Error
+	case run.ExitCode != nil && *run.ExitCode != 0:
+		return fmt.Sprintf("\nExit code %d.", *run.ExitCode)
+	}
+	return ""
 }
 
 func (s *srv) lastLines(ctx context.Context, runID string) string {
