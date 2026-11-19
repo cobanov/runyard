@@ -87,14 +87,18 @@ type host struct {
 	Silent bool            `json:"silent"`
 	Stats  json.RawMessage `json:"stats"`
 	Runs   []hostRun       `json:"runs"` // running runs that started on this host, those the request may see
+	// Untracked lists processes that have kept a GPU busy for ten minutes while no run was running here.
+	Untracked json.RawMessage `json:"untracked"`
 }
 
 func (s *srv) hostRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/hosts/{name}", s.write(s.postHost))
 	mux.HandleFunc("GET /api/v1/hosts", s.read(func(r *http.Request) (any, error) { return listHosts(r.Context(), s) }))
 	mux.HandleFunc("GET /api/v1/hosts/{name}/history", s.read(s.hostHistory))
+	mux.HandleFunc("POST /api/v1/untracked/ignore", s.curate(s.ignoreProcess)) // a process name that is a service, not a training
 	mux.HandleFunc("DELETE /api/v1/hosts/{name}", s.admin(func(r *http.Request) (any, error) {
 		err := exec(r.Context(), s.db, "host", `DELETE FROM hosts WHERE name = $1`, r.PathValue("name"))
+		watch.forget(r.PathValue("name"))
 		if err == nil {
 			s.hub.publish(event{Type: "host"})
 		}
@@ -126,6 +130,7 @@ func (s *srv) postHost(r *http.Request) (any, error) {
 	if wasSilent {
 		go s.notifyHost(name+": Back online", "Machine stats are arriving again.", false)
 	}
+	s.checkUntracked(ctx, name, st)
 	s.hub.publish(event{Type: "host"})
 	return map[string]bool{"ok": true}, nil
 }
@@ -133,7 +138,7 @@ func (s *srv) postHost(r *http.Request) (any, error) {
 func listHosts(ctx context.Context, s *srv) ([]host, error) {
 	rows, _ := s.db.Query(ctx, `SELECT h.name, h.seen_at, h.seen_at < now() - $2 * interval '1 second', h.stats,
 			coalesce(json_agg(json_build_object('id', r.id, 'name', r.name, 'project', r.project) ORDER BY r.started_at)
-				FILTER (WHERE r.id IS NOT NULL), '[]')
+				FILTER (WHERE r.id IS NOT NULL), '[]'), h.untracked
 		FROM hosts h LEFT JOIN (SELECT r.id, r.name, p.name AS project, r.host, r.started_at FROM runs r JOIN projects p ON p.id = r.project_id
 			WHERE r.status = 'running' AND ($1::bigint[] IS NULL OR p.team_id IS NULL OR p.team_id = ANY($1))) r ON r.host = h.name
 		GROUP BY h.name ORDER BY h.name`, vis(ctx), int(hostSilentAfter.Seconds()))

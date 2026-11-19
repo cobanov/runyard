@@ -28,8 +28,18 @@ To go on with a run after a restart, keep its `run.id` and start with `ry.init(i
 and output continue where they were, and the run is running again.
 
 - **Steps:** without `step`, each `log` is the next step after the last one.
-- **Status:** a clean exit marks the run finished; an exception or non-zero exit, failed; five minutes without a
-  heartbeat (sent every 30 seconds), crashed.
+- **Progress:** `ry.init(total_steps=7358)`, or `run.progress(total=7358)` once the script knows, gives the progress
+  bar and the time left on the web and in the apps. Without it they guess from config names (`max_steps`,
+  `train.steps`, `num_train_epochs` and the like). The transformers callback sends the Trainer's own count.
+- **Status:** a clean exit marks the run finished; an exception or non-zero exit, failed; Ctrl-C, SIGTERM or a
+  closed terminal (SIGHUP), stopped; five minutes without a heartbeat (sent every 30 seconds), crashed. A script
+  that catches Ctrl-C and exits 0 ended the way it meant to: finished. SIGKILL is not a stop, it is usually the
+  kernel out of memory: failed. A failed or stopped run says why in one line, on its page, in lists and in the
+  notification: the exception and its message's first line (`torch.OutOfMemoryError: CUDA out of memory. ...`),
+  the `sys.exit("...")` message, or "Stopped by Ctrl-C", with the exit code. Against a server older than the
+  stopped state the SDK sends failed instead. `run.finish("failed", error=...,
+  exit_code=...)` sets them by hand; `runyard run` takes the last output line that names an error, or the signal
+  that ended the command.
 - **Recorded on its own:** stdout and stderr (`capture_output=False` turns it off), GPU, CPU and RAM usage as
   `sys/` metrics (`system` extra, `system=False` turns it off), the host, the git commit and uncommitted diff,
   the command line, the Python version, the OS, the hardware and the installed packages. No environment variables. A config key or a
@@ -38,6 +48,10 @@ and output continue where they were, and the run is running again.
   While the server is unreachable the queue is also written to `~/.cache/runyard/pending` (`RUNYARD_CACHE`)
   every 30 seconds, so a killed process loses seconds, not the run. The next run on the machine sends what
   earlier ones left, and `runyard sync` does it by hand (`--server URL` to send it somewhere else).
+- **Checkpoints:** `ry.init(checkpoints="out/ckpt")` (or `runyard run --checkpoints DIR`) records each checkpoint
+  that appears in that directory during the run, a sub-directory or a weights file, once it stops changing and at
+  the end: its path, size and step (from a name like `checkpoint-500`, `step=7350` or `my_lora_000002000`, else the
+  last logged step). Nothing is uploaded. The run page says "Last checkpoint: step N, 12m ago".
 - **Artifacts:** by default only the record is kept (this host and the path, size, step). `upload=True` sends a
   copy, a directory as one `.tar.gz`, streamed from disk. `runyard artifacts RUN --get NAME` downloads it.
 - **Settings:** `RUNYARD_SERVER`, `RUNYARD_API_KEY`, `RUNYARD_PROJECT` and `RUNYARD_RUN_NAME` fill in what
@@ -85,7 +99,7 @@ In code you can change, `import runyard.wandb as wandb` is the same module witho
 **Anything else.** A tool that logs nowhere can still be a run:
 
 ```sh
-runyard run --project lora --samples output/my_lora/samples -- python run.py config/my_lora.yaml
+runyard run --project lora --samples output/my_lora/samples --checkpoints output/my_lora -- python run.py config/my_lora.yaml
 ```
 
 Its output, exit status (0 is finished, anything else failed), GPU and CPU are recorded, and image files that

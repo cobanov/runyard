@@ -5,7 +5,7 @@
     runyard logs RUN [-n 100] [-f]
     runyard samples RUN [--out DIR]  downloads the latest samples
     runyard artifacts RUN [--get NAME]  checkpoints and files; --get downloads an uploaded one
-    runyard run [--project P] [--name N] [--samples DIR] -- COMMAND ...
+    runyard run [--project P] [--name N] [--samples DIR] [--checkpoints DIR] -- COMMAND ...
                                      runs COMMAND as a run, for a tool that logs nowhere: its output, exit status,
                                      GPU and CPU, and new images under DIR as samples
     runyard sync [--server URL]      sends runs saved while the server was unreachable (the next run does it too)
@@ -21,8 +21,10 @@
                                      --project: this repository only, the better choice (claude)
 """
 import argparse
+import collections
 import json
 import os
+import re
 import signal
 import socket
 import sys
@@ -34,7 +36,7 @@ from pathlib import Path
 
 from . import __version__
 from .client import HTTPError, request
-from .core import sync
+from .core import status_of, stopped_by, sync
 
 
 def server():
@@ -176,7 +178,8 @@ def sample_of(path):
 
 
 def cmd_run(a):
-    """Runs a command as a run: its output, exit status, GPU and CPU, and new images under --samples as samples."""
+    """Runs a command as a run: its output, exit status, GPU and CPU, new images under --samples as samples, and new
+    checkpoints under --checkpoints as records of where they are."""
     import codecs
     import subprocess
     import threading
@@ -187,7 +190,7 @@ def cmd_run(a):
     if not cmd:
         print("runyard: run needs a command, as in `runyard run -- python train.py`", file=sys.stderr)
         return 2
-    run = Run(a.project, a.name or " ".join(Path(c).name for c in cmd)[:60])
+    run = Run(a.project, a.name or " ".join(Path(c).name for c in cmd)[:60], checkpoints=a.checkpoints)
     print(f"runyard: {run.url}", file=sys.__stderr__)
     start, seen, done = time.time(), set(), threading.Event()
 
@@ -211,18 +214,46 @@ def cmd_run(a):
     # The tool writes to a pipe, so Python would hold its output back in blocks: tell it not to.
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env={**os.environ, "PYTHONUNBUFFERED": "1"})
     decode = codecs.getincrementaldecoder("utf-8")("replace")
+    tail, part = collections.deque(maxlen=200), ""  # the last lines, to say why it failed
     try:
         while chunk := p.stdout.read1(65536):
-            sys.stdout.write(decode.decode(chunk))  # the run's tee: shown here and sent as the run's output
+            text = decode.decode(chunk)
+            sys.stdout.write(text)  # the run's tee: shown here and sent as the run's output
             sys.stdout.flush()
+            *lines, part = (part + text).split("\n")
+            tail.extend(s for s in (line.rsplit("\r", 1)[-1].strip() for line in lines) if s)
         code = p.wait()
     except KeyboardInterrupt:  # Ctrl-C reached the tool too; wait for it to end its own way
         code = p.wait()
+    if part.strip():
+        tail.append(part.rsplit("\r", 1)[-1].strip())
     done.set()
     samples(final=True)
-    # Stopped by hand (Ctrl-C) is the stop someone asked for, not a failure, as for a run in a script.
-    run.finish("finished" if code in (0, 130, -signal.SIGINT) else "failed")
+    # Stopped by hand (Ctrl-C, SIGTERM, a closed terminal) is stopped, as for a run in a script; SIGKILL failed.
+    exit_code, why = (128 - code if code < 0 else code), None  # killed by signal N: the shell's 128 + N
+    status = status_of(exit_code)
+    ok = status != "failed"
+    if status == "stopped":
+        why = stopped_by(exit_code - 128)
+    elif not ok and code < 0:
+        try:
+            why = "Killed by " + signal.Signals(-code).name  # SIGKILL: often the kernel's out-of-memory killer
+        except ValueError:
+            why = f"Killed by signal {-code}"
+    elif not ok:
+        why = error_line(tail)
+    run.finish(status, error=why, exit_code=exit_code)
     return code
+
+
+# A line that names an error: a Python exception's last line, "error: ...", "fatal: ...", a shell's "Killed".
+_ERRORISH = re.compile(r"^(?:[\w.]*(?:Error|Exception)\b|(?:error|fatal|panic)\b|Killed$|Segmentation fault)", re.I)
+
+
+def error_line(lines):
+    """The line that best says why a command failed: the last one that names an error, else the last it printed."""
+    lines = list(lines)
+    return next((line for line in reversed(lines) if _ERRORISH.search(line)), lines[-1] if lines else None)
 
 
 def cmd_watch(a):
@@ -384,7 +415,7 @@ def main(argv=None):
     runs = sub.add_parser("runs", help="list or show runs").add_subparsers(dest="sub", required=True)
     ls = runs.add_parser("ls", parents=[js], help="list runs, newest first")
     ls.add_argument("--project")
-    ls.add_argument("--status", choices=["running", "finished", "failed", "crashed"])
+    ls.add_argument("--status", choices=["running", "finished", "failed", "stopped", "crashed"])
     ls.add_argument("--limit", type=int, default=30)
     ls.set_defaults(fn=cmd_runs_ls)
     show = runs.add_parser("show", parents=[js], help="config, summary and metrics of a run")
@@ -413,6 +444,7 @@ def main(argv=None):
     rn.add_argument("--project", help="default: RUNYARD_PROJECT")
     rn.add_argument("--name", help="default: the command")
     rn.add_argument("--samples", metavar="DIR", help="new image files under DIR become the run's samples")
+    rn.add_argument("--checkpoints", metavar="DIR", help="new checkpoints in DIR are recorded (where, size, step), not uploaded")
     rn.add_argument("command", nargs=argparse.REMAINDER, help="the command, after --")
     rn.set_defaults(fn=cmd_run)
 

@@ -132,7 +132,13 @@ class Sender:
                 env["packages"] = _packages()  # here, on the sender thread: listing them takes a moment
             request("POST", base, self.key, batch[0])
         elif kind == "patch":
-            request("PATCH", f"{base}/{self.run_id}", self.key, batch[0])
+            try:
+                request("PATCH", f"{base}/{self.run_id}", self.key, batch[0])
+            except HTTPError as e:
+                if e.status != 400 or batch[0].get("status") != "stopped":
+                    raise
+                # A server older than this one has no stopped state: there it was a failure.
+                request("PATCH", f"{base}/{self.run_id}", self.key, {**batch[0], "status": "failed"})
         elif kind in ("metrics", "logs"):
             request("POST", f"{base}/{self.run_id}/{kind}", self.key, batch)
         elif kind == "alert":
@@ -197,7 +203,7 @@ class _Synced(dict):
 
 class Run:
     def __init__(self, project=None, name=None, config=None, tags=None, notes="", id=None, server=None,
-                 api_key=None, capture_output=True, system=True, resume=False):
+                 api_key=None, capture_output=True, system=True, resume=False, total_steps=None, checkpoints=None):
         self.id = id or str(uuid.uuid4())
         self.project = project or os.environ.get("RUNYARD_PROJECT") or "default"
         self.name = name or os.environ.get("RUNYARD_RUN_NAME") or self.id[:8]
@@ -218,13 +224,15 @@ class Run:
         self._closing = False
         self._wake = threading.Event()
         self.finished = False
+        self._checkpoints = None  # a Watcher of the checkpoint directory, when there is one
         self.config = _Synced(self, "config", config or {})
         self.summary = _Synced(self, "summary", {})
         _check_sandbox()
         self._system = _System() if system else None
         self._sender.put("create", {"id": self.id, "project": self.project, "name": self.name, "config": _masked(self.config),
                                     "tags": list(tags or []), "notes": notes, "host": socket.gethostname(), "git": _git(),
-                                    "started_at": _now(), "agent": _agent(), "env": _env(self._system)})
+                                    "started_at": _now(), "agent": _agent(), "env": _env(self._system),
+                                    **({"total_steps": int(total_steps)} if total_steps else {})})
         if resume and id:
             self._sender.put("patch", {"status": "running"})  # it had ended, or crashed; it is running again
         _sync_old(server, key)
@@ -233,6 +241,10 @@ class Run:
         _install_hooks()
         self._thread = threading.Thread(target=self._loop, name="runyard-sender", daemon=True)
         self._thread.start()
+        if checkpoints:
+            from .checkpoints import Watcher
+
+            self._checkpoints = Watcher(self, checkpoints, self._t0)
 
     def _continue(self, server, key):
         """A resumed run goes on where it was: the next step after its last, output lines numbered after its last
@@ -323,6 +335,18 @@ class Run:
         self._sender.put("artifact", (fields, str(p) if upload else None))
 
     @_safe
+    def progress(self, total):
+        """Says how many steps the run will take, for its progress bar and time left; for a total that is only known
+        after init (the dataset was counted, a stage was added). The steps are those of log()."""
+        self._patch({"total_steps": int(total)})
+
+    def _checkpoint(self, path, step, size, modified):
+        """A checkpoint the watcher found: recorded where it is, like artifact(), with the size it already measured."""
+        fields = {"id": str(uuid.uuid4()), "name": path.name, "kind": "checkpoint", "uri": str(path.resolve()), "size": size,
+                  "step": self._step_for(step), "meta": json.dumps({"modified": modified})}
+        self._sender.put("artifact", (fields, None))
+
+    @_safe
     def alert(self, title, body="", level="info"):
         """Records an alert and notifies the project's channels. level: info, warn or error."""
         self._sender.put("alert", {"title": str(title), "body": str(body), "level": level})
@@ -334,13 +358,22 @@ class Run:
         self._sender.put("logs", {"seq": seq, "ts": _now(), "stream": stream, "line": line[:10000]})
 
     @_safe
-    def finish(self, status="finished", timeout=60):
-        """Marks the run finished (or failed) and waits up to timeout seconds for the queue to reach the server."""
+    def finish(self, status="finished", timeout=60, error=None, exit_code=None):
+        """Marks the run finished (or failed, or stopped: someone ended it on purpose) and waits up to timeout seconds
+        for the queue to reach the server. error says in a line why it ended so ("ValueError: bad shape"), exit_code
+        is the process's exit status; the exit hooks fill both in for an exception, a signal or a non-zero exit."""
         if self.finished:
             return
         if self in _active:
             _active.remove(self)
-        self._sender.put("patch", {"status": status, "ended_at": _now()})  # the real end, even if it arrives days later
+        if self._checkpoints:
+            self._checkpoints.close()  # the last checkpoint, often saved right before the end
+        end = {"status": status, "ended_at": _now()}  # the real end, even if it arrives days later
+        if error:
+            end["error"] = str(error)[:2000]  # an older server ignores both
+        if exit_code is not None:
+            end["exit_code"] = int(exit_code)
+        self._sender.put("patch", end)
         self.finished = True
         self._closing = True
         self._wake.set()
@@ -638,8 +671,11 @@ def _install_exit_hooks():
     def excepthook(t, v, tb):
         prev_hook(t, v, tb)  # print the traceback first, so the tee sends it along with the run
         _hold_signals()
+        stop = issubclass(t, KeyboardInterrupt)
+        why = "Stopped by Ctrl-C" if stop else _describe(t, v)
+        code = 128 + signal.SIGINT if stop else 1  # what the shell will see
         for r in list(_active):
-            r.finish("failed")
+            r.finish(status_of(code), error=why, exit_code=code)
 
     sys.excepthook = excepthook
 
@@ -652,15 +688,15 @@ def _install_exit_hooks():
     sys.exit = exit
     atexit.register(_at_exit)
     if threading.current_thread() is threading.main_thread():
-        for sig in _STOPS[1:]:  # a closed terminal or tmux pane too, so atexit runs and marks it failed
+        for sig in _STOPS[1:]:  # a closed terminal or tmux pane too, so atexit runs and marks it stopped
             if signal.getsignal(sig) == signal.SIG_DFL:
                 signal.signal(sig, _stop)
 
 
 def _stop(number, _):
     # Ctrl-C on `python train.py | tee log` in tmux closes the pane, so a hangup lands while the script handles the
-    # interrupt: it is still the stop someone asked for, not a failure.
-    sys.exit(0 if isinstance(sys.exc_info()[1], KeyboardInterrupt) else 128 + number)
+    # interrupt: it is still the Ctrl-C someone pressed.
+    sys.exit(128 + (signal.SIGINT if isinstance(sys.exc_info()[1], KeyboardInterrupt) else number))
 
 
 def _hold_signals():
@@ -674,5 +710,32 @@ def _hold_signals():
 def _at_exit():
     code = _exit_code[0]
     _hold_signals()
+    why = None
+    if isinstance(code, str):  # sys.exit("message") prints it and exits 1
+        why, code = code, 1
+    elif not isinstance(code, int):
+        code = 0 if code is None else 1
+    elif status_of(code) == "stopped":
+        why = stopped_by(code - 128)
     for r in list(_active):
-        r.finish("finished" if code in (None, 0) else "failed")
+        r.finish(status_of(code), error=why, exit_code=code)
+
+
+def status_of(code):
+    """How a process that exited with code ended: finished, stopped (interrupted, terminated, its terminal closed:
+    128 + the signal, as a shell says it) or failed. A process killed outright (SIGKILL, 137) failed: that is
+    usually the kernel out of memory, not a person."""
+    if code == 0:
+        return "finished"
+    return "stopped" if isinstance(code, int) and code > 128 and code - 128 in _STOPS else "failed"
+
+
+def stopped_by(number):
+    return "Stopped by Ctrl-C" if number == signal.SIGINT else "Stopped by " + signal.Signals(number).name
+
+
+def _describe(t, v):
+    """An exception in one line: its type, with the module unless it is a built-in, and its message's first line."""
+    name = t.__qualname__ if t.__module__ in ("builtins", "__main__") else f"{t.__module__}.{t.__qualname__}"
+    msg = next((line.strip() for line in str(v).splitlines() if line.strip()), "")
+    return f"{name}: {msg}"[:500] if msg else name

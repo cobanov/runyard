@@ -1,5 +1,6 @@
 <script>
-  import { get, send, why, onEvent, throttle, runTime, ago, duration, live, plotValue, fmt, flatten, progressText, progressOf, byInterest, title, stuck, chartView as view, seriesLine, memo } from './lib.svelte.js'
+  import { get, send, why, onEvent, throttle, runTime, ago, duration, live, plotValue, fmt, flatten, progressText, progressOf, byInterest, title, stuck, chartView as view, seriesLine, memo, endReason } from './lib.svelte.js'
+  import Reason from './Reason.svelte'
   import Chart from './Chart.svelte'
   import Samples from './Samples.svelte'
   import Logs from './Logs.svelte'
@@ -45,6 +46,11 @@
     }),
   )
 
+  // The newest checkpoint: by step, then by when it was written (meta.modified from the watcher) or recorded.
+  const when = (a) => new Date(a.meta?.modified || a.created_at)
+  const checkpoint = $derived(
+    artifacts.filter((a) => a.kind === 'checkpoint').sort((a, b) => (a.step ?? -1) - (b.step ?? -1) || when(a) - when(b)).at(-1),
+  )
   const tabs = $derived([
     ['charts', 'Charts'],
     ['samples', 'Samples'],
@@ -111,6 +117,7 @@
       {#if stuck(run, live.now)}<span class="badge status-crashed" title="No metric and no output line since then; the heartbeat still arrives">no output for {duration(stuck(run, live.now))}</span>{/if}
       <button class="danger delete" onclick={remove}>Delete run</button>
     </div>
+    {#if endReason(run)}<p class="why"><Reason {run} wrap /></p>{/if}
     {#if failed}<p class="small fail"><span class="danger">Failed.</span> {failed}</p>{/if}
     <dl class="facts small">
       {#if progressText(run, live.now)}<div><dt>Progress</dt><dd>{progressText(run, live.now)}</dd></div>{/if}
@@ -118,6 +125,7 @@
       <div><dt>Started</dt><dd>{ago(run.started_at, live.now)}</dd></div>
       {#if run.status === 'running'}<div><dt>Heartbeat</dt><dd>{ago(run.last_heartbeat_at, live.now)}</dd></div>{/if}
       {#if run.host}<div><dt>Host</dt><dd><a href="#/machines">{run.host}</a></dd></div>{/if}
+      {#if checkpoint}<div><dt>Last checkpoint</dt><dd><button class="plain" onclick={() => (tab = 'artifacts')} title={checkpoint.uri}>{checkpoint.step != null ? `step ${fmt(checkpoint.step)}, ` : ''}{ago(when(checkpoint), live.now)}</button></dd></div>{/if}
       {#if run.git?.commit}<div><dt>Git</dt><dd>{run.git.branch} {run.git.commit.slice(0, 8)}{run.git.dirty ? ', uncommitted changes' : ''}</dd></div>{/if}
     </dl>
     {#if run.status !== 'finished' && progressOf(run, live.now) != null}
@@ -236,7 +244,8 @@
   .delete {
     margin-left: auto;
   }
-  .fail {
+  .fail,
+  .why {
     margin: 8px 0 0;
   }
   .facts {
@@ -274,6 +283,16 @@
   .notes {
     margin: 10px 0 0;
     white-space: pre-wrap;
+  }
+  .plain {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-decoration: underline;
+  }
+  .plain:hover {
+    background: none;
   }
   .link {
     display: block;

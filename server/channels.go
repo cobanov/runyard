@@ -16,7 +16,7 @@ import (
 )
 
 const channelUsage = `usage:
-  runyard-server channel add [-token T] [-project P] [-events finished,failed,crashed,alert] KIND TARGET
+  runyard-server channel add [-token T] [-project P] [-events finished,failed,stopped,crashed,alert] KIND TARGET
     ntfy URL             server URL with topic; -token defaults to $NTFY_TOKEN
     webhook URL          JSON POST of every event
     slack URL            an incoming webhook URL
@@ -38,7 +38,7 @@ func channelCmd(ctx context.Context, db *pgxpool.Pool, args []string) error {
 		fs := flag.NewFlagSet("add", flag.ContinueOnError)
 		token := fs.String("token", "", "ntfy access token or telegram bot token")
 		project := fs.String("project", "", "only this project (default: every project)")
-		events := fs.String("events", "finished,failed,crashed,alert", "events to send")
+		events := fs.String("events", "finished,failed,stopped,crashed,alert", "events to send")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -95,7 +95,7 @@ func addChannel(ctx context.Context, db *pgxpool.Pool, kind, target, token, proj
 		c = channelConfig{Token: token, Chat: target}
 	}
 	if len(events) == 0 {
-		events = []string{"finished", "failed", "crashed", "alert"}
+		events = []string{"finished", "failed", "stopped", "crashed", "alert"}
 	}
 	cfg, _ := json.Marshal(c)
 	var id int64

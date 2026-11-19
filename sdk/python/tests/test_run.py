@@ -193,12 +193,33 @@ import sys, numpy as np
 from runyard import media
 print("step 500 loss 0.1")
 media.write_png(np.zeros((4, 4, 3), np.uint8), r"{out}/1762700000000__000000500_1.png")
+if sys.argv[1] == "0":
+    import os
+    os.makedirs(r"{out.parent}/ckpt", exist_ok=True)
+    open(r"{out.parent}/ckpt/model-500.safetensors", "wb").write(b"w" * 64)
+if sys.argv[1] in ("kill", "term"):
+    import os, signal
+    os.kill(os.getpid(), signal.SIGKILL if sys.argv[1] == "kill" else signal.SIGTERM)
+if sys.argv[1] not in ("0", "130"):
+    print("ValueError: bad shape", file=sys.stderr)
+    print("cleaning up", file=sys.stderr)
 sys.exit(int(sys.argv[1]))
 """)
-    assert cli(["run", "--project", "wrap", "--name", "ok", "--samples", str(out.parent), "--", sys.executable, str(tool), "0"]) == 0
+    assert cli(["run", "--project", "wrap", "--name", "ctrl-c", "--", sys.executable, str(tool), "130"]) == 130
+    assert cli(["run", "--project", "wrap", "--name", "term", "--", sys.executable, str(tool), "term"]) == -15
+    assert cli(["run", "--project", "wrap", "--name", "ok", "--samples", str(out.parent), "--checkpoints", str(out.parent / "ckpt"),
+                "--", sys.executable, str(tool), "0"]) == 0
     assert cli(["run", "--project", "wrap", "--name", "bad", "--", sys.executable, str(tool), "3"]) == 3
+    assert cli(["run", "--project", "wrap", "--name", "oom", "--", sys.executable, str(tool), "kill"]) == -9
     runs = {r["name"]: r for r in get(server + "/api/v1/runs?project=wrap")}
-    assert {n: r["status"] for n, r in runs.items()} == {"ok": "finished", "bad": "failed"}
+    assert {n: r["status"] for n, r in runs.items()} == {"ok": "finished", "bad": "failed", "oom": "failed", "ctrl-c": "stopped", "term": "stopped"}
+    assert (runs["ctrl-c"]["error"], runs["ctrl-c"]["exit_code"]) == ("Stopped by Ctrl-C", 130)
+    assert (runs["term"]["error"], runs["term"]["exit_code"]) == ("Stopped by SIGTERM", 143)
+    assert (runs["bad"]["error"], runs["bad"]["exit_code"]) == ("ValueError: bad shape", 3)  # the line naming the error
+    assert (runs["oom"]["error"], runs["oom"]["exit_code"]) == ("Killed by SIGKILL", 137)
+    assert "error" not in runs["ok"] and runs["ok"]["exit_code"] == 0
+    [ck] = get(server + f"/api/v1/runs/{runs['ok']['id']}/artifacts")  # written as the command ended, taken at its end
+    assert (ck["name"], ck["kind"], ck["step"], ck["size"]) == ("model-500.safetensors", "checkpoint", 500, 64)
     assert [l["line"] for l in get(server + f"/api/v1/runs/{runs['ok']['id']}/logs")] == ["step 500 loss 0.1"]
     [m] = get(server + f"/api/v1/runs/{runs['ok']['id']}/media")
     assert (m["key"], m["step"]) == ("sample_1", 500)
@@ -224,6 +245,19 @@ def test_resume_goes_on_where_the_run_was(server):
     assert any(p.startswith("pytest==") for p in r["env"]["packages"])
 
 
+def test_total_steps(server):
+    """The total for the progress bar: given at init, changed later; an older server would just not keep it."""
+    run = ry.Run(project="total", name="b", system=False, total_steps=7358)
+    run.log({"loss": 1.0}, step=7350)
+    wait_for(lambda: get(server + "/api/v1/runs/" + run.id)["total_steps"] == 7358)
+    run.progress(total=9000)
+    run.finish()
+    assert get(server + "/api/v1/runs/" + run.id)["total_steps"] == 9000
+    plain = ry.Run(project="total", name="none", system=False)
+    plain.finish()
+    assert "total_steps" not in get(server + "/api/v1/runs/" + plain.id)
+
+
 SCRIPT = """
 import sys, runyard as ry
 ry.init(project="exit", name=sys.argv[1], system=False)
@@ -231,6 +265,28 @@ ry.log({"x": 1})
 print("before end")
 if sys.argv[1] == "raise": raise RuntimeError("boom")
 if sys.argv[1] == "exit3": sys.exit(3)
+if sys.argv[1] == "message": sys.exit("no data in /data/train")
+if sys.argv[1] == "oom":
+    class OutOfMemoryError(RuntimeError): pass
+    OutOfMemoryError.__module__ = "torch"
+    raise OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB\\nIncluding non-PyTorch memory")
+if sys.argv[1] == "interrupt": raise KeyboardInterrupt
+if sys.argv[1] == "caught":  # a script that saves and exits cleanly on Ctrl-C ended the way it meant to
+    try:
+        raise KeyboardInterrupt
+    except KeyboardInterrupt:
+        sys.exit(0)
+if sys.argv[1] == "hangup":  # Ctrl-C in tmux closing the pane while the script still handles the interrupt
+    import os, signal, time
+    try:
+        raise KeyboardInterrupt
+    except KeyboardInterrupt:
+        os.kill(os.getpid(), signal.SIGHUP)
+        time.sleep(5)
+if sys.argv[1] == "term":
+    import os, signal, time
+    os.kill(os.getpid(), signal.SIGTERM)
+    time.sleep(5)
 """
 
 
@@ -238,13 +294,36 @@ def test_exit_status(server, tmp_path):
     script = tmp_path / "train.py"
     script.write_text(SCRIPT)
     env = dict(os.environ, RUNYARD_CACHE=str(tmp_path / "cache"))
-    want = {"raise": "failed", "exit3": "failed", "clean": "finished"}
+    want = {"raise": "failed", "exit3": "failed", "clean": "finished", "message": "failed", "oom": "failed", "term": "stopped",
+            "interrupt": "stopped", "caught": "finished", "hangup": "stopped"}
     for name in want:
         subprocess.run([sys.executable, str(script), name], env=env, capture_output=True, timeout=60)
     runs = {r["name"]: r for r in get(server + "/api/v1/runs?project=exit")}
     assert {n: r["status"] for n, r in runs.items()} == want
+    why = {n: (r.get("error"), r.get("exit_code")) for n, r in runs.items()}
+    assert why == {"raise": ("RuntimeError: boom", 1), "exit3": (None, 3), "clean": (None, 0), "message": ("no data in /data/train", 1),
+                   "oom": ("torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB", 1),
+                   "term": ("Stopped by SIGTERM", 143), "interrupt": ("Stopped by Ctrl-C", 130), "caught": (None, 0),
+                   "hangup": ("Stopped by Ctrl-C", 130)}
     lines = [line["line"] for line in get(server + f"/api/v1/runs/{runs['raise']['id']}/logs")]
     assert "before end" in lines and any("RuntimeError: boom" in line for line in lines)
+
+
+def test_stopped_on_an_older_server(monkeypatch):
+    """A server from before the stopped state refuses it (400): the end is sent again as failed, as it was there."""
+    from runyard.client import HTTPError
+    sent = []
+
+    def request(method, url, key, data=None, **kw):
+        sent.append(data["status"])
+        if data["status"] == "stopped":
+            raise HTTPError(400, '{"error": "new row for relation \\"runs\\" violates check constraint"}')
+
+    monkeypatch.setattr(runyard.core, "request", request)
+    s = runyard.core.Sender("http://old", "", "id", [("patch", {"status": "stopped", "error": "Stopped by Ctrl-C"})])
+    assert s.drain() and sent == ["stopped", "failed"]
+    assert [runyard.core.status_of(c) for c in (0, 1, 3, 130, 143, 129, 137, "x")] == \
+        ["finished", "failed", "failed", "stopped", "stopped", "stopped", "failed", "failed"]
 
 
 def test_cli(server, tmp_path, capsys):
@@ -341,4 +420,43 @@ except KeyboardInterrupt:  # how ai-toolkit stops
     p.send_signal(signal.SIGINT)
     p.wait(30)
     srv.shutdown()
-    assert any(b'"finished"' in b for b in ends)
+    assert any(b'"stopped"' in b for b in ends)
+
+
+def test_step_of_a_checkpoint_name():
+    from runyard.checkpoints import step_of
+
+    assert [step_of(n) for n in ("checkpoint-500", "epoch=2-step=7350.ckpt", "my_lora_000002000.safetensors",
+                                 "ckpt_e3_s7350.pt", "model_final.pt", "lora-r16", "global_step120")] == \
+        [500, 7350, 2000, 7350, None, None, 120]
+
+
+def test_checkpoints_are_recorded_where_they_are(server, tmp_path, monkeypatch):
+    """init(checkpoints=DIR): what appears in DIR during the run is recorded with its path, size and step; files
+    from before the run, half-written saves and non-weight files are not."""
+    import runyard.checkpoints as ck
+
+    monkeypatch.setattr(ck, "POLL", 0.2)
+    monkeypatch.setattr(ck, "SETTLE", 0)
+    d = tmp_path / "ckpt"
+    d.mkdir()
+    old = d / "checkpoint-100"
+    old.mkdir()
+    (old / "model.safetensors").write_bytes(b"x" * 10)
+    os.utime(old / "model.safetensors", (time.time() - 3600, time.time() - 3600))
+    os.utime(old, (time.time() - 3600, time.time() - 3600))
+    run = ry.Run(project="ckpt", name="a", system=False, checkpoints=str(d))
+    run.log({"loss": 1.0}, step=7350)
+    (d / "checkpoint-500").mkdir()
+    (d / "checkpoint-500" / "model.safetensors").write_bytes(b"w" * 1000)
+    (d / "checkpoint-500" / "optimizer.pt").write_bytes(b"o" * 24)
+    (d / "tmp-checkpoint-600").mkdir()  # HF writes here, then renames
+    (d / "trainer_log.json").write_text("{}")
+    api = server + f"/api/v1/runs/{run.id}/artifacts"
+    [a] = wait_for(lambda: get(api))  # recorded while the run goes on
+    assert (a["name"], a["kind"], a["step"], a["size"], a["uri"]) == ("checkpoint-500", "checkpoint", 500, 1024, str((d / "checkpoint-500").resolve()))
+    assert a["meta"]["modified"]
+    (d / "final.pt").write_bytes(b"f" * 7)  # saved right before the end: taken at finish, not left out
+    run.finish()
+    by = {a["name"]: a for a in get(api)}
+    assert set(by) == {"checkpoint-500", "final.pt"} and by["final.pt"]["step"] == 7350  # no step in the name: the last logged

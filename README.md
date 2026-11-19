@@ -41,8 +41,8 @@ agents read all of it over MCP. Far fewer features than W&B or MLflow, on purpos
 - **No code change for the tools you already use.** Hugging Face Trainer and TRL, Accelerate, Lightning, Keras,
   XGBoost, LightGBM, scikit-learn and torchtune with one line; anything that speaks Weights & Biases, TensorBoard or
   MLflow with none.
-- **Honest states.** A clean exit is finished, an exception is failed, five minutes without a heartbeat is crashed,
-  and "no progress" means the process is alive but the loop stopped logging.
+- **Honest states.** A clean exit is finished, an exception is failed, Ctrl-C is stopped, five minutes without a
+  heartbeat is crashed, and "no progress" means the process is alive but the loop stopped logging.
 - **Live on every screen.** A phone-first web UI with charts, samples, logs, config diffs and run comparison, and a
   native iPhone app that shows each running run's loss, progress, time left and the machine's GPUs at a glance.
 - **Your machines too.** `runyard beacon` on each box shows its GPUs, every process on them (whoever started it), CPU,

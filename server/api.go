@@ -130,6 +130,7 @@ func (s *srv) routes() http.Handler {
 	s.authRoutes(mux)
 	s.adminRoutes(mux)
 	s.hostRoutes(mux)
+	s.outboxRoutes(mux)
 	s.agentRoutes(mux)
 
 	mux.HandleFunc("GET /media/{key...}", func(w http.ResponseWriter, r *http.Request) {
@@ -290,6 +291,7 @@ func (s *srv) createRun(r *http.Request) (any, error) {
 		StartedAt *time.Time      `json:"started_at"`
 		Agent     *runAgent       `json:"agent"`
 		Env       json.RawMessage `json:"env"`
+		Total     *int64          `json:"total_steps"`
 	}
 	if err := decode(r, &in); err != nil {
 		return nil, err
@@ -314,9 +316,12 @@ func (s *srv) createRun(r *http.Request) (any, error) {
 	}
 	agent := s.recordAgent(r.Context(), in.Agent, project, in.Host)
 	// ON CONFLICT DO NOTHING: a client retrying a create it already sent gets the same run back.
-	_, err = s.db.Exec(r.Context(), `INSERT INTO runs (id, project_id, name, config, tags, notes, host, git, started_at, agent, env)
-		VALUES ($1::uuid, $2, $3, coalesce($4::jsonb, '{}'), $5, $6, $7, $8::jsonb, coalesce($9, now()), $10, $11::jsonb) ON CONFLICT (id) DO NOTHING`,
-		in.ID, project, in.Name, nullJSON(in.Config), in.Tags, in.Notes, in.Host, nullJSON(in.Git), in.StartedAt, agent, nullJSON(in.Env))
+	if in.Total != nil && *in.Total <= 0 {
+		in.Total = nil
+	}
+	_, err = s.db.Exec(r.Context(), `INSERT INTO runs (id, project_id, name, config, tags, notes, host, git, started_at, agent, env, total_steps)
+		VALUES ($1::uuid, $2, $3, coalesce($4::jsonb, '{}'), $5, $6, $7, $8::jsonb, coalesce($9, now()), $10, $11::jsonb, $12) ON CONFLICT (id) DO NOTHING`,
+		in.ID, project, in.Name, nullJSON(in.Config), in.Tags, in.Notes, in.Host, nullJSON(in.Git), in.StartedAt, agent, nullJSON(in.Env), in.Total)
 	if err != nil {
 		return nil, err
 	}
@@ -350,14 +355,14 @@ func (s *srv) updateRun(r *http.Request) (any, error) {
 	return map[string]string{"status": after}, nil
 }
 
-// patch applies p, tells the live views, and notifies when the run just finished or failed.
+// patch applies p, tells the live views, and notifies when the run just finished, failed or was stopped.
 func (s *srv) patch(ctx context.Context, id string, p runPatch) (string, error) {
 	before, after, err := patchRun(ctx, s.db, id, p)
 	if err != nil {
 		return "", err
 	}
 	s.hub.publish(event{Type: "run", Run: id})
-	if before != after && (after == "finished" || after == "failed") {
+	if before != after && (after == "finished" || after == "failed" || after == "stopped") {
 		go s.notify(id, after, nil)
 	}
 	return after, nil

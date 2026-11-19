@@ -41,6 +41,7 @@ data class Run(
     val lastHeartbeatAt: Long?,
     val progressAt: Long?, // the last time it logged anything; a server before 0.7 does not say
     val metrics: Map<String, MetricSummary>?, // only with metrics=1 or from GET /runs/{id}
+    val totalSteps: Long? = null, // the step it will end at, when its script said; an older server does not say
 ) {
     val running get() = status == "running"
 
@@ -61,8 +62,9 @@ data class Run(
     data class Progress(val done: Double, val total: Double, val unit: String)
 
     /**
-     * How far it is, when the config names a total: steps (HF max_steps and the like) against the latest logged step,
-     * else epochs against an epoch metric. Nested config keys count by their last part.
+     * How far it is, when it has a total: the steps its script gave, else one the config names (HF max_steps and the
+     * like), against the latest logged step; else epochs against an epoch metric. Nested config keys count by their
+     * last part.
      */
     val progress: Progress?
         get() {
@@ -74,6 +76,7 @@ data class Run(
             fun total(vararg names: String) = names.firstNotNullOfOrNull { n -> cfg[n]?.takeIf { it > 0 } }
             val train = metrics?.filterKeys { !it.startsWith("sys/") }.orEmpty()
             val done = (train.values.maxOfOrNull { it.step } ?: 0).toDouble()
+            totalSteps?.takeIf { it > 0 }?.let { return Progress(done, it.toDouble(), "step") } // the script's own word beats a guess
             // A plain "steps" may be a sampler's, so one the run has passed is not its total.
             total("max_steps", "total_steps", "num_steps", "train_steps", "steps")?.takeIf { done <= it }?.let { return Progress(done, it, "step") }
             val epoch = train.entries.firstOrNull { it.key == "epoch" || it.key.endsWith("/epoch") }?.value?.last
@@ -201,6 +204,7 @@ fun parseRun(o: JSONObject) = Run(
             MetricSummary(x.optInt("count"), x.optInt("step"), num(x.opt("last")), num(x.opt("min")), num(x.opt("max")))
         }
     },
+    totalSteps = o.optLong("total_steps").takeIf { it > 0 },
 )
 
 fun parseRuns(s: String) = JSONArray(s).list(::parseRun)

@@ -15,14 +15,20 @@ runyard-server channel rm 1
 
 The web UI's Settings page does the same for admins: add a channel, test it, remove it.
 
-Events: `finished`, `failed`, `crashed`, `alert`; `-events` picks some, `-project` limits a channel to one project.
+Events: `finished`, `failed`, `stopped` (someone stopped it, at normal priority), `crashed`, `alert`; `-events` picks some, `-project` limits a channel to one project.
 Messages carry the last metrics (or the last output lines of a failed run), the latest sample image where the
 channel can show it, and a link to the run when `RUNYARD_URL` is set. Tokens are read from the environment so
 they stay out of the process list. A webhook gets the whole event as JSON.
 
+A channel that does not take a message (down, unreachable, answering 5xx or 429) gets it again after 1 minute,
+5 minutes, 30 minutes, 2 hours and 6 hours, with a line saying how late it is; a server restart does not lose
+it. A channel that refuses the request itself (another 4xx: a wrong chat id, a deleted webhook) is not tried
+again. What is still being tried, and what was given up on, is listed at the top of the Alerts page until dismissed.
+
 Channels that hear `alert` for every project also hear about machines: "toji: Went silent" when its
 [`runyard beacon`](server.md#machines) has sent nothing for 2 minutes, and "toji: Back online" when it sends again (event
-`host` in a webhook's JSON). They also hear "gba: Waiting for you" when a [coding agent](agents.md) has been stuck at
+`host` in a webhook's JSON), and "toji: Training without runyard" when a process has kept a GPU busy for 10 minutes
+while no run logs on that machine (event `untracked`, see [Machines](server.md#machines)). They also hear "gba: Waiting for you" when a [coding agent](agents.md) has been stuck at
 a permission prompt for 2 minutes, once per prompt (event `agent`). That takes its hooks; a prompt answered within
 the 2 minutes stays quiet. Claude Code only says a prompt was answered when the command exits, so a long command you
 approved can notify too, unless it is a run: a run starting ends the wait.

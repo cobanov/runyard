@@ -35,6 +35,13 @@ class ApiTest {
         assertNull(progress("""{"lr":0.001}""", m))
     }
 
+    @Test fun progressFromTheScriptsTotal() {
+        // nature-decision: max_steps 0 in the config, the script says 7358; error and exit_code are new fields too.
+        val r = parseRuns("""[{"id":"r","status":"running","started_at":"2026-10-31T10:00:00Z","config":{"max_steps":0},
+            "total_steps":7358,"error":"x","exit_code":1,"metrics":{"train/loss":{"count":1,"step":7350,"last":1.6,"min":0,"max":2}}}]""").single()
+        assertEquals(Run.Progress(7350.0, 7358.0, "step"), r.progress)
+    }
+
     @Test fun progressFromEpochs() {
         val m = """{"train/epoch":{"count":1,"step":40,"last":1.5,"min":0,"max":2}}"""
         assertEquals(Run.Progress(1.5, 3.0, "epoch"), progress("""{"max_steps":-1,"num_train_epochs":3}""", m))

@@ -35,6 +35,9 @@ class RunyardCallback(TrainerCallback):
             config["model"] = mc if isinstance(mc, dict) else mc.to_dict()
         name = self.name or (args.run_name if args.run_name and args.run_name != args.output_dir else None)
         self.run = init(self.project, name, config, **self.init_kwargs)
+        total = getattr(state, "max_steps", 0) or 0  # known here even when only epochs were given
+        if total > 0:
+            self.run.progress(total)
 
     def on_save(self, args, state, control, **kwargs):
         # a record of where the checkpoint is (not a copy): runyard artifacts RUN lists them

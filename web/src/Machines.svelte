@@ -49,6 +49,11 @@
     confirm(`Remove ${h.name}? It comes back when its beacon sends again.`) &&
     send('DELETE', '/hosts/' + encodeURIComponent(h.name)).then(load, (e) => (error = why(e)))
 
+  // A process flagged as training without runyard that is not one (a server, a notebook): never flagged again, by name.
+  const ignore = (name) =>
+    confirm(`Not a training: stop flagging processes named ${name} on every machine?`) &&
+    send('POST', '/untracked/ignore', { name }).then(load, (e) => (error = why(e)))
+
   const pct = (v, total) => (typeof v === 'number' && total ? Math.max(0, Math.min(100, (100 * v) / total)) : 0)
   // Glanced at, not compared: whole numbers, one decimal for gigabytes.
   const n0 = (v, unit = '') => (typeof v === 'number' ? `${Math.round(v)}${unit}` : '–')
@@ -111,6 +116,19 @@ RUNYARD_SERVER={location.origin} RUNYARD_API_KEY=ry_... runyard beacon</pre>
             Training:
             {#each h.runs as r, i (r.id)}{i ? ', ' : ' '}<a href="#/r/{r.id}">{r.name}</a> <span class="muted">{r.project}</span>{/each}
           </p>
+        {/if}
+
+        {#if h.untracked?.length}
+          <div class="untracked small">
+            {#each h.untracked as p (p.pid)}
+              <p>
+                <span class="state status-crashed">Training without runyard:</span>
+                {p.name} <span class="muted">(pid {p.pid}{p.user ? `, ${p.user}` : ''})</span> on GPU {p.gpu}{p.mem_gb ? `, ${n1(p.mem_gb, ' GB')}` : ''},
+                busy for {ago(p.since, live.now).replace(/ ago$/, '')}.
+                <button onclick={() => ignore(p.name)}>Not a training</button>
+              </p>
+            {/each}
+          </div>
         {/if}
 
         {#if charts[h.name]?.length}
@@ -249,6 +267,19 @@ RUNYARD_SERVER={location.origin} RUNYARD_API_KEY=ry_... runyard beacon</pre>
   }
   .training {
     margin: 12px 0 0;
+  }
+  .untracked {
+    margin: 12px 0 0;
+    display: grid;
+    gap: 4px;
+  }
+  .untracked p {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .untracked button {
+    margin-left: 4px;
+    padding: 1px 8px;
   }
   .range {
     display: flex;

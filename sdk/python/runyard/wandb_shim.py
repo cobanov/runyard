@@ -201,7 +201,7 @@ class Run:
     def finish(self, exit_code=None, quiet=None):
         global run
         self._flush()
-        self._ry.finish("finished" if exit_code in (None, 0) else "failed")
+        self._ry.finish(core.status_of(exit_code or 0), exit_code=exit_code)
         if run is self:
             run = None
             _set_globals()

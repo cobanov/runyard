@@ -1,5 +1,6 @@
 <script>
   import { get, send, why, onEvent, throttle, ago, runTime, duration, live, fmt, plotValue, store, loadProjects, progressText, stuck, memo } from './lib.svelte.js'
+  import Reason from './Reason.svelte'
 
   let { project } = $props()
   // Back from a run finds the list as it was left: its filter, search, order and the runs picked to compare.
@@ -35,7 +36,7 @@
       .sort((a, b) => /loss/i.test(b) - /loss/i.test(a) || n[b] - n[a] || a.localeCompare(b))
       .slice(0, 3)
   })
-  const filters = ['', 'running', 'finished', 'failed', 'crashed']
+  const filters = ['', 'running', 'finished', 'failed', 'stopped', 'crashed']
 
   // Search by name or tag, then sort by a clicked column; null keeps the server's order (newest first).
   let sort = $state(was.sort || null) // {key, dir: 1 | -1}
@@ -156,7 +157,7 @@
               {#if stuck(r, live.now)}<span class="small quiet" title="No metric and no output line since then">no output {duration(stuck(r, live.now))}</span>
               {:else if prog}<span class="small muted sub">{r.status === 'running' ? '' : 'at '}{prog}</span>{/if}
             </td>
-            <td class="name"><a href="#/r/{r.id}">{r.name}</a>{#if r.host}<span class="muted small host">{r.host}</span>{/if}</td>
+            <td class="name"><a href="#/r/{r.id}">{r.name}</a>{#if r.host}<span class="muted small host">{r.host}</span>{/if}<Reason run={r} /></td>
             <td class="when" title={new Date(r.started_at).toLocaleString()}>{ago(r.started_at, live.now)}<span class="small muted sub">{r.status === 'running' ? 'for' : 'ran'} {runTime(r, live.now)}</span></td>
             <td class="tags">{#each r.tags as t}<span class="tag">{t}</span>{/each}</td>
             {#each cols as c, i}<td class="num" class:lead={i === 0} data-k={c}>{#if m?.[c]}{fmt(m[c].last)}{:else}<span class="muted">–</span>{/if}</td>{/each}
@@ -210,6 +211,12 @@
   }
   .sub {
     display: block;
+  }
+  /* A long error must not widen the table: the line takes the width the name column has (at least 28 characters)
+     and is cut there; the whole line is its tooltip. */
+  td.name :global(.reason) {
+    width: 0;
+    min-width: max(100%, 28ch);
   }
   .judge {
     display: flex;

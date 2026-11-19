@@ -80,7 +80,7 @@
 
   const kinds = { ntfy: 'ntfy', webhook: 'Webhook', slack: 'Slack', discord: 'Discord', telegram: 'Telegram' }
   const hints = { ntfy: 'https://ntfy.sh/my-topic', webhook: 'https://example.com/hook', slack: 'https://hooks.slack.com/services/…', discord: 'https://discord.com/api/webhooks/…', telegram: '123456789' }
-  const events = ['finished', 'failed', 'crashed', 'alert']
+  const events = ['finished', 'failed', 'stopped', 'crashed', 'alert']
   let ch = $state({ kind: 'ntfy', target: '', token: '', project: '', events: [...events] })
   const tokened = $derived(ch.kind === 'ntfy' || ch.kind === 'telegram')
   const addChannel = (e) => {

@@ -52,8 +52,8 @@ def _wrap(fit, project, init_kwargs):
             run.log(values, step=0)
             run.finish()
             return out
-        except BaseException:
-            run.finish("failed")
+        except BaseException as e:
+            run.finish("stopped" if isinstance(e, KeyboardInterrupt) else "failed")
             raise
         finally:
             _depth -= 1

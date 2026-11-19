@@ -331,3 +331,36 @@ func TestDownsample(t *testing.T) {
 		t.Fatalf("buckets=%d last step=%d min=%v max=%v last=%v", len(l.Step), l.Step[len(l.Step)-1], l.Min[0], l.Max[0], l.Last[len(l.Last)-1])
 	}
 }
+
+// TestTotalSteps: a run's total, from its create or a later patch, comes back with the run; 0 clears it, and a patch
+// without it (every client up to 0.7) leaves it alone.
+func TestTotalSteps(t *testing.T) {
+	ts, key, _ := testServer(t)
+	api := ts.URL + "/api/v1"
+	var r map[string]any
+	call(t, "POST", api+"/runs", key, map[string]any{"project": "p", "name": "b", "total_steps": 7358}, &r)
+	id := r["id"].(string)
+	total := func() any {
+		var run map[string]any
+		call(t, "GET", api+"/runs/"+id, "", nil, &run)
+		return run["total_steps"]
+	}
+	if got := total(); got != 7358.0 {
+		t.Fatalf("from create: %v", got)
+	}
+	call(t, "PATCH", api+"/runs/"+id, key, map[string]any{"total_steps": 8000}, nil)
+	call(t, "PATCH", api+"/runs/"+id, key, map[string]any{"status": "finished"}, nil)
+	if got := total(); got != 8000.0 {
+		t.Fatalf("after patches: %v", got)
+	}
+	call(t, "PATCH", api+"/runs/"+id, key, map[string]any{"total_steps": 0}, nil)
+	if got := total(); got != nil {
+		t.Fatalf("0 should clear it: %v", got)
+	}
+	var runs []map[string]any
+	call(t, "POST", api+"/runs", key, map[string]any{"project": "p", "name": "none"}, nil)
+	call(t, "GET", api+"/runs?project=p&q=none", "", nil, &runs)
+	if _, has := runs[0]["total_steps"]; has {
+		t.Fatalf("a run without a total: %v", runs[0])
+	}
+}

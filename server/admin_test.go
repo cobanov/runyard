@@ -182,7 +182,7 @@ func TestAdmin(t *testing.T) {
 	var chans []channelInfo
 	boss("GET", "/channels", nil, &chans)
 	raw, _ := json.Marshal(chans)
-	if len(chans) != 2 || strings.Contains(string(raw), "tk_secret") || chans[0].Project != "" || len(chans[0].Events) != 4 ||
+	if len(chans) != 2 || strings.Contains(string(raw), "tk_secret") || chans[0].Project != "" || len(chans[0].Events) != 5 ||
 		chans[1].Target != hook.URL || chans[1].Project != "sft" || strings.Join(chans[1].Events, ",") != "failed" {
 		t.Fatalf("channels: %s", raw)
 	}

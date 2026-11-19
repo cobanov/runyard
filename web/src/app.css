@@ -83,6 +83,7 @@ tbody tr:hover { background: var(--soft); }
 .status-running { --state: var(--running); }
 .status-finished { --state: var(--finished); }
 .status-failed { --state: var(--failed); }
+.status-stopped { --state: var(--finished); } /* someone stopped it: an end, not a failure */
 .status-crashed { --state: var(--crashed); }
 .state { color: var(--state); font-weight: 600; }
 .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 600; color: var(--state, var(--muted)); text-transform: capitalize; }

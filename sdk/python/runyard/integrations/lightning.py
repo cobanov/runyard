@@ -1,4 +1,5 @@
 """Lightning: Trainer(logger=RunyardLogger(project="mnist")). Works with lightning.pytorch and pytorch_lightning."""
+import sys
 from argparse import Namespace
 
 try:
@@ -48,5 +49,7 @@ class RunyardLogger(Logger):
     @rank_zero_only
     def finalize(self, status):
         if self.run is not None:
-            self.run.finish("failed" if status == "failed" else "finished")  # Lightning says success, failed or finished
+            # Lightning says success, failed or finished; on Ctrl-C it says failed from inside its except clause.
+            stopped = status == "failed" and isinstance(sys.exc_info()[1], KeyboardInterrupt)
+            self.run.finish("stopped" if stopped else "failed" if status == "failed" else "finished")
             self.run = None  # a later trainer.test() on this logger starts its own run instead of writing to a closed one
